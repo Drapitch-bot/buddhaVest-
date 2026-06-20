@@ -1682,7 +1682,22 @@ function renderResult(data) {
         <div class="overview-tile" style="${ov.business_summary ? 'grid-column: span 2;' : ''}">
           <p class="o-label">Sector</p>
           <p class="o-value ltr">${escapeHtml(ov.sector)}${ov.industry && ov.industry !== ov.sector ? ` · <span style="font-weight:400;font-size:13px;opacity:0.8;">${escapeHtml(ov.industry)}</span>` : ''}</p>
-          ${ov.business_summary ? `<p style="font-size:11px;color:var(--text-dimmer);margin:6px 0 0;line-height:1.5;direction:ltr;text-align:left;">${escapeHtml(ov.business_summary.length > 280 ? ov.business_summary.slice(0, 280) + '…' : ov.business_summary)}</p>` : ''}
+          ${ov.business_summary ? `
+            <p id="biz-summary-short" style="font-size:11px;color:var(--text-dimmer);margin:6px 0 0;line-height:1.5;direction:ltr;text-align:left;">
+              ${escapeHtml(ov.business_summary.length > 280 ? ov.business_summary.slice(0, 280) + '…' : ov.business_summary)}
+              ${ov.business_summary.length > 280 ? `<span onclick="
+                document.getElementById('biz-summary-short').style.display='none';
+                document.getElementById('biz-summary-full').style.display='block';
+              " style="color:var(--accent);cursor:pointer;margin-right:4px;font-size:11px;"> קרא עוד</span>` : ''}
+            </p>
+            ${ov.business_summary.length > 280 ? `<p id="biz-summary-full" style="display:none;font-size:11px;color:var(--text-dimmer);margin:6px 0 0;line-height:1.5;direction:ltr;text-align:left;">
+              ${escapeHtml(ov.business_summary)}
+              <span onclick="
+                document.getElementById('biz-summary-full').style.display='none';
+                document.getElementById('biz-summary-short').style.display='block';
+              " style="color:var(--accent);cursor:pointer;margin-right:4px;font-size:11px;"> הצג פחות</span>
+            </p>` : ''}
+          ` : ''}
         </div>` : ""}
         ${ov.volume ? `
         <div class="overview-tile">
