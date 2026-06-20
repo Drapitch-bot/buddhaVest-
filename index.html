@@ -736,7 +736,7 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "tos_s5_body": {"he": "BuddhaVest עשויה לעבור הפסקות שירות בשל תחזוקה או תקלות טכניות. נשתדל למזער הפסקות אלה אך לא נוכל להבטיח שירות רציף.", "en": "BuddhaVest may experience occasional downtime due to maintenance or technical issues. We will strive to minimize disruptions but cannot guarantee uninterrupted service.", "ru": "BuddhaVest может периодически недоступна из-за технического обслуживания или неисправностей. Мы постараемся минимизировать перебои, но не можем гарантировать бесперебойную работу.", "es": "BuddhaVest puede experimentar interrupciones ocasionales por mantenimiento o problemas técnicos. Haremos lo posible por minimizar las interrupciones, pero no podemos garantizar un servicio ininterrumpido."},
 "tos_s6_title": {"he": "על ידי שימוש ב-BuddhaVest", "en": "By using BuddhaVest", "ru": "Используя BuddhaVest", "es": "Al usar BuddhaVest"},
 "tos_s6_body": {"he": "אתם מאשרים שקראתם והסכמתם לתנאים המפורטים לעיל.", "en": "You acknowledge that you have read and agreed to the terms outlined above.", "ru": "Вы подтверждаете, что прочитали и согласны с условиями, изложенными выше.", "es": "Reconoces que has leído y aceptado los términos descritos anteriormente."},
-"data_disclaimer": {"he": "נתוני שוק מ-Yahoo Finance לצרכי מידע בלבד. האפליקציה לא מסחרית ולא גובה כסף.", "en": "Market data from Yahoo Finance for informational purposes only. This app is non-commercial and free of charge.", "ru": "Рыночные данные от Yahoo Finance только в информационных целях. Приложение некоммерческое и бесплатное.", "es": "Datos de mercado de Yahoo Finance solo con fines informativos. Esta aplicación no es comercial y no cobra dinero."}};
+"waking_up": {"he": "השרת מתעורר... זה עלול לקחת עד כדקה בפעם הראשונה 🌅", "en": "Server is waking up... this may take up to a minute on first load 🌅", "ru": "Сервер просыпается... при первом запуске это может занять до минуты 🌅", "es": "El servidor está despertando... esto puede tardar hasta un minuto en la primera carga 🌅"}, "data_disclaimer": {"he": "נתוני שוק מ-Yahoo Finance לצרכי מידע בלבד. האפליקציה לא מסחרית ולא גובה כסף.", "en": "Market data from Yahoo Finance for informational purposes only. This app is non-commercial and free of charge.", "ru": "Рыночные данные от Yahoo Finance только в информационных целях. Приложение некоммерческое и бесплатное.", "es": "Datos de mercado de Yahoo Finance solo con fines informativos. Esta aplicación no es comercial y no cobra dinero."}};
 
 const LANG_KEY = "buddhavest_lang";
 let currentLang = localStorage.getItem(LANG_KEY) || "en";
@@ -1219,11 +1219,11 @@ async function renderWatchlistScreen() {
   container.innerHTML = results.join("");
 }
 
-function showToast(msg) {
+function showToast(msg, duration = 1800) {
   const toast = document.getElementById("toast");
   toast.textContent = msg;
   toast.classList.add("show");
-  setTimeout(() => toast.classList.remove("show"), 1800);
+  setTimeout(() => toast.classList.remove("show"), duration);
 }
 
 // ---------- helpers ----------
@@ -2049,8 +2049,10 @@ function hideFullOverlay() {
 }
 
 async function checkAppStatus() {
+  let wakeTimer = setTimeout(() => showToast(t("waking_up"), 15000), 3000);
   try {
     const res = await fetch(`${API_BASE}/status`);
+    clearTimeout(wakeTimer);
     if (!res.ok) throw new Error("status not ok");
     const data = await res.json();
     if (data.maintenance) {
@@ -2060,6 +2062,7 @@ async function checkAppStatus() {
     hideFullOverlay();
     return true;
   } catch (err) {
+    clearTimeout(wakeTimer);
     showFullOverlay("connection");
     return false;
   }
