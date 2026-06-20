@@ -1,0 +1,25 @@
+BuddhaVest - Personal Stock Research Application
+Copyright (c) 2026, the creator of this application. All rights reserved.
+
+This software, including its source code, design, scoring methodology,
+artwork, and written content, is the original work of its creator.
+
+All rights are reserved. Unless you have received explicit written
+permission from the copyright holder, you may NOT:
+  - Copy, reproduce, or redistribute this software or any part of it
+  - Use this software, or a derivative of it, to build or operate a
+    competing product or service
+  - Sell, sublicense, or commercially exploit this software
+  - Remove or alter this copyright notice from any copy of the software
+
+Permitted use:
+  - Personal, non-commercial use by the copyright holder and anyone the
+    copyright holder explicitly shares access with (e.g. for the purpose
+    of testing or providing feedback).
+
+This software is provided "as is", without warranty of any kind. It is
+not financial advice, and the copyright holder is not liable for any
+decisions made based on its output.
+
+To request permission for any use beyond what is described above,
+contact the copyright holder directly.
