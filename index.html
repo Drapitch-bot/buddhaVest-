@@ -404,12 +404,9 @@
         <p class="notif-time" data-i18n="notif_now">עכשיו</p>
       </div>
     </div>
-    <div class="notif-item" id="notif-waking-up">
-      <i class="ti ti-cloud-up" style="color:#60a5fa"></i>
-      <div>
-        <p class="notif-text" data-i18n="notif_waking_up">השרת מתעורר 🌅 – אם זה לוקח כמה שניות, זה תקין לגמרי.</p>
-        <p class="notif-time" data-i18n="notif_now">עכשיו</p>
-      </div>
+    <div style="margin-top:10px; padding:10px 12px; border:1px solid rgba(96,165,250,0.3); border-radius:10px; background:rgba(96,165,250,0.07);">
+      <p style="font-size:11px; color:#60a5fa; margin:0 0 3px; font-weight:600;" data-i18n="notif_waking_up_title">💡 טיפ</p>
+      <p style="font-size:11px; color:var(--text-dimmer); margin:0; line-height:1.6;" data-i18n="notif_waking_up">השרת מתעורר 🌅 – אם זה לוקח כמה שניות, זה תקין לגמרי.</p>
     </div>
   </div>
 
@@ -743,7 +740,7 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "tos_s5_body": {"he": "BuddhaVest עשויה לעבור הפסקות שירות בשל תחזוקה או תקלות טכניות. נשתדל למזער הפסקות אלה אך לא נוכל להבטיח שירות רציף.", "en": "BuddhaVest may experience occasional downtime due to maintenance or technical issues. We will strive to minimize disruptions but cannot guarantee uninterrupted service.", "ru": "BuddhaVest может периодически недоступна из-за технического обслуживания или неисправностей. Мы постараемся минимизировать перебои, но не можем гарантировать бесперебойную работу.", "es": "BuddhaVest puede experimentar interrupciones ocasionales por mantenimiento o problemas técnicos. Haremos lo posible por minimizar las interrupciones, pero no podemos garantizar un servicio ininterrumpido."},
 "tos_s6_title": {"he": "על ידי שימוש ב-BuddhaVest", "en": "By using BuddhaVest", "ru": "Используя BuddhaVest", "es": "Al usar BuddhaVest"},
 "tos_s6_body": {"he": "אתם מאשרים שקראתם והסכמתם לתנאים המפורטים לעיל.", "en": "You acknowledge that you have read and agreed to the terms outlined above.", "ru": "Вы подтверждаете, что прочитали и согласны с условиями, изложенными выше.", "es": "Reconoces que has leído y aceptado los términos descritos anteriormente."},
-"notif_waking_up": {"he": "השרת מתעורר 🌅 – אם זה לוקח כמה שניות, זה תקין לגמרי.", "en": "Server is waking up 🌅 – if it takes a few seconds, that's completely normal.", "ru": "Сервер просыпается 🌅 – если это займёт несколько секунд, всё нормально.", "es": "El servidor está despertando 🌅 – si tarda unos segundos, es completamente normal."}, "waking_up": {"he": "השרת מתעורר... זה עלול לקחת עד כדקה בפעם הראשונה 🌅", "en": "Server is waking up... this may take up to a minute on first load 🌅", "ru": "Сервер просыпается... при первом запуске это может занять до минуты 🌅", "es": "El servidor está despertando... esto puede tardar hasta un minuto en la primera carga 🌅"}, "data_disclaimer": {"he": "נתוני שוק מ-Yahoo Finance לצרכי מידע בלבד. האפליקציה לא מסחרית ולא גובה כסף.", "en": "Market data from Yahoo Finance for informational purposes only. This app is non-commercial and free of charge.", "ru": "Рыночные данные от Yahoo Finance только в информационных целях. Приложение некоммерческое и бесплатное.", "es": "Datos de mercado de Yahoo Finance solo con fines informativos. Esta aplicación no es comercial y no cobra dinero."}};
+"notif_waking_up_title": {"he": "💡 טיפ", "en": "💡 Tip", "ru": "💡 Совет", "es": "💡 Consejo"}, "notif_waking_up": {"he": "השרת מתעורר 🌅 – אם זה לוקח כמה שניות, זה תקין לגמרי.", "en": "Server is waking up 🌅 – if it takes a few seconds, that's completely normal.", "ru": "Сервер просыпается 🌅 – если это займёт несколько секунд, всё нормально.", "es": "El servidor está despertando 🌅 – si tarda unos segundos, es completamente normal."}, "waking_up": {"he": "השרת מתעורר... זה עלול לקחת עד כדקה בפעם הראשונה 🌅", "en": "Server is waking up... this may take up to a minute on first load 🌅", "ru": "Сервер просыпается... при первом запуске это может занять до минуты 🌅", "es": "El servidor está despertando... esto puede tardar hasta un minuto en la primera carga 🌅"}, "data_disclaimer": {"he": "נתוני שוק מ-Yahoo Finance לצרכי מידע בלבד. האפליקציה לא מסחרית ולא גובה כסף.", "en": "Market data from Yahoo Finance for informational purposes only. This app is non-commercial and free of charge.", "ru": "Рыночные данные от Yahoo Finance только в информационных целях. Приложение некоммерческое и бесплатное.", "es": "Datos de mercado de Yahoo Finance solo con fines informativos. Esta aplicación no es comercial y no cobra dinero."}};
 
 const LANG_KEY = "buddhavest_lang";
 let currentLang = localStorage.getItem(LANG_KEY) || "en";
@@ -2058,16 +2055,12 @@ function hideFullOverlay() {
 async function checkAppStatus() {
   let wakeTimer = setTimeout(() => {
     showToast(t("waking_up"), 15000);
-    const n = document.getElementById("notif-waking-up");
-    if (n) n.classList.remove("hidden");
     const dot = document.getElementById("bellDot");
     if (dot) dot.classList.add("show");
   }, 3000);
   try {
     const res = await fetch(`${API_BASE}/status`);
     clearTimeout(wakeTimer);
-    const n = document.getElementById("notif-waking-up");
-    if (n) n.classList.add("hidden");
     if (!res.ok) throw new Error("status not ok");
     const data = await res.json();
     if (data.maintenance) {
