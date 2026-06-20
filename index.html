@@ -1262,6 +1262,20 @@ function gaugeColor(score) {
 
 // בריחה (escape) של טקסט לפני הזרקה ל-innerHTML - מגן מפני תווים שיוצרים HTML שבור
 // (לדוגמה "Johnson & Johnson" או חיפוש שמכיל < > ") וגם מפני XSS בסיסי.
+async function translateSummary(text, targetLang) {
+  if (!text || targetLang === "en") return text;
+  const langMap = { "he": "iw", "ru": "ru", "es": "es" };
+  const tl = langMap[targetLang] || "en";
+  try {
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data[0].map(s => s[0]).join("");
+  } catch(e) {
+    return text;
+  }
+}
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return "";
   return String(str)
@@ -1591,6 +1605,9 @@ async function analyzeTicker(rawInput) {
       return;
     }
     const data = await res.json();
+    if (data.overview && data.overview.business_summary && currentLang !== "en") {
+      data.overview.business_summary = await translateSummary(data.overview.business_summary, currentLang);
+    }
     lastAnalysisData = data;
     renderResult(data);
     loadTickerNews(ticker);
