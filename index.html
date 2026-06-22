@@ -668,7 +668,8 @@
       <div id="metricNoData" style="display:none; text-align:center; padding:40px; color:var(--text-dimmer);" data-i18n="metric_no_data">No data available</div>
       <div id="metricCurrentVal" style="display:none; font-size:28px; font-weight:700; color:var(--text); margin:14px 0 4px; text-align:center;"></div>
       <div id="metricExplBox" style="display:none; margin-top:12px; padding:12px; background:rgba(124,111,247,0.08); border:1px solid rgba(124,111,247,0.2); border-radius:10px;">
-        <p id="metricExplText" style="font-size:12px; color:var(--text-dimmer); line-height:1.6; margin:0;"></p>
+        <p id="metricExplText" style="font-size:12px; color:var(--text-dimmer); line-height:1.6; margin:0 0 8px;"></p>
+        <p id="metricSourceTag" style="font-size:10px; color:rgba(255,255,255,0.3); margin:0; display:flex; align-items:center; gap:4px; direction:ltr;"></p>
       </div>
     </div>
   </div>
@@ -1019,13 +1020,12 @@ const _metricCache = {};
 async function preloadMetricHistory(ticker) {
   const metrics = ["gross_margin","operating_margin","net_margin","revenue","net_income","eps",
                    "debt_equity","current_ratio","cash_position","operating_cf","free_cf","pe_ratio","peg_ratio"];
-  for (const m of metrics) {
+  await Promise.all(metrics.map(async m => {
     try {
       const res = await fetch(`${API_BASE}/metric-history/${ticker}/${m}`);
       if (res.ok) _metricCache[`${ticker}_${m}`] = await res.json();
     } catch(e) {}
-    await new Promise(r => setTimeout(r, 150)); // delay קטן בין בקשות
-  }
+  }));
 }
 
 async function openMetricHistory(ticker, metricKey, titleOverride) {
@@ -1092,6 +1092,20 @@ function renderMetricChart() {
   if (explanations && explanations[_metricData.metric] && explBox) {
     explText.textContent = explanations[_metricData.metric];
     explBox.style.display = "block";
+    // תג מקור
+    const sourceTag = document.getElementById("metricSourceTag");
+    if (sourceTag) {
+      const calcMetrics = {
+        "moat":     "metric_source_moat",
+        "pe_ratio": "metric_source_pe",
+        "peg_ratio":"metric_source_peg",
+      };
+      const srcKey = calcMetrics[_metricData.metric];
+      const srcText = srcKey ? t(srcKey) : t("metric_source_yahoo");
+      const icon = srcKey ? "ti-calculator" : "ti-database";
+      const color = srcKey ? "#a78bfa" : "rgba(255,255,255,0.3)";
+      sourceTag.innerHTML = `<i class="ti ${icon}" style="font-size:10px; color:${color};"></i><span style="color:${color};">${srcText}</span>`;
+    }
   } else if (explBox) {
     explBox.style.display = "none";
   }
