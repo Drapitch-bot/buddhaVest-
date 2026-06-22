@@ -1018,14 +1018,18 @@ function metricLabel(key) {
 // preload כל המדדים ברקע כדי שהגרפים יהיו מיידיים
 const _metricCache = {};
 async function preloadMetricHistory(ticker) {
-  const metrics = ["gross_margin","operating_margin","net_margin","revenue","net_income","eps",
-                   "debt_equity","current_ratio","cash_position","operating_cf","free_cf","pe_ratio","peg_ratio"];
-  await Promise.all(metrics.map(async m => {
-    try {
-      const res = await fetch(`${API_BASE}/metric-history/${ticker}/${m}`);
-      if (res.ok) _metricCache[`${ticker}_${m}`] = await res.json();
-    } catch(e) {}
-  }));
+  // טוען ברקע רק לאחר 3 שניות כדי לא להאט את הטעינה הראשית
+  setTimeout(async () => {
+    const metrics = ["gross_margin","operating_margin","net_margin","revenue","net_income","eps",
+                     "debt_equity","current_ratio","cash_position","operating_cf","free_cf","pe_ratio","peg_ratio"];
+    for (const m of metrics) {
+      try {
+        const res = await fetch(`${API_BASE}/metric-history/${ticker}/${m}`);
+        if (res.ok) _metricCache[`${ticker}_${m}`] = await res.json();
+      } catch(e) {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }, 3000);
 }
 
 async function openMetricHistory(ticker, metricKey, titleOverride) {
@@ -2529,9 +2533,7 @@ function renderMetricTile(key, metric) {
       <p class="m-label ltr">${metric.label} <i class="ti ti-chart-bar" style="font-size:9px; opacity:0.4;"></i></p>
       <p class="m-value ltr">${display}</p>
       <p class="m-note ${cls}">${metric.explanation}</p>
-      <p style="font-size:9px; color:${sourceColor}; margin:4px 0 0; display:flex; align-items:center; gap:3px; direction:ltr;">
-        <i class="ti ${sourceIcon}" style="font-size:9px;"></i>${sourceLabel}
-      </p>
+
     </div>`;
 }
 
