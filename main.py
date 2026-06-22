@@ -288,6 +288,9 @@ def metric_history(ticker: str, metric: str):
             # Cash flow
             "operating_cf":     ("cashflow", "Operating Cash Flow", None, "abs"),
             "free_cf":          ("cashflow", "Free Cash Flow", None, "abs"),
+            # Calculated
+            "pe_ratio":         ("calc_pe", None, None, None),
+            "peg_ratio":        ("calc_peg", None, None, None),
         }
 
         result_data = {"ticker": ticker.upper(), "metric": metric, "quarterly": [], "annual": [], "use_price": False}
@@ -295,6 +298,46 @@ def metric_history(ticker: str, metric: str):
         if metric not in METRIC_MAP:
             # מדד ללא היסטוריה – החזר היסטוריית מחיר
             result_data["use_price"] = True
+        elif metric in ("pe_ratio", "peg_ratio"):
+            # P/E ו-PEG – חישוב מהיסטוריית מחיר + EPS רבעוני
+            try:
+                hist = stock.history(period="5y")
+                eps_df = stock.quarterly_financials
+                if hist is not None and not hist.empty and eps_df is not None and not eps_df.empty:
+                    import pandas as pd
+                    # EPS שנתי גלגלי (TTM) לכל תאריך
+                    eps_q = None
+                    for key in ["Diluted EPS", "Basic EPS", "Normalized EBITDA"]:
+                        if key in eps_df.index:
+                            eps_q = eps_df.loc[key].sort_index()
+                            break
+                    if eps_q is not None:
+                        price_monthly = hist["Close"].resample("ME").last()
+                        series = []
+                        for date, price in price_monthly.items():
+                            # TTM EPS = סכום 4 רבעונים אחרונים
+                            past_eps = eps_q[eps_q.index <= date].tail(4)
+                            if len(past_eps) == 4:
+                                ttm_eps = past_eps.sum()
+                                if ttm_eps and ttm_eps > 0:
+                                    pe = round(price / ttm_eps, 2)
+                                    if metric == "pe_ratio":
+                                        series.append({"date": date.strftime("%b %Y"), "value": pe})
+                                    elif metric == "peg_ratio":
+                                        # PEG = P/E / growth rate
+                                        # growth = שינוי EPS YoY
+                                        older = eps_q[eps_q.index <= date - pd.DateOffset(years=1)].tail(4)
+                                        if len(older) == 4:
+                                            old_ttm = older.sum()
+                                            if old_ttm and old_ttm > 0:
+                                                growth = ((ttm_eps - old_ttm) / old_ttm) * 100
+                                                if growth > 0:
+                                                    peg = round(pe / growth, 3)
+                                                    series.append({"date": date.strftime("%b %Y"), "value": peg})
+                        result_data["quarterly"] = series
+                        result_data["annual"] = series[::12] if len(series) > 12 else series
+            except Exception as e:
+                result_data["use_price"] = True
         else:
             source, field1, field2, calc = METRIC_MAP[metric]
 

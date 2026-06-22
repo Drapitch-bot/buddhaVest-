@@ -773,6 +773,11 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "metric_quarterly": {"he": "רבעוני", "en": "Quarterly", "ru": "Квартальный", "es": "Trimestral"},
 "metric_annual": {"he": "שנתי", "en": "Annual", "ru": "Годовой", "es": "Anual"},
 "metric_price_note": {"he": "אין היסטוריה זמינה למדד זה – מוצג מחיר המניה כהקשר", "en": "Historical data unavailable for this metric – showing stock price for context", "ru": "Исторические данные недоступны – показана цена акции для контекста", "es": "Datos históricos no disponibles – se muestra el precio de la acción como contexto"},
+"metric_source_yahoo":   {"he": "נתון מ-Yahoo Finance", "en": "Data from Yahoo Finance", "ru": "Данные из Yahoo Finance", "es": "Dato de Yahoo Finance"},
+"metric_source_calc":    {"he": "חישוב שלנו – מבוסס על נתוני Yahoo Finance", "en": "Our calculation – based on Yahoo Finance data", "ru": "Наш расчёт – на основе данных Yahoo Finance", "es": "Cálculo propio – basado en datos de Yahoo Finance"},
+"metric_source_moat":    {"he": "חישוב שלנו – מודד יציבות המרווח הגולמי לאורך זמן", "en": "Our calculation – measures gross margin stability over time", "ru": "Наш расчёт – измеряет стабильность валовой маржи со временем", "es": "Cálculo propio – mide la estabilidad del margen bruto a lo largo del tiempo"},
+"metric_source_pe":      {"he": "חישוב שלנו – מחיר מניה חלקי רווח למניה (TTM)", "en": "Our calculation – stock price divided by earnings per share (TTM)", "ru": "Наш расчёт – цена акции делённая на прибыль на акцию (TTM)", "es": "Cálculo propio – precio de la acción dividido entre el beneficio por acción (TTM)"},
+"metric_source_peg":     {"he": "חישוב שלנו – P/E חלקי קצב הצמיחה השנתי של הרווח", "en": "Our calculation – P/E divided by the annual earnings growth rate", "ru": "Наш расчёт – P/E делённое на годовой темп роста прибыли", "es": "Cálculo propio – PER dividido entre la tasa de crecimiento anual de beneficios"},
 "financials_title":    {"he": "דוחות כספיים", "en": "Financial Statements", "ru": "Финансовая отчётность", "es": "Estados financieros"},
 "financials_income":   {"he": "דוח רווח והפסד", "en": "Income Statement", "ru": "Отчёт о прибылях и убытках", "es": "Cuenta de resultados"},
 "financials_balance":  {"he": "מאזן", "en": "Balance Sheet", "ru": "Бухгалтерский баланс", "es": "Balance general"},
@@ -1009,6 +1014,20 @@ function metricLabel(key) {
   return m[currentLang] || m.en;
 }
 
+// preload כל המדדים ברקע כדי שהגרפים יהיו מיידיים
+const _metricCache = {};
+async function preloadMetricHistory(ticker) {
+  const metrics = ["gross_margin","operating_margin","net_margin","revenue","net_income","eps",
+                   "debt_equity","current_ratio","cash_position","operating_cf","free_cf","pe_ratio","peg_ratio"];
+  for (const m of metrics) {
+    try {
+      const res = await fetch(`${API_BASE}/metric-history/${ticker}/${m}`);
+      if (res.ok) _metricCache[`${ticker}_${m}`] = await res.json();
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 150)); // delay קטן בין בקשות
+  }
+}
+
 async function openMetricHistory(ticker, metricKey, titleOverride) {
   _currentMetricTicker = ticker;
   _metricView = "quarterly";
@@ -1024,9 +1043,16 @@ async function openMetricHistory(ticker, metricKey, titleOverride) {
   document.getElementById("metricHistoryBack").onclick = () => setActiveScreen("screen-analysis", "nav-search", "");
 
   try {
-    const res = await fetch(`${API_BASE}/metric-history/${ticker}/${metricKey}`);
-    _metricData = await res.json();
-    renderMetricChart();
+    const cacheKey = `${ticker}_${metricKey}`;
+    if (_metricCache[cacheKey]) {
+      _metricData = _metricCache[cacheKey];
+      renderMetricChart();
+    } else {
+      const res = await fetch(`${API_BASE}/metric-history/${ticker}/${metricKey}`);
+      _metricData = await res.json();
+      _metricCache[cacheKey] = _metricData;
+      renderMetricChart();
+    }
   } catch(e) {
     document.getElementById("metricChartWrap").style.display = "none";
     document.getElementById("metricNoData").style.display = "block";
@@ -1887,6 +1913,7 @@ async function analyzeTicker(rawInput) {
     loadTickerNews(ticker);
     loadTickerEvents(ticker);
     loadTickerFinancials(ticker);
+    preloadMetricHistory(ticker);
     loadTickerSignals(ticker);
   } catch (err) {
     renderError(ticker, t("cant_connect"));
@@ -2466,17 +2493,31 @@ const METRIC_BACKEND_MAP = {
   "net_income": "net_income",
 };
 
+const METRIC_SOURCE_MAP = {
+  "moat":     "metric_source_moat",
+  "pe_ratio": "metric_source_pe",
+  "peg_ratio":"metric_source_peg",
+};
+
 function renderMetricTile(key, metric) {
   if ((metric.value === null || metric.value === undefined) && key !== "dividend") return "";
   const display = metricValueDisplay(key, metric);
   const cls = noteClass(metric.score);
   const backendKey = METRIC_BACKEND_MAP[key] || key;
   const ticker = lastAnalysisData ? lastAnalysisData.ticker : "";
+  const sourceKey = METRIC_SOURCE_MAP[key];
+  const isCalc = !!sourceKey;
+  const sourceLabel = sourceKey ? t(sourceKey) : t("metric_source_yahoo");
+  const sourceColor = isCalc ? "#a78bfa" : "rgba(255,255,255,0.25)";
+  const sourceIcon = isCalc ? "ti-calculator" : "ti-database";
   return `
     <div class="metric-tile" onclick="openMetricHistory('${ticker}', '${backendKey}', '${metric.label}')" style="cursor:pointer; transition:opacity .15s;" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">
       <p class="m-label ltr">${metric.label} <i class="ti ti-chart-bar" style="font-size:9px; opacity:0.4;"></i></p>
       <p class="m-value ltr">${display}</p>
       <p class="m-note ${cls}">${metric.explanation}</p>
+      <p style="font-size:9px; color:${sourceColor}; margin:4px 0 0; display:flex; align-items:center; gap:3px; direction:ltr;">
+        <i class="ti ${sourceIcon}" style="font-size:9px;"></i>${sourceLabel}
+      </p>
     </div>`;
 }
 
