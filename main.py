@@ -258,6 +258,253 @@ def analyze(ticker: str, lang: str = "he"):
     return result
 
 
+@app.get("/metric-history/{ticker}/{metric}")
+def metric_history(ticker: str, metric: str):
+    """מחזיר היסטוריה של מדד פיננסי ספציפי ל-5 שנים רבעונית/שנתית"""
+    cache_key = f"metric_history_{ticker.upper()}_{metric}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        import yfinance as yf
+        import pandas as pd
+        stock = yf.Ticker(ticker)
+
+        # מיפוי מדדים לשדות ב-yfinance
+        METRIC_MAP = {
+            # Income statement
+            "gross_margin":     ("income", "Gross Profit", "Revenue", "pct"),
+            "operating_margin": ("income", "Operating Income", "Revenue", "pct"),
+            "net_margin":       ("income", "Net Income", "Revenue", "pct"),
+            "revenue":          ("income", "Revenue", None, "abs"),
+            "net_income":       ("income", "Net Income", None, "abs"),
+            "eps":              ("income", "Diluted EPS", None, "abs"),
+            # Balance sheet
+            "debt_equity":      ("balance", "Total Debt", "Stockholders Equity", "ratio"),
+            "current_ratio":    ("balance", "Current Assets", "Current Liabilities", "ratio"),
+            "liab_equity":      ("balance", "Total Liabilities Net Minority Interest", "Stockholders Equity", "ratio"),
+            "cash_position":    ("balance", "Cash And Cash Equivalents", None, "abs"),
+            # Cash flow
+            "operating_cf":     ("cashflow", "Operating Cash Flow", None, "abs"),
+            "free_cf":          ("cashflow", "Free Cash Flow", None, "abs"),
+        }
+
+        result_data = {"ticker": ticker.upper(), "metric": metric, "quarterly": [], "annual": [], "use_price": False}
+
+        if metric not in METRIC_MAP:
+            # מדד ללא היסטוריה – החזר היסטוריית מחיר
+            result_data["use_price"] = True
+        else:
+            source, field1, field2, calc = METRIC_MAP[metric]
+
+            def extract_series(df, f1, f2, calc_type, period_type):
+                if df is None or df.empty:
+                    return []
+                rows = []
+                for col in df.columns:
+                    try:
+                        v1 = df.loc[f1, col] if f1 in df.index else None
+                        v2 = df.loc[f2, col] if f2 and f2 in df.index else None
+                        if v1 is None or (f2 and v2 is None):
+                            continue
+                        if calc_type == "pct":
+                            val = round(float(v1) / float(v2) * 100, 2) if v2 and float(v2) != 0 else None
+                        elif calc_type == "ratio":
+                            val = round(float(v1) / float(v2), 3) if v2 and float(v2) != 0 else None
+                        else:
+                            val = float(v1)
+                        if val is not None:
+                            date_str = col.strftime("%b %Y") if hasattr(col, "strftime") else str(col)[:7]
+                            rows.append({"date": date_str, "value": val})
+                    except Exception:
+                        continue
+                return list(reversed(rows))
+
+            try:
+                if source == "income":
+                    result_data["quarterly"] = extract_series(stock.quarterly_financials, field1, field2, calc, "Q")
+                    result_data["annual"] = extract_series(stock.financials, field1, field2, calc, "A")
+                elif source == "balance":
+                    result_data["quarterly"] = extract_series(stock.quarterly_balance_sheet, field1, field2, calc, "Q")
+                    result_data["annual"] = extract_series(stock.balance_sheet, field1, field2, calc, "A")
+                elif source == "cashflow":
+                    result_data["quarterly"] = extract_series(stock.quarterly_cashflow, field1, field2, calc, "Q")
+                    result_data["annual"] = extract_series(stock.cashflow, field1, field2, calc, "A")
+            except Exception:
+                pass
+
+            if not result_data["quarterly"] and not result_data["annual"]:
+                result_data["use_price"] = True
+
+        if result_data["use_price"]:
+            hist = stock.history(period="max")
+            if hist is not None and not hist.empty:
+                close = hist["Close"].resample("ME").last().dropna()
+                result_data["price_history"] = [
+                    {"date": d.strftime("%b %Y"), "value": round(float(v), 2)}
+                    for d, v in zip(close.index, close.values)
+                ]
+            else:
+                result_data["price_history"] = []
+
+        _cache_set(cache_key, result_data, CACHE_TTL["stock"])
+        return result_data
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/events/{ticker}")
+def ticker_events(ticker: str):
+    """דוחות כספיים קרובים, דיבידנדים וסיפלטים"""
+    cache_key = f"events_{ticker.upper()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        import yfinance as yf
+        from datetime import datetime, timezone
+        stock = yf.Ticker(ticker)
+        info = stock.info or {}
+        events = []
+
+        # תאריך דוח רווחים הבא
+        next_earnings = info.get("earningsTimestamp") or info.get("earningsTimestampStart")
+        if next_earnings:
+            try:
+                dt = datetime.fromtimestamp(next_earnings, tz=timezone.utc)
+                if dt > datetime.now(tz=timezone.utc):
+                    events.append({
+                        "type": "earnings",
+                        "date": dt.strftime("%Y-%m-%d"),
+                        "label": "Earnings Report",
+                        "detail": f"Q{(dt.month-1)//3+1} {dt.year}"
+                    })
+            except Exception:
+                pass
+
+        # דיבידנד הבא
+        ex_div = info.get("exDividendDate")
+        div_rate = info.get("dividendRate")
+        if ex_div and div_rate:
+            try:
+                dt = datetime.fromtimestamp(ex_div, tz=timezone.utc)
+                if dt > datetime.now(tz=timezone.utc):
+                    events.append({
+                        "type": "dividend",
+                        "date": dt.strftime("%Y-%m-%d"),
+                        "label": "Ex-Dividend Date",
+                        "detail": f"${div_rate:.2f}/share annually"
+                    })
+            except Exception:
+                pass
+
+        # היסטוריית דוחות אחרונים
+        try:
+            cal = stock.calendar
+            if cal is not None and not cal.empty:
+                for col in cal.columns[:4]:
+                    try:
+                        date_val = cal[col].iloc[0] if hasattr(cal[col], 'iloc') else cal[col]
+                        if hasattr(date_val, 'strftime'):
+                            from datetime import datetime as dt2
+                            if date_val > dt2.now().date():
+                                events.append({
+                                    "type": "calendar",
+                                    "date": date_val.strftime("%Y-%m-%d"),
+                                    "label": str(col),
+                                    "detail": ""
+                                })
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        # דוחות כספיים אחרונים מהיסטוריה רבעונית
+        try:
+            fin = stock.quarterly_financials
+            if fin is not None and not fin.empty:
+                for col in fin.columns[:4]:
+                    try:
+                        date_str = col.strftime("%Y-%m-%d") if hasattr(col, 'strftime') else str(col)[:10]
+                        rev = fin.loc["Total Revenue", col] if "Total Revenue" in fin.index else None
+                        ni = fin.loc["Net Income", col] if "Net Income" in fin.index else None
+                        detail_parts = []
+                        if rev: detail_parts.append(f"Rev: ${rev/1e9:.1f}B")
+                        if ni: detail_parts.append(f"NI: ${ni/1e9:.1f}B")
+                        events.append({
+                            "type": "past_earnings",
+                            "date": date_str,
+                            "label": f"Q Report",
+                            "detail": " · ".join(detail_parts)
+                        })
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        # מיין לפי תאריך
+        events.sort(key=lambda x: x["date"], reverse=True)
+
+        result = {"ticker": ticker.upper(), "events": events}
+        _cache_set(cache_key, result, CACHE_TTL["stock"])
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/financials/{ticker}")
+def ticker_financials(ticker: str):
+    """דוחות כספיים מלאים - Income Statement, Balance Sheet, Cash Flow"""
+    cache_key = f"financials_{ticker.upper()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        import yfinance as yf
+        import math
+        stock = yf.Ticker(ticker)
+
+        def df_to_table(df):
+            if df is None or df.empty:
+                return {"columns": [], "rows": []}
+            cols = [c.strftime("%b %Y") if hasattr(c, "strftime") else str(c)[:7] for c in df.columns]
+            rows = []
+            for idx in df.index:
+                try:
+                    vals = []
+                    for c in df.columns:
+                        v = df.loc[idx, c]
+                        if v is None or (isinstance(v, float) and math.isnan(v)):
+                            vals.append(None)
+                        else:
+                            vals.append(float(v))
+                    rows.append({"label": str(idx), "values": vals})
+                except Exception:
+                    continue
+            return {"columns": cols, "rows": rows}
+
+        result = {
+            "ticker": ticker.upper(),
+            "income_quarterly":  df_to_table(stock.quarterly_financials),
+            "income_annual":     df_to_table(stock.financials),
+            "balance_quarterly": df_to_table(stock.quarterly_balance_sheet),
+            "balance_annual":    df_to_table(stock.balance_sheet),
+            "cashflow_quarterly":df_to_table(stock.quarterly_cashflow),
+            "cashflow_annual":   df_to_table(stock.cashflow),
+        }
+
+        _cache_set(cache_key, result, CACHE_TTL["stock"])
+        return result
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/exchange-rate")
 def exchange_rate(currency: str = "ILS"):
     currency = currency.upper()

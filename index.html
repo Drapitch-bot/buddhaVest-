@@ -651,6 +651,28 @@
     <p class="source-note" style="margin-top:8px;">© 2026 BuddhaVest · All rights reserved</p>
   </div>
 
+  <!-- ================= METRIC HISTORY SCREEN ================= -->
+  <div class="screen" id="screen-metric-history">
+    <div class="back-link" id="metricHistoryBack"><i class="ti ti-arrow-left"></i><span id="metricHistoryBackLabel">חזרה</span></div>
+    <div class="card" style="padding:14px;">
+      <h3 id="metricHistoryTitle" style="margin-bottom:12px;">History</h3>
+      <div style="display:flex; gap:8px; margin-bottom:14px;">
+        <button id="btnQuarterly" onclick="switchMetricView('quarterly')" class="lang-btn active" style="flex:1;" data-i18n="metric_quarterly">Quarterly</button>
+        <button id="btnAnnual" onclick="switchMetricView('annual')" class="lang-btn" style="flex:1;" data-i18n="metric_annual">Annual</button>
+      </div>
+      <div id="metricPriceNote" style="display:none; font-size:11px; color:var(--text-dimmer); margin-bottom:10px; padding:8px; background:rgba(251,191,36,0.08); border:1px solid rgba(251,191,36,0.3); border-radius:8px;" data-i18n="metric_price_note"></div>
+      <div id="metricChartWrap" style="position:relative; width:100%; height:220px; touch-action:none;">
+        <canvas id="metricCanvas" style="width:100%; height:100%;"></canvas>
+        <div id="metricTooltip" style="position:absolute; top:8px; left:50%; transform:translateX(-50%); background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:4px 10px; font-size:11px; color:var(--text); pointer-events:none; white-space:nowrap; display:none;"></div>
+      </div>
+      <div id="metricNoData" style="display:none; text-align:center; padding:40px; color:var(--text-dimmer);" data-i18n="metric_no_data">No data available</div>
+      <div id="metricCurrentVal" style="display:none; font-size:28px; font-weight:700; color:var(--text); margin:14px 0 4px; text-align:center;"></div>
+      <div id="metricExplBox" style="display:none; margin-top:12px; padding:12px; background:rgba(124,111,247,0.08); border:1px solid rgba(124,111,247,0.2); border-radius:10px;">
+        <p id="metricExplText" style="font-size:12px; color:var(--text-dimmer); line-height:1.6; margin:0;"></p>
+      </div>
+    </div>
+  </div>
+
   <!-- ================= SETTINGS SCREEN ================= -->
   <div class="screen" id="screen-settings">
     <div class="back-link" onclick="goToMore()"><i class="ti ti-arrow-left"></i><span data-i18n="more_title">עוד אפשרויות</span></div>
@@ -747,7 +769,42 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "tos_s5_body": {"he": "BuddhaVest עשויה לעבור הפסקות שירות בשל תחזוקה או תקלות טכניות. נשתדל למזער הפסקות אלה אך לא נוכל להבטיח שירות רציף.", "en": "BuddhaVest may experience occasional downtime due to maintenance or technical issues. We will strive to minimize disruptions but cannot guarantee uninterrupted service.", "ru": "BuddhaVest может периодически недоступна из-за технического обслуживания или неисправностей. Мы постараемся минимизировать перебои, но не можем гарантировать бесперебойную работу.", "es": "BuddhaVest puede experimentar interrupciones ocasionales por mantenimiento o problemas técnicos. Haremos lo posible por minimizar las interrupciones, pero no podemos garantizar un servicio ininterrumpido."},
 "tos_s6_title": {"he": "על ידי שימוש ב-BuddhaVest", "en": "By using BuddhaVest", "ru": "Используя BuddhaVest", "es": "Al usar BuddhaVest"},
 "tos_s6_body": {"he": "אתם מאשרים שקראתם והסכמתם לתנאים המפורטים לעיל.", "en": "You acknowledge that you have read and agreed to the terms outlined above.", "ru": "Вы подтверждаете, что прочитали и согласны с условиями, изложенными выше.", "es": "Reconoces que has leído y aceptado los términos descritos anteriormente."},
-"notif_waking_up_title": {"he": "💡 טיפ", "en": "💡 Tip", "ru": "💡 Совет", "es": "💡 Consejo"}, "notif_waking_up": {"he": "השרת מתעורר – אם זה לוקח כמה שניות, זה תקין לגמרי.", "en": "If it takes a few seconds to load — that's normal. The server may need a moment to wake up.", "ru": "Сервер просыпается – если это займёт несколько секунд, всё нормально.", "es": "Si tarda unos segundos en cargar, es normal. El servidor puede necesitar un momento."}, "waking_up": {"he": "השרת מתעורר... זה עלול לקחת עד כדקה בפעם הראשונה 🌅", "en": "Server is waking up... this may take up to a minute on first load 🌅", "ru": "Сервер просыпается... при первом запуске это может занять до минуты 🌅", "es": "El servidor está despertando... esto puede tardar hasta un minuto en la primera carga 🌅"}, "data_disclaimer": {"he": "נתוני שוק מ-Yahoo Finance לצרכי מידע בלבד. האפליקציה לא מסחרית ולא גובה כסף.", "en": "Market data from Yahoo Finance for informational purposes only. This app is non-commercial and free of charge.", "ru": "Рыночные данные от Yahoo Finance только в информационных целях. Приложение некоммерческое и бесплатное.", "es": "Datos de mercado de Yahoo Finance solo con fines informativos. Esta aplicación no es comercial y no cobra dinero."}};
+"notif_waking_up_title": {"he": "💡 טיפ", "en": "💡 Tip", "ru": "💡 Совет", "es": "💡 Consejo"}, "notif_waking_up": {"he": "השרת מתעורר – אם זה לוקח כמה שניות, זה תקין לגמרי.", "en": "If it takes a few seconds to load — that's normal. The server may need a moment to wake up.", "ru": "Сервер просыпается – если это займёт несколько секунд, всё нормально.", "es": "Si tarda unos segundos en cargar, es normal. El servidor puede necesitar un momento."}, "waking_up": {"he": "השרת מתעורר... זה עלול לקחת עד כדקה בפעם הראשונה 🌅", "en": "Server is waking up... this may take up to a minute on first load 🌅", "ru": "Сервер просыпается... при первом запуске это может занять до минуты 🌅", "es": "El servidor está despertando... esto puede tardar hasta un minuto en la primera carga 🌅"}, "metric_history_title": {"he": "היסטוריה", "en": "History", "ru": "История", "es": "Historial"},
+"metric_quarterly": {"he": "רבעוני", "en": "Quarterly", "ru": "Квартальный", "es": "Trimestral"},
+"metric_annual": {"he": "שנתי", "en": "Annual", "ru": "Годовой", "es": "Anual"},
+"metric_price_note": {"he": "אין היסטוריה זמינה למדד זה – מוצג מחיר המניה כהקשר", "en": "Historical data unavailable for this metric – showing stock price for context", "ru": "Исторические данные недоступны – показана цена акции для контекста", "es": "Datos históricos no disponibles – se muestra el precio de la acción como contexto"},
+"financials_title":    {"he": "דוחות כספיים", "en": "Financial Statements", "ru": "Финансовая отчётность", "es": "Estados financieros"},
+"financials_income":   {"he": "דוח רווח והפסד", "en": "Income Statement", "ru": "Отчёт о прибылях и убытках", "es": "Cuenta de resultados"},
+"financials_balance":  {"he": "מאזן", "en": "Balance Sheet", "ru": "Бухгалтерский баланс", "es": "Balance general"},
+"financials_cashflow": {"he": "תזרים מזומנים", "en": "Cash Flow", "ru": "Денежный поток", "es": "Flujo de caja"},
+"financials_quarterly":{"he": "רבעוני", "en": "Quarterly", "ru": "Квартальный", "es": "Trimestral"},
+"financials_annual":   {"he": "שנתי", "en": "Annual", "ru": "Годовой", "es": "Anual"},
+"financials_loading":  {"he": "טוען דוחות...", "en": "Loading statements...", "ru": "Загрузка отчётов...", "es": "Cargando estados..."},
+"financials_no_data":  {"he": "אין נתונים זמינים", "en": "No data available", "ru": "Нет данных", "es": "Sin datos disponibles"},
+"events_title":        {"he": "יומן אירועים", "en": "Events Calendar", "ru": "Календарь событий", "es": "Calendario de eventos"},
+"events_upcoming":     {"he": "קרוב", "en": "Upcoming", "ru": "Предстоящие", "es": "Próximos"},
+"events_past":         {"he": "אחרון", "en": "Past", "ru": "Прошедшие", "es": "Pasados"},
+"events_earnings":     {"he": "דוח רווחים", "en": "Earnings Report", "ru": "Отчёт о прибыли", "es": "Informe de ganancias"},
+"events_dividend":     {"he": "תאריך קום דיבידנד", "en": "Ex-Dividend Date", "ru": "Дата экс-дивиденда", "es": "Fecha ex-dividendo"},
+"events_no_data":      {"he": "אין אירועים זמינים", "en": "No events available", "ru": "Нет доступных событий", "es": "No hay eventos disponibles"},
+"metric_explanations": {
+  "gross_margin":     {"he": "מרווח גולמי מראה כמה נשאר מההכנסות אחרי עלויות הייצור. ככל שגבוה יותר – כוח תמחור חזק יותר.", "en": "Gross margin shows how much revenue remains after production costs. Higher = stronger pricing power.", "ru": "Валовая маржа показывает, сколько выручки остаётся после производственных затрат. Выше = сильнее ценовая власть.", "es": "El margen bruto muestra cuánto queda de los ingresos tras los costes de producción. Mayor = más poder de precios."},
+  "operating_margin": {"he": "מרווח תפעולי מראה את הרווחיות לפני מס וריבית. מדד מרכזי ליעילות העסקית.", "en": "Operating margin shows profitability before tax and interest. A key measure of business efficiency.", "ru": "Операционная маржа показывает прибыльность до налогов и процентов. Ключевой показатель эффективности.", "es": "El margen operativo muestra la rentabilidad antes de impuestos e intereses. Clave para medir eficiencia."},
+  "net_margin":       {"he": "מרווח נקי – מה נשאר לבעלי המניות מכל שקל הכנסה. הרווחיות הסופית של החברה.", "en": "Net margin – what shareholders keep from every dollar of revenue. The company's final profitability.", "ru": "Чистая маржа – что остаётся акционерам с каждого доллара выручки. Итоговая прибыльность компании.", "es": "Margen neto – lo que queda para los accionistas de cada dólar de ingresos. La rentabilidad final."},
+  "revenue":          {"he": "סך ההכנסות של החברה. צמיחה עקבית בהכנסות היא סימן לעסק בריא.", "en": "Total company revenue. Consistent growth is a sign of a healthy, expanding business.", "ru": "Общая выручка компании. Стабильный рост — признак здорового бизнеса.", "es": "Ingresos totales de la empresa. Un crecimiento constante es señal de negocio saludable."},
+  "net_income":       {"he": "הרווח הנקי הסופי אחרי כל ההוצאות והמסים. זה הכסף שנשאר לחברה.", "en": "Final net profit after all expenses and taxes. This is the money the company actually keeps.", "ru": "Итоговая чистая прибыль после всех расходов и налогов. Деньги, которые компания реально сохраняет.", "es": "Beneficio neto final tras todos los gastos e impuestos. El dinero que realmente retiene la empresa."},
+  "eps":              {"he": "רווח למניה – כמה הרוויחה החברה לכל מניה. מדד מרכזי לאטרקטיביות ההשקעה.", "en": "Earnings per share – how much the company earned per share. A key measure of investment attractiveness.", "ru": "Прибыль на акцию – сколько заработала компания на каждую акцию. Ключевой показатель привлекательности.", "es": "Beneficio por acción – cuánto ganó la empresa por acción. Clave para evaluar el atractivo de la inversión."},
+  "debt_equity":      {"he": "יחס חוב להון – כמה חוב יש לחברה ביחס להון העצמי. נמוך = שמרני יותר.", "en": "Debt-to-equity – how much debt the company has relative to equity. Lower = more conservative.", "ru": "Отношение долга к капиталу. Чем ниже, тем консервативнее финансовая структура компании.", "es": "Deuda/capital – cuánta deuda tiene la empresa en relación al capital. Menor = más conservador."},
+  "current_ratio":    {"he": "יחס שוטף – יכולת החברה לשלם חובות לטווח קצר. מעל 1 = בריא.", "en": "Current ratio – the company's ability to pay short-term debts. Above 1 = healthy.", "ru": "Коэффициент текущей ликвидности. Выше 1 = компания способна покрыть краткосрочные долги.", "es": "Ratio corriente – capacidad de pagar deudas a corto plazo. Por encima de 1 = saludable."},
+  "liab_equity":      {"he": "יחס התחייבויות להון. מתחת ל-1 מסמן מאזן שמרני יחסית.", "en": "Liabilities-to-equity ratio. Below 1 signals a relatively conservative balance sheet.", "ru": "Отношение обязательств к капиталу. Ниже 1 = консервативный баланс.", "es": "Ratio pasivos/capital. Por debajo de 1 indica un balance relativamente conservador."},
+  "cash_position":    {"he": "מזומן ושווי מזומן – כרית הביטחון של החברה לשעת חירום או הזדמנות.", "en": "Cash and equivalents – the company's safety cushion for emergencies or opportunities.", "ru": "Денежные средства – финансовая подушка безопасности компании.", "es": "Efectivo y equivalentes – el colchón de seguridad de la empresa para emergencias u oportunidades."},
+  "operating_cf":     {"he": "תזרים מזומנים תפעולי – כמה מזומן מייצר הליבה העסקית. חשוב מהרווח החשבונאי.", "en": "Operating cash flow – how much cash the core business generates. More important than accounting profit.", "ru": "Операционный денежный поток – сколько наличных генерирует основной бизнес. Важнее бухгалтерской прибыли.", "es": "Flujo de caja operativo – cuánto efectivo genera el negocio principal. Más importante que el beneficio contable."},
+  "free_cf":          {"he": "תזרים חופשי – מה שנשאר אחרי השקעות הון. זה הכסף שהחברה יכולה לחלק או להשקיע.", "en": "Free cash flow – what remains after capital investments. This is the money the company can distribute or reinvest.", "ru": "Свободный денежный поток – остаток после капиталовложений. Деньги для распределения или реинвестирования.", "es": "Flujo de caja libre – lo que queda tras las inversiones de capital. Dinero para distribuir o reinvertir."},
+  "pe_ratio":         {"he": "מכפיל רווח – כמה שנות רווח המשקיעים מוכנים לשלם. גבוה = ציפיות גבוהות.", "en": "P/E ratio – how many years of profit investors are willing to pay for. High = high expectations.", "ru": "Коэффициент P/E – сколько лет прибыли инвесторы готовы платить. Высокий = высокие ожидания.", "es": "PER – cuántos años de beneficio están dispuestos a pagar los inversores. Alto = altas expectativas."},
+  "peg_ratio":        {"he": "מכפיל PEG – P/E ביחס לצמיחה. מתחת ל-1 נחשב אטרקטיבי.", "en": "PEG ratio – P/E relative to growth. Below 1 is considered attractive.", "ru": "Коэффициент PEG – P/E относительно роста. Ниже 1 считается привлекательным.", "es": "Ratio PEG – PER en relación al crecimiento. Por debajo de 1 se considera atractivo."}
+},
+"metric_no_data": {"he": "אין נתונים זמינים", "en": "No data available", "ru": "Нет данных", "es": "Sin datos disponibles"},
+"data_disclaimer": {"he": "נתוני שוק מ-Yahoo Finance לצרכי מידע בלבד. האפליקציה לא מסחרית ולא גובה כסף.", "en": "Market data from Yahoo Finance for informational purposes only. This app is non-commercial and free of charge.", "ru": "Рыночные данные от Yahoo Finance только в информационных целях. Приложение некоммерческое и бесплатное.", "es": "Datos de mercado de Yahoo Finance solo con fines informativos. Esta aplicación no es comercial y no cobra dinero."}};
 
 const LANG_KEY = "buddhavest_lang";
 let currentLang = localStorage.getItem(LANG_KEY) || "en";
@@ -925,6 +982,240 @@ function goToMore() {
   setActiveScreen("screen-more", "nav-more", "greeting_more");
   updateLangButtons();
 }
+
+// ─── Metric History ───────────────────────────────────────────────────────────
+let _metricData = null;
+let _metricView = "quarterly";
+let _currentMetricTicker = null;
+
+const METRIC_LABELS = {
+  gross_margin:     {en:"Gross Margin",     he:"מרווח גולמי",      ru:"Валовая маржа",       es:"Margen bruto"},
+  operating_margin: {en:"Operating Margin", he:"מרווח תפעולי",     ru:"Операционная маржа",  es:"Margen operativo"},
+  net_margin:       {en:"Net Margin",       he:"מרווח נקי",        ru:"Чистая маржа",        es:"Margen neto"},
+  revenue:          {en:"Revenue",          he:"הכנסות",           ru:"Выручка",             es:"Ingresos"},
+  net_income:       {en:"Net Income",       he:"רווח נקי",         ru:"Чистая прибыль",      es:"Beneficio neto"},
+  eps:              {en:"EPS",              he:"רווח למניה",       ru:"Прибыль на акцию",    es:"BPA"},
+  debt_equity:      {en:"Debt / Equity",    he:"חוב / הון",        ru:"Долг/капитал",        es:"Deuda/capital"},
+  current_ratio:    {en:"Current Ratio",    he:"יחס שוטף",         ru:"Коэффициент текущей", es:"Ratio corriente"},
+  liab_equity:      {en:"Liabilities / Equity", he:"התחייבויות / הון", ru:"Обязательства/капитал", es:"Pasivos/capital"},
+  cash_position:    {en:"Cash Position",    he:"מזומן",            ru:"Денежная позиция",    es:"Posición de caja"},
+  operating_cf:     {en:"Operating Cash Flow", he:"תזרים תפעולי",  ru:"Операционный поток",  es:"Flujo operativo"},
+  free_cf:          {en:"Free Cash Flow",   he:"תזרים חופשי",      ru:"Свободный поток",     es:"Flujo libre"},
+};
+
+function metricLabel(key) {
+  const m = METRIC_LABELS[key];
+  if (!m) return key;
+  return m[currentLang] || m.en;
+}
+
+async function openMetricHistory(ticker, metricKey, titleOverride) {
+  _currentMetricTicker = ticker;
+  _metricView = "quarterly";
+  const title = titleOverride || metricLabel(metricKey);
+  document.getElementById("metricHistoryTitle").textContent = title;
+  document.getElementById("metricHistoryBackLabel").textContent = ticker;
+  document.getElementById("metricPriceNote").style.display = "none";
+  document.getElementById("metricNoData").style.display = "none";
+  document.getElementById("metricChartWrap").style.display = "block";
+  document.getElementById("btnQuarterly").classList.add("active");
+  document.getElementById("btnAnnual").classList.remove("active");
+  setActiveScreen("screen-metric-history", null, null);
+  document.getElementById("metricHistoryBack").onclick = () => setActiveScreen("screen-analysis", "nav-search", "");
+
+  try {
+    const res = await fetch(`${API_BASE}/metric-history/${ticker}/${metricKey}`);
+    _metricData = await res.json();
+    renderMetricChart();
+  } catch(e) {
+    document.getElementById("metricChartWrap").style.display = "none";
+    document.getElementById("metricNoData").style.display = "block";
+  }
+}
+
+function switchMetricView(view) {
+  _metricView = view;
+  document.getElementById("btnQuarterly").classList.toggle("active", view === "quarterly");
+  document.getElementById("btnAnnual").classList.toggle("active", view === "annual");
+  renderMetricChart();
+}
+
+function renderMetricChart() {
+  if (!_metricData) return;
+  const canvas = document.getElementById("metricCanvas");
+  const wrap = document.getElementById("metricChartWrap");
+  const tooltip = document.getElementById("metricTooltip");
+  const priceNote = document.getElementById("metricPriceNote");
+  const noData = document.getElementById("metricNoData");
+
+  let points = [];
+  if (_metricData.use_price) {
+    points = _metricData.price_history || [];
+    priceNote.style.display = points.length ? "block" : "none";
+    priceNote.textContent = t("metric_price_note");
+  } else {
+    points = _metricView === "quarterly" ? (_metricData.quarterly || []) : (_metricData.annual || []);
+    priceNote.style.display = "none";
+  }
+
+  // הצג הסבר מדד
+  const explanations = I18N["metric_explanations"] ? I18N["metric_explanations"][currentLang] || I18N["metric_explanations"]["en"] : {};
+  const explBox = document.getElementById("metricExplBox");
+  const explText = document.getElementById("metricExplText");
+  const currentValBox = document.getElementById("metricCurrentVal");
+  if (explanations && explanations[_metricData.metric] && explBox) {
+    explText.textContent = explanations[_metricData.metric];
+    explBox.style.display = "block";
+  } else if (explBox) {
+    explBox.style.display = "none";
+  }
+
+  // הצג ערך נוכחי (האחרון בנתונים)
+  if (points.length && currentValBox) {
+    const last = points[points.length - 1];
+    const valStr = Math.abs(last.value) >= 1e9 ? "$"+(last.value/1e9).toFixed(2)+"B"
+                 : Math.abs(last.value) >= 1e6 ? "$"+(last.value/1e6).toFixed(2)+"M"
+                 : last.value.toFixed(2) + (last.value < 200 && _metricData.metric?.includes("margin") ? "%" : "");
+    currentValBox.textContent = valStr;
+    currentValBox.style.display = "block";
+  }
+
+  if (!points.length) {
+    wrap.style.display = "none";
+    noData.style.display = "block";
+    return;
+  }
+  wrap.style.display = "block";
+  noData.style.display = "none";
+
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = wrap.clientWidth * dpr;
+  canvas.height = wrap.clientHeight * dpr;
+  canvas.style.width = wrap.clientWidth + "px";
+  canvas.style.height = wrap.clientHeight + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  const PAD = { top: 20, right: 16, bottom: 30, left: 48 };
+  const vals = points.map(p => p.value);
+  const minV = Math.min(...vals), maxV = Math.max(...vals);
+  const range = maxV - minV || 1;
+
+  const xOf = i => PAD.left + (i / (points.length - 1)) * (W - PAD.left - PAD.right);
+  const yOf = v => PAD.top + (1 - (v - minV) / range) * (H - PAD.top - PAD.bottom);
+
+  ctx.clearRect(0, 0, W, H);
+
+  // grid lines
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = PAD.top + i * (H - PAD.top - PAD.bottom) / 4;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+    const val = maxV - i * range / 4;
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.font = "9px sans-serif";
+    ctx.textAlign = "right";
+    const label = Math.abs(val) >= 1e9 ? (val/1e9).toFixed(1)+"B" : Math.abs(val) >= 1e6 ? (val/1e6).toFixed(1)+"M" : val.toFixed(1);
+    ctx.fillText(label, PAD.left - 4, y + 3);
+  }
+
+  // gradient fill
+  const grad = ctx.createLinearGradient(0, PAD.top, 0, H - PAD.bottom);
+  grad.addColorStop(0, "rgba(124,111,247,0.35)");
+  grad.addColorStop(1, "rgba(124,111,247,0)");
+  ctx.beginPath();
+  ctx.moveTo(xOf(0), yOf(points[0].value));
+  points.forEach((p, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(p.value)); });
+  ctx.lineTo(xOf(points.length - 1), H - PAD.bottom);
+  ctx.lineTo(xOf(0), H - PAD.bottom);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // line
+  ctx.beginPath();
+  ctx.strokeStyle = "#7c6ff7";
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  points.forEach((p, i) => i === 0 ? ctx.moveTo(xOf(i), yOf(p.value)) : ctx.lineTo(xOf(i), yOf(p.value)));
+  ctx.stroke();
+
+  // x labels – show every nth
+  const step = Math.ceil(points.length / 6);
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.font = "9px sans-serif";
+  ctx.textAlign = "center";
+  points.forEach((p, i) => {
+    if (i % step === 0 || i === points.length - 1) {
+      ctx.fillText(p.date, xOf(i), H - PAD.bottom + 14);
+    }
+  });
+
+  // touch/mouse interaction
+  function onPointer(e) {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const x = clientX - rect.left;
+    let nearest = 0, minDist = Infinity;
+    points.forEach((_, i) => {
+      const d = Math.abs(xOf(i) - x);
+      if (d < minDist) { minDist = d; nearest = i; }
+    });
+    const p = points[nearest];
+    const valStr = Math.abs(p.value) >= 1e9 ? "$"+(p.value/1e9).toFixed(2)+"B"
+                 : Math.abs(p.value) >= 1e6 ? "$"+(p.value/1e6).toFixed(2)+"M"
+                 : p.value.toFixed(2) + (p.value < 100 && p.value > -100 && _metricData.metric?.includes("margin") ? "%" : "");
+    tooltip.textContent = p.date + "  " + valStr;
+    tooltip.style.display = "block";
+    let tx = xOf(nearest);
+    tx = Math.max(50, Math.min(W - 50, tx));
+    tooltip.style.left = tx + "px";
+
+    // crosshair
+    ctx.clearRect(0, 0, W, H);
+    renderMetricChartStatic(ctx, W, H, PAD, points, xOf, yOf, range, minV, maxV, grad, step);
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(xOf(nearest), PAD.top); ctx.lineTo(xOf(nearest), H - PAD.bottom); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.arc(xOf(nearest), yOf(p.value), 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#7c6ff7"; ctx.fill();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  function renderMetricChartStatic(ctx, W, H, PAD, points, xOf, yOf, range, minV, maxV, grad, step) {
+    ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = PAD.top + i * (H - PAD.top - PAD.bottom) / 4;
+      ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
+      const val = maxV - i * range / 4;
+      ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.font = "9px sans-serif"; ctx.textAlign = "right";
+      const label = Math.abs(val) >= 1e9 ? (val/1e9).toFixed(1)+"B" : Math.abs(val) >= 1e6 ? (val/1e6).toFixed(1)+"M" : val.toFixed(1);
+      ctx.fillText(label, PAD.left - 4, y + 3);
+    }
+    ctx.beginPath();
+    ctx.moveTo(xOf(0), yOf(points[0].value));
+    points.forEach((p, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(p.value)); });
+    ctx.lineTo(xOf(points.length - 1), H - PAD.bottom);
+    ctx.lineTo(xOf(0), H - PAD.bottom);
+    ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+    ctx.beginPath(); ctx.strokeStyle = "#7c6ff7"; ctx.lineWidth = 2; ctx.lineJoin = "round";
+    points.forEach((p, i) => i === 0 ? ctx.moveTo(xOf(i), yOf(p.value)) : ctx.lineTo(xOf(i), yOf(p.value)));
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.font = "9px sans-serif"; ctx.textAlign = "center";
+    points.forEach((p, i) => { if (i % step === 0 || i === points.length - 1) ctx.fillText(p.date, xOf(i), H - PAD.bottom + 14); });
+  }
+
+  canvas.addEventListener("mousemove", onPointer);
+  canvas.addEventListener("touchmove", onPointer, { passive: false });
+  canvas.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
+  canvas.addEventListener("touchend", () => { tooltip.style.display = "none"; });
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function goToTos() { setActiveScreen("screen-tos", "nav-more", "more_tos_title"); }
 function goToAbout() {
@@ -1594,6 +1885,8 @@ async function analyzeTicker(rawInput) {
     lastAnalysisData = data;
     renderResult(data);
     loadTickerNews(ticker);
+    loadTickerEvents(ticker);
+    loadTickerFinancials(ticker);
     loadTickerSignals(ticker);
   } catch (err) {
     renderError(ticker, t("cant_connect"));
@@ -1883,6 +2176,20 @@ function renderResult(data) {
     </div>
 
     <div class="card">
+      <h3><i class="ti ti-calendar-event" style="color:#34d399"></i>${t('events_title')}</h3>
+      <div id="eventsContainer">
+        <p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:10px;">...</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3><i class="ti ti-table" style="color:#a78bfa"></i>${t('financials_title')}</h3>
+      <div id="financialsContainer">
+        <p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:10px;">...</p>
+      </div>
+    </div>
+
+    <div class="card">
       <h3><i class="ti ti-news" style="color:#60a5fa"></i>${t('recent_news_title')}</h3>
       <div id="tickerNewsList">
         <div class="loading-box" style="padding:10px;"><div class="spinner"></div>${t('loading_news')}</div>
@@ -1918,6 +2225,174 @@ function renderResult(data) {
         wrap.outerHTML = `<div class="placeholder" style="padding:20px;"><i class="ti ti-chart-line"></i>${t('no_chart_data')}</div>`;
       }
     }
+  }
+}
+
+async function loadTickerFinancials(ticker) {
+  const container = document.getElementById("financialsContainer");
+  if (!container) return;
+  container.innerHTML = `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:10px;">${t("financials_loading")}</p>`;
+
+  try {
+    const res = await fetch(`${API_BASE}/financials/${ticker}`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+
+    let activeSheet = "income";
+    let activePeriod = "quarterly";
+
+    function fmtVal(v) {
+      if (v === null || v === undefined) return "—";
+      const abs = Math.abs(v);
+      if (abs >= 1e12) return (v/1e12).toFixed(2) + "T";
+      if (abs >= 1e9)  return (v/1e9).toFixed(2) + "B";
+      if (abs >= 1e6)  return (v/1e6).toFixed(2) + "M";
+      if (abs >= 1e3)  return (v/1e3).toFixed(1) + "K";
+      return v.toFixed(2);
+    }
+
+    function getTable() {
+      return data[activeSheet + "_" + activePeriod] || {columns: [], rows: []};
+    }
+
+    function renderTable() {
+      const tbl = getTable();
+      if (!tbl.columns.length || !tbl.rows.length) {
+        return `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:16px;">${t("financials_no_data")}</p>`;
+      }
+      let html = `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
+        <table style="width:100%; border-collapse:collapse; font-size:11px; direction:ltr;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);">
+              <th style="text-align:left; padding:6px 8px; color:var(--text-dimmer); font-weight:500; position:sticky; left:0; background:var(--card-bg); min-width:140px;"></th>`;
+      tbl.columns.forEach(col => {
+        html += `<th style="text-align:right; padding:6px 8px; color:var(--text-dimmer); font-weight:500; white-space:nowrap;">${col}</th>`;
+      });
+      html += `</tr></thead><tbody>`;
+      tbl.rows.forEach((row, i) => {
+        const bg = i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)";
+        html += `<tr style="background:${bg};">
+          <td style="padding:5px 8px; color:var(--text); position:sticky; left:0; background:${bg}; font-weight:500;">${row.label}</td>`;
+        row.values.forEach(v => {
+          const color = v !== null && v < 0 ? "var(--red)" : "var(--text)";
+          html += `<td style="text-align:right; padding:5px 8px; color:${color}; white-space:nowrap;">${fmtVal(v)}</td>`;
+        });
+        html += `</tr>`;
+      });
+      html += `</tbody></table></div>`;
+      return html;
+    }
+
+    function render() {
+      const tabs = [
+        {key:"income",   label:t("financials_income")},
+        {key:"balance",  label:t("financials_balance")},
+        {key:"cashflow", label:t("financials_cashflow")},
+      ];
+      const periods = [
+        {key:"quarterly", label:t("financials_quarterly")},
+        {key:"annual",    label:t("financials_annual")},
+      ];
+
+      let html = `<div style="display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap;">`;
+      tabs.forEach(tab => {
+        const active = tab.key === activeSheet;
+        html += `<button onclick="window._finSheet='${tab.key}'; window._finRender()" 
+          style="flex:1; min-width:80px; padding:6px 8px; border-radius:8px; border:1px solid ${active ? "var(--accent)" : "var(--border)"}; 
+          background:${active ? "rgba(124,111,247,0.15)" : "transparent"}; color:${active ? "var(--accent)" : "var(--text-dimmer)"}; 
+          font-size:11px; cursor:pointer;">${tab.label}</button>`;
+      });
+      html += `</div><div style="display:flex; gap:6px; margin-bottom:12px;">`;
+      periods.forEach(p => {
+        const active = p.key === activePeriod;
+        html += `<button onclick="window._finPeriod='${p.key}'; window._finRender()"
+          style="flex:1; padding:5px 8px; border-radius:8px; border:1px solid ${active ? "var(--accent)" : "var(--border)"}; 
+          background:${active ? "rgba(124,111,247,0.15)" : "transparent"}; color:${active ? "var(--accent)" : "var(--text-dimmer)"}; 
+          font-size:11px; cursor:pointer;">${p.label}</button>`;
+      });
+      html += `</div>`;
+      html += renderTable();
+      container.innerHTML = html;
+    }
+
+    window._finSheet = activeSheet;
+    window._finPeriod = activePeriod;
+    window._finRender = () => {
+      activeSheet = window._finSheet;
+      activePeriod = window._finPeriod;
+      render();
+    };
+    render();
+
+  } catch(e) {
+    container.innerHTML = `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:10px;">${t("financials_no_data")}</p>`;
+  }
+}
+
+async function loadTickerEvents(ticker) {
+  const container = document.getElementById("eventsContainer");
+  if (!container) return;
+  container.innerHTML = `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:10px;">${t("loading") || "..."}</p>`;
+  try {
+    const res = await fetch(`${API_BASE}/events/${ticker}`);
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    const events = data.events || [];
+    if (!events.length) {
+      container.innerHTML = `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:10px;">${t("events_no_data")}</p>`;
+      return;
+    }
+    const now = new Date().toISOString().slice(0,10);
+    const upcoming = events.filter(e => e.date >= now);
+    const past = events.filter(e => e.date < now);
+    
+    const typeIcon = {
+      earnings: "ti-report-money",
+      dividend: "ti-coin",
+      past_earnings: "ti-chart-bar",
+      calendar: "ti-calendar-event"
+    };
+    const typeColor = {
+      earnings: "#a78bfa",
+      dividend: "#34d399",
+      past_earnings: "#60a5fa",
+      calendar: "#fbbf24"
+    };
+    const typeLabel = {
+      earnings: t("events_earnings"),
+      dividend: t("events_dividend"),
+      past_earnings: t("events_past") + " Q",
+      calendar: "Calendar"
+    };
+
+    let html = "";
+    if (upcoming.length) {
+      html += `<p style="font-size:11px; font-weight:600; color:var(--accent); margin:0 0 6px;">${t("events_upcoming")}</p>`;
+      upcoming.forEach(e => {
+        html += `<div style="display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:0.5px solid var(--border);">
+          <i class="ti ${typeIcon[e.type] || 'ti-calendar'}" style="font-size:16px; color:${typeColor[e.type] || '#888'}; flex-shrink:0; margin-top:1px;"></i>
+          <div>
+            <p style="font-size:12px; font-weight:500; color:var(--text); margin:0;">${typeLabel[e.type] || e.label}</p>
+            <p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${e.date}${e.detail ? " · " + e.detail : ""}</p>
+          </div>
+        </div>`;
+      });
+    }
+    if (past.length) {
+      html += `<p style="font-size:11px; font-weight:600; color:var(--text-dimmer); margin:10px 0 6px;">${t("events_past")}</p>`;
+      past.slice(0,4).forEach(e => {
+        html += `<div style="display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:0.5px solid var(--border);">
+          <i class="ti ${typeIcon[e.type] || 'ti-calendar'}" style="font-size:16px; color:${typeColor[e.type] || '#888'}; opacity:0.6; flex-shrink:0; margin-top:1px;"></i>
+          <div>
+            <p style="font-size:12px; color:var(--text-dimmer); margin:0;">${typeLabel[e.type] || e.label}</p>
+            <p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0; opacity:0.7;">${e.date}${e.detail ? " · " + e.detail : ""}</p>
+          </div>
+        </div>`;
+      });
+    }
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:10px;">${t("events_no_data")}</p>`;
   }
 }
 
@@ -1970,13 +2445,36 @@ async function loadTickerSignals(ticker) {
   }
 }
 
+const METRIC_BACKEND_MAP = {
+  "pe_ratio": "pe_ratio",
+  "peg_ratio": "peg_ratio",
+  "gross_margin": "gross_margin",
+  "operating_margin": "operating_margin",
+  "net_margin": "net_margin",
+  "cost_of_revenue": "revenue",
+  "moat": "gross_margin",
+  "current_ratio": "current_ratio",
+  "debt_to_equity": "debt_equity",
+  "liabilities_to_equity": "liab_equity",
+  "cash_position": "cash_position",
+  "operating_cash_flow": "operating_cf",
+  "free_cash_flow": "free_cf",
+  "cash_runway": "free_cf",
+  "dividend": "revenue",
+  "eps": "eps",
+  "revenue": "revenue",
+  "net_income": "net_income",
+};
+
 function renderMetricTile(key, metric) {
   if ((metric.value === null || metric.value === undefined) && key !== "dividend") return "";
   const display = metricValueDisplay(key, metric);
   const cls = noteClass(metric.score);
+  const backendKey = METRIC_BACKEND_MAP[key] || key;
+  const ticker = lastAnalysisData ? lastAnalysisData.ticker : "";
   return `
-    <div class="metric-tile">
-      <p class="m-label ltr">${metric.label}</p>
+    <div class="metric-tile" onclick="openMetricHistory('${ticker}', '${backendKey}', '${metric.label}')" style="cursor:pointer; transition:opacity .15s;" onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'">
+      <p class="m-label ltr">${metric.label} <i class="ti ti-chart-bar" style="font-size:9px; opacity:0.4;"></i></p>
       <p class="m-value ltr">${display}</p>
       <p class="m-note ${cls}">${metric.explanation}</p>
     </div>`;
