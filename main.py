@@ -256,7 +256,9 @@ def analyze(ticker: str, lang: str = "he"):
 
     # היסטוריה בסיסית של מדדים נפוצים – מהירה יותר מבקשות נפרדות
     try:
-        fin = data.get("income")
+        import yfinance as yf
+        _stk = yf.Ticker(ticker)
+        fin = _get_quarterly_income(_stk)
         if fin is not None and not fin.empty:
             def quick_series(df, f1, f2=None, pct=False):
                 rows = []
@@ -283,6 +285,54 @@ def analyze(ticker: str, lang: str = "he"):
     _cache_set(cache_key, result, CACHE_TTL["stock"])
     return result
 
+
+def _get_quarterly_income(stock):
+    for attr in ["quarterly_income_stmt", "quarterly_financials", "quarterly_incomestmt"]:
+        try:
+            df = getattr(stock, attr)
+            if df is not None and not df.empty: return df
+        except: pass
+    return None
+
+def _get_annual_income(stock):
+    for attr in ["income_stmt", "financials", "incomestmt"]:
+        try:
+            df = getattr(stock, attr)
+            if df is not None and not df.empty: return df
+        except: pass
+    return None
+
+def _get_quarterly_balance(stock):
+    for attr in ["quarterly_balance_sheet", "quarterly_balancesheet"]:
+        try:
+            df = getattr(stock, attr)
+            if df is not None and not df.empty: return df
+        except: pass
+    return None
+
+def _get_annual_balance(stock):
+    for attr in ["balance_sheet", "balancesheet"]:
+        try:
+            df = getattr(stock, attr)
+            if df is not None and not df.empty: return df
+        except: pass
+    return None
+
+def _get_quarterly_cashflow(stock):
+    for attr in ["quarterly_cash_flow", "quarterly_cashflow"]:
+        try:
+            df = getattr(stock, attr)
+            if df is not None and not df.empty: return df
+        except: pass
+    return None
+
+def _get_annual_cashflow(stock):
+    for attr in ["cash_flow", "cashflow"]:
+        try:
+            df = getattr(stock, attr)
+            if df is not None and not df.empty: return df
+        except: pass
+    return None
 
 @app.get("/metric-history/{ticker}/{metric}")
 def metric_history(ticker: str, metric: str):
@@ -328,7 +378,7 @@ def metric_history(ticker: str, metric: str):
             # P/E ו-PEG – חישוב מהיסטוריית מחיר + EPS רבעוני
             try:
                 hist = stock.history(period="5y")
-                eps_df = stock.quarterly_financials
+                eps_df = _get_quarterly_income(stock)
                 if hist is not None and not hist.empty and eps_df is not None and not eps_df.empty:
                     import pandas as pd
                     # EPS שנתי גלגלי (TTM) לכל תאריך
@@ -392,14 +442,14 @@ def metric_history(ticker: str, metric: str):
 
             try:
                 if source == "income":
-                    result_data["quarterly"] = extract_series(stock.quarterly_financials, field1, field2, calc, "Q")
-                    result_data["annual"] = extract_series(stock.financials, field1, field2, calc, "A")
+                    result_data["quarterly"] = extract_series(_get_quarterly_income(stock), field1, field2, calc, "Q")
+                    result_data["annual"] = extract_series(_get_annual_income(stock), field1, field2, calc, "A")
                 elif source == "balance":
-                    result_data["quarterly"] = extract_series(stock.quarterly_balance_sheet, field1, field2, calc, "Q")
-                    result_data["annual"] = extract_series(stock.balance_sheet, field1, field2, calc, "A")
+                    result_data["quarterly"] = extract_series(_get_quarterly_balance(stock), field1, field2, calc, "Q")
+                    result_data["annual"] = extract_series(_get_annual_balance(stock), field1, field2, calc, "A")
                 elif source == "cashflow":
-                    result_data["quarterly"] = extract_series(stock.quarterly_cashflow, field1, field2, calc, "Q")
-                    result_data["annual"] = extract_series(stock.cashflow, field1, field2, calc, "A")
+                    result_data["quarterly"] = extract_series(_get_quarterly_cashflow(stock), field1, field2, calc, "Q")
+                    result_data["annual"] = extract_series(_get_annual_cashflow(stock), field1, field2, calc, "A")
             except Exception:
                 pass
 
@@ -493,7 +543,7 @@ def ticker_events(ticker: str):
 
         # דוחות כספיים אחרונים מהיסטוריה רבעונית
         try:
-            fin = stock.quarterly_financials
+            fin = _get_quarterly_income(stock)
             if fin is not None and not fin.empty:
                 for col in fin.columns[:4]:
                     try:
@@ -559,12 +609,12 @@ def ticker_financials(ticker: str):
 
         result = {
             "ticker": ticker.upper(),
-            "income_quarterly":  df_to_table(stock.quarterly_financials),
-            "income_annual":     df_to_table(stock.financials),
-            "balance_quarterly": df_to_table(stock.quarterly_balance_sheet),
-            "balance_annual":    df_to_table(stock.balance_sheet),
-            "cashflow_quarterly":df_to_table(stock.quarterly_cashflow),
-            "cashflow_annual":   df_to_table(stock.cashflow),
+            "income_quarterly":  df_to_table(_get_quarterly_income(stock)),
+            "income_annual":     df_to_table(_get_annual_income(stock)),
+            "balance_quarterly": df_to_table(_get_quarterly_balance(stock)),
+            "balance_annual":    df_to_table(_get_annual_balance(stock)),
+            "cashflow_quarterly":df_to_table(_get_quarterly_cashflow(stock)),
+            "cashflow_annual":   df_to_table(_get_annual_cashflow(stock)),
         }
 
         _cache_set(cache_key, result, CACHE_TTL["stock"])
