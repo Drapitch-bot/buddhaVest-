@@ -1041,10 +1041,17 @@ async function openMetricHistory(ticker, metricKey, titleOverride) {
   document.getElementById("metricPriceNote").style.display = "none";
   document.getElementById("metricNoData").style.display = "none";
   document.getElementById("metricChartWrap").style.display = "block";
+  // הצג spinner בזמן טעינה
+  const canvas = document.getElementById("metricCanvas");
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   document.getElementById("btnQuarterly").classList.add("active");
   document.getElementById("btnAnnual").classList.remove("active");
   setActiveScreen("screen-metric-history", null, null);
-  document.getElementById("metricHistoryBack").onclick = () => setActiveScreen("screen-analysis", "nav-search", "");
+  document.getElementById("metricHistoryBack").onclick = () => {
+    setActiveScreen("screen-analysis", "nav-search", "");
+    if (lastAnalysisData) renderResult(lastAnalysisData);
+  };
 
   try {
     const cacheKey = `${ticker}_${metricKey}`;
@@ -1927,6 +1934,16 @@ async function analyzeTicker(rawInput) {
     }
     const data = await res.json();
     lastAnalysisData = data;
+    // שמור inline_history ב-cache מיד – גרפים יהיו מיידיים
+    if (data.inline_history) {
+      const t0 = data.ticker || ticker;
+      Object.entries(data.inline_history).forEach(([metric, series]) => {
+        _metricCache[`${t0}_${metric}`] = {
+          ticker: t0, metric: metric, use_price: false,
+          quarterly: series, annual: series.filter((_, i) => i % 4 === 0)
+        };
+      });
+    }
     renderResult(data);
     loadTickerNews(ticker);
     loadTickerEvents(ticker);

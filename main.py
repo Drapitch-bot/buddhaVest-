@@ -254,6 +254,32 @@ def analyze(ticker: str, lang: str = "he"):
     except Exception:
         result["usd_ils"] = None
 
+    # היסטוריה בסיסית של מדדים נפוצים – מהירה יותר מבקשות נפרדות
+    try:
+        fin = data.get("income")
+        if fin is not None and not fin.empty:
+            def quick_series(df, f1, f2=None, pct=False):
+                rows = []
+                for col in df.columns:
+                    try:
+                        v1 = float(df.loc[f1, col]) if f1 in df.index else None
+                        v2 = float(df.loc[f2, col]) if f2 and f2 in df.index else None
+                        if v1 is None: continue
+                        val = round(v1/v2*100,2) if pct and v2 else round(v1,2)
+                        rows.append({"date": col.strftime("%b %Y") if hasattr(col,"strftime") else str(col)[:7], "value": val})
+                    except: continue
+                return list(reversed(rows))
+            result["inline_history"] = {
+                "gross_margin":     quick_series(fin, "Gross Profit", "Revenue", pct=True),
+                "operating_margin": quick_series(fin, "Operating Income", "Revenue", pct=True),
+                "net_margin":       quick_series(fin, "Net Income", "Revenue", pct=True),
+                "revenue":          quick_series(fin, "Revenue"),
+                "net_income":       quick_series(fin, "Net Income"),
+                "eps":              quick_series(fin, "Diluted EPS"),
+            }
+    except Exception:
+        result["inline_history"] = {}
+
     _cache_set(cache_key, result, CACHE_TTL["stock"])
     return result
 
