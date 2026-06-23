@@ -260,14 +260,30 @@ def analyze(ticker: str, lang: str = "he"):
         _stk = yf.Ticker(ticker)
         fin = _get_quarterly_income(_stk)
         if fin is not None and not fin.empty:
+            # שמות שורות אפשריים בגרסאות שונות של yfinance
+            ROW_ALIASES = {
+                "Revenue":          ["Total Revenue", "Revenue", "TotalRevenue"],
+                "Gross Profit":     ["Gross Profit", "GrossProfit"],
+                "Operating Income": ["Operating Income", "EBIT", "OperatingIncome"],
+                "Net Income":       ["Net Income", "NetIncome", "Net Income Common Stockholders"],
+                "Diluted EPS":      ["Diluted EPS", "DilutedEPS", "Basic EPS"],
+            }
+            def find_row(df, name):
+                for alias in ROW_ALIASES.get(name, [name]):
+                    if alias in df.index:
+                        return alias
+                return None
+
             def quick_series(df, f1, f2=None, pct=False):
+                r1 = find_row(df, f1)
+                r2 = find_row(df, f2) if f2 else None
+                if not r1: return []
                 rows = []
                 for col in df.columns:
                     try:
-                        v1 = float(df.loc[f1, col]) if f1 in df.index else None
-                        v2 = float(df.loc[f2, col]) if f2 and f2 in df.index else None
-                        if v1 is None: continue
-                        val = round(v1/v2*100,2) if pct and v2 else round(v1,2)
+                        v1 = float(df.loc[r1, col])
+                        v2 = float(df.loc[r2, col]) if r2 else None
+                        val = round(v1/v2*100,2) if pct and v2 and v2 != 0 else round(v1,2)
                         rows.append({"date": col.strftime("%b %Y") if hasattr(col,"strftime") else str(col)[:7], "value": val})
                     except: continue
                 return list(reversed(rows))
@@ -334,6 +350,28 @@ def _get_annual_cashflow(stock):
         except: pass
     return None
 
+@app.get("/debug-rows/{ticker}")
+def debug_rows(ticker: str):
+    """מחזיר את שמות השורות האמיתיים מ-yfinance"""
+    try:
+        import yfinance as yf
+        stock = yf.Ticker(ticker)
+        result = {}
+        for attr in ["quarterly_income_stmt", "quarterly_financials", "income_stmt", "financials",
+                     "quarterly_balance_sheet", "balance_sheet",
+                     "quarterly_cash_flow", "quarterly_cashflow", "cash_flow", "cashflow"]:
+            try:
+                df = getattr(stock, attr)
+                if df is not None and not df.empty:
+                    result[attr] = list(df.index)
+                else:
+                    result[attr] = "empty"
+            except Exception as e:
+                result[attr] = f"error: {str(e)}"
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/metric-history/{ticker}/{metric}")
 def metric_history(ticker: str, metric: str):
     """מחזיר היסטוריה של מדד פיננסי ספציפי ל-5 שנים רבעונית/שנתית"""
@@ -348,6 +386,34 @@ def metric_history(ticker: str, metric: str):
         stock = yf.Ticker(ticker)
 
         # מיפוי מדדים לשדות ב-yfinance
+        # שמות שורות אפשריים בגרסאות שונות של yfinance
+        ROW_ALIASES = {
+            "Revenue":                    ["Total Revenue", "Revenue", "TotalRevenue"],
+            "Gross Profit":               ["Gross Profit", "GrossProfit"],
+            "Operating Income":           ["Operating Income", "EBIT", "OperatingIncome"],
+            "Net Income":                 ["Net Income", "NetIncome", "Net Income Common Stockholders"],
+            "Diluted EPS":                ["Diluted EPS", "DilutedEPS", "Basic EPS"],
+            "Total Debt":                 ["Total Debt", "TotalDebt", "Long Term Debt"],
+            "Stockholders Equity":        ["Stockholders Equity", "StockholdersEquity", "Common Stock Equity"],
+            "Current Assets":             ["Current Assets", "CurrentAssets"],
+            "Current Liabilities":        ["Current Liabilities", "CurrentLiabilities"],
+            "Total Liabilities Net Minority Interest": ["Total Liabilities Net Minority Interest", "Total Liabilities", "TotalLiabilities"],
+            "Cash And Cash Equivalents":  ["Cash And Cash Equivalents", "CashAndCashEquivalents", "Cash"],
+            "Operating Cash Flow":        ["Operating Cash Flow", "OperatingCashFlow", "Cash Flow From Continuing Operating Activities"],
+            "Free Cash Flow":             ["Free Cash Flow", "FreeCashFlow"],
+        }
+
+        def find_row(df, name):
+            for alias in ROW_ALIASES.get(name, [name]):
+                if alias in df.index:
+                    return alias
+            # חיפוש חלקי
+            name_lower = name.lower()
+            for idx in df.index:
+                if name_lower in str(idx).lower():
+                    return idx
+            return None
+
         METRIC_MAP = {
             # Income statement
             "gross_margin":     ("income", "Gross Profit", "Revenue", "pct"),
@@ -420,11 +486,14 @@ def metric_history(ticker: str, metric: str):
             def extract_series(df, f1, f2, calc_type, period_type):
                 if df is None or df.empty:
                     return []
+                r1 = find_row(df, f1)
+                r2 = find_row(df, f2) if f2 else None
+                if not r1: return []
                 rows = []
                 for col in df.columns:
                     try:
-                        v1 = df.loc[f1, col] if f1 in df.index else None
-                        v2 = df.loc[f2, col] if f2 and f2 in df.index else None
+                        v1 = df.loc[r1, col] if r1 else None
+                        v2 = df.loc[r2, col] if r2 else None
                         if v1 is None or (f2 and v2 is None):
                             continue
                         if calc_type == "pct":

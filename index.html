@@ -1049,7 +1049,7 @@ async function openMetricHistory(ticker, metricKey, titleOverride) {
   document.getElementById("btnAnnual").classList.remove("active");
   setActiveScreen("screen-metric-history", null, null);
   document.getElementById("metricHistoryBack").onclick = () => {
-    setActiveScreen("screen-analysis", "nav-search", "");
+    setActiveScreen("screen-search", "nav-search", "");
     if (lastAnalysisData) renderResult(lastAnalysisData);
   };
 
