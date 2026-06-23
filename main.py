@@ -278,12 +278,22 @@ def analyze(ticker: str, lang: str = "he"):
                 r1 = find_row(df, f1)
                 r2 = find_row(df, f2) if f2 else None
                 if not r1: return []
+                import math
                 rows = []
                 for col in df.columns:
                     try:
-                        v1 = float(df.loc[r1, col])
-                        v2 = float(df.loc[r2, col]) if r2 else None
-                        val = round(v1/v2*100,2) if pct and v2 and v2 != 0 else round(v1,2)
+                        raw1 = df.loc[r1, col]
+                        raw2 = df.loc[r2, col] if r2 else None
+                        if raw1 is None or (isinstance(raw1, float) and math.isnan(raw1)): continue
+                        if r2 and (raw2 is None or (isinstance(raw2, float) and math.isnan(raw2))): continue
+                        v1 = float(raw1)
+                        v2 = float(raw2) if raw2 is not None else None
+                        if pct:
+                            if not v2 or v2 == 0: continue
+                            val = round(v1/v2*100, 2)
+                        else:
+                            val = round(v1, 4)
+                        if math.isnan(val) or math.isinf(val): continue
                         rows.append({"date": col.strftime("%b %Y") if hasattr(col,"strftime") else str(col)[:7], "value": val})
                     except: continue
                 return list(reversed(rows))
@@ -519,15 +529,17 @@ def metric_history(ticker: str, metric: str):
                             price_monthly.index = price_monthly.index.tz_localize(None)
                         series = []
                         for date, price in price_monthly.items():
-                            # TTM EPS = סכום 4 רבעונים אחרונים
                             past_eps = eps_q[eps_q.index <= date].tail(4)
                             if len(past_eps) < 4:
                                 continue
-                            ttm_eps = past_eps.sum()
-                            if not ttm_eps or ttm_eps == 0:
+                            # סנן nulls
+                            valid_eps = past_eps.dropna()
+                            if len(valid_eps) < 4:
                                 continue
-                            pe = round(float(price) / float(ttm_eps), 2)
-                            # P/E שלילי לא משמעותי – מדלג
+                            ttm_eps = float(valid_eps.sum())
+                            if ttm_eps == 0:
+                                continue
+                            pe = round(float(price) / ttm_eps, 2)
                             if pe <= 0 or pe > 2000:
                                 continue
                             if metric == "pe_ratio":
@@ -536,10 +548,13 @@ def metric_history(ticker: str, metric: str):
                                 older = eps_q[eps_q.index <= date - pd.DateOffset(years=1)].tail(4)
                                 if len(older) < 4:
                                     continue
-                                old_ttm = older.sum()
-                                if not old_ttm or old_ttm == 0:
+                                valid_older = older.dropna()
+                                if len(valid_older) < 4:
                                     continue
-                                growth = ((float(ttm_eps) - float(old_ttm)) / abs(float(old_ttm))) * 100
+                                old_ttm = float(valid_older.sum())
+                                if old_ttm == 0:
+                                    continue
+                                growth = ((ttm_eps - old_ttm) / abs(old_ttm)) * 100
                                 if growth <= 0:
                                     continue
                                 peg = round(pe / growth, 3)
@@ -559,23 +574,41 @@ def metric_history(ticker: str, metric: str):
                     return []
                 r1 = find_row(df, f1)
                 r2 = find_row(df, f2) if f2 else None
-                if not r1: return []
+                if not r1:
+                    return []
                 rows = []
                 for col in df.columns:
                     try:
-                        v1 = df.loc[r1, col] if r1 else None
-                        v2 = df.loc[r2, col] if r2 else None
-                        if v1 is None or (f2 and v2 is None):
+                        raw1 = df.loc[r1, col]
+                        raw2 = df.loc[r2, col] if r2 else None
+
+                        # דלג על nulls
+                        import math
+                        if raw1 is None or (isinstance(raw1, float) and math.isnan(raw1)):
                             continue
+                        if r2 and (raw2 is None or (isinstance(raw2, float) and math.isnan(raw2))):
+                            continue
+
+                        v1 = float(raw1)
+                        v2 = float(raw2) if raw2 is not None else None
+
                         if calc_type == "pct":
-                            val = round(float(v1) / float(v2) * 100, 2) if v2 and float(v2) != 0 else None
+                            if v2 is None or v2 == 0:
+                                continue
+                            val = round(v1 / v2 * 100, 2)
                         elif calc_type == "ratio":
-                            val = round(float(v1) / float(v2), 3) if v2 and float(v2) != 0 else None
+                            if v2 is None or v2 == 0:
+                                continue
+                            val = round(v1 / v2, 3)
                         else:
-                            val = float(v1)
-                        if val is not None:
-                            date_str = col.strftime("%b %Y") if hasattr(col, "strftime") else str(col)[:7]
-                            rows.append({"date": date_str, "value": val})
+                            val = round(v1, 4)
+
+                        # דלג על ערכים קיצוניים / לא הגיוניים
+                        if math.isnan(val) or math.isinf(val):
+                            continue
+
+                        date_str = col.strftime("%b %Y") if hasattr(col, "strftime") else str(col)[:7]
+                        rows.append({"date": date_str, "value": val})
                     except Exception:
                         continue
                 return list(reversed(rows))
@@ -599,10 +632,12 @@ def metric_history(ticker: str, metric: str):
         if result_data["use_price"]:
             hist = stock.history(period="max")
             if hist is not None and not hist.empty:
+                import math
                 close = hist["Close"].resample("ME").last().dropna()
                 result_data["price_history"] = [
                     {"date": d.strftime("%b %Y"), "value": round(float(v), 2)}
                     for d, v in zip(close.index, close.values)
+                    if v is not None and not math.isnan(float(v))
                 ]
             else:
                 result_data["price_history"] = []
