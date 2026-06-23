@@ -1167,7 +1167,11 @@ function renderMetricChart() {
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     ctx.font = "9px sans-serif";
     ctx.textAlign = "right";
-    const label = Math.abs(val) >= 1e9 ? (val/1e9).toFixed(1)+"B" : Math.abs(val) >= 1e6 ? (val/1e6).toFixed(1)+"M" : val.toFixed(1);
+    // מספר ספרות דינמי לפי הטווח – מונע כפילויות
+    const decimals = range < 0.1 ? 3 : range < 1 ? 2 : range < 10 ? 1 : 0;
+    const label = Math.abs(val) >= 1e9 ? (val/1e9).toFixed(1)+"B"
+                : Math.abs(val) >= 1e6 ? (val/1e6).toFixed(1)+"M"
+                : val.toFixed(decimals);
     ctx.fillText(label, PAD.left - 4, y + 3);
   }
 
@@ -1245,7 +1249,10 @@ function renderMetricChart() {
       ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
       const val = maxV - i * range / 4;
       ctx.fillStyle = "rgba(255,255,255,0.35)"; ctx.font = "9px sans-serif"; ctx.textAlign = "right";
-      const label = Math.abs(val) >= 1e9 ? (val/1e9).toFixed(1)+"B" : Math.abs(val) >= 1e6 ? (val/1e6).toFixed(1)+"M" : val.toFixed(1);
+      const decimals2 = range < 0.1 ? 3 : range < 1 ? 2 : range < 10 ? 1 : 0;
+      const label = Math.abs(val) >= 1e9 ? (val/1e9).toFixed(1)+"B"
+                  : Math.abs(val) >= 1e6 ? (val/1e6).toFixed(1)+"M"
+                  : val.toFixed(decimals2);
       ctx.fillText(label, PAD.left - 4, y + 3);
     }
     ctx.beginPath();

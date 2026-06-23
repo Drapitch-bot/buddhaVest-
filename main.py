@@ -260,13 +260,13 @@ def analyze(ticker: str, lang: str = "he"):
         _stk = yf.Ticker(ticker)
         fin = _get_quarterly_income(_stk)
         if fin is not None and not fin.empty:
-            # שמות שורות אפשריים בגרסאות שונות של yfinance
+            # שמות שורות מאומתים
             ROW_ALIASES = {
-                "Revenue":          ["Total Revenue", "Revenue", "TotalRevenue"],
-                "Gross Profit":     ["Gross Profit", "GrossProfit"],
-                "Operating Income": ["Operating Income", "EBIT", "OperatingIncome"],
-                "Net Income":       ["Net Income", "NetIncome", "Net Income Common Stockholders"],
-                "Diluted EPS":      ["Diluted EPS", "DilutedEPS", "Basic EPS"],
+                "Revenue":          ["Total Revenue", "Operating Revenue"],
+                "Gross Profit":     ["Gross Profit"],
+                "Operating Income": ["Operating Income", "EBIT"],
+                "Net Income":       ["Net Income", "Net Income Common Stockholders"],
+                "Diluted EPS":      ["Diluted EPS", "Basic EPS"],
             }
             def find_row(df, name):
                 for alias in ROW_ALIASES.get(name, [name]):
@@ -386,21 +386,21 @@ def metric_history(ticker: str, metric: str):
         stock = yf.Ticker(ticker)
 
         # מיפוי מדדים לשדות ב-yfinance
-        # שמות שורות אפשריים בגרסאות שונות של yfinance
+        # שמות שורות מאומתים מ-yfinance האמיתי
         ROW_ALIASES = {
-            "Revenue":                    ["Total Revenue", "Revenue", "TotalRevenue"],
-            "Gross Profit":               ["Gross Profit", "GrossProfit"],
-            "Operating Income":           ["Operating Income", "EBIT", "OperatingIncome"],
-            "Net Income":                 ["Net Income", "NetIncome", "Net Income Common Stockholders"],
-            "Diluted EPS":                ["Diluted EPS", "DilutedEPS", "Basic EPS"],
-            "Total Debt":                 ["Total Debt", "TotalDebt", "Long Term Debt"],
-            "Stockholders Equity":        ["Stockholders Equity", "StockholdersEquity", "Common Stock Equity"],
-            "Current Assets":             ["Current Assets", "CurrentAssets"],
-            "Current Liabilities":        ["Current Liabilities", "CurrentLiabilities"],
-            "Total Liabilities Net Minority Interest": ["Total Liabilities Net Minority Interest", "Total Liabilities", "TotalLiabilities"],
-            "Cash And Cash Equivalents":  ["Cash And Cash Equivalents", "CashAndCashEquivalents", "Cash"],
-            "Operating Cash Flow":        ["Operating Cash Flow", "OperatingCashFlow", "Cash Flow From Continuing Operating Activities"],
-            "Free Cash Flow":             ["Free Cash Flow", "FreeCashFlow"],
+            "Revenue":          ["Total Revenue", "Operating Revenue"],
+            "Gross Profit":     ["Gross Profit"],
+            "Operating Income": ["Operating Income", "EBIT"],
+            "Net Income":       ["Net Income", "Net Income Common Stockholders", "Net Income From Continuing Operation Net Minority Interest"],
+            "Diluted EPS":      ["Diluted EPS", "Basic EPS"],
+            "Total Debt":       ["Total Debt", "Long Term Debt And Capital Lease Obligation"],
+            "Stockholders Equity": ["Stockholders Equity", "Common Stock Equity"],
+            "Current Assets":   ["Current Assets"],
+            "Current Liabilities": ["Current Liabilities"],
+            "Total Liabilities Net Minority Interest": ["Total Liabilities Net Minority Interest"],
+            "Cash And Cash Equivalents": ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"],
+            "Operating Cash Flow": ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"],
+            "Free Cash Flow":   ["Free Cash Flow"],
         }
 
         def find_row(df, name):
