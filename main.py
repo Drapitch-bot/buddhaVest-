@@ -350,6 +350,61 @@ def _get_annual_cashflow(stock):
         except: pass
     return None
 
+@app.get("/debug-pe/{ticker}")
+def debug_pe(ticker: str):
+    """בדיקת חישוב PE היסטורי"""
+    try:
+        import yfinance as yf
+        import pandas as pd
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="5y")
+        eps_df = _get_quarterly_income(stock)
+        
+        result = {
+            "hist_rows": len(hist) if hist is not None else 0,
+            "eps_df_empty": eps_df is None or eps_df.empty,
+            "eps_index": [],
+            "eps_values": [],
+            "sample_pe": []
+        }
+        
+        if eps_df is not None and not eps_df.empty:
+            eps_q = None
+            for key in ["Diluted EPS", "Basic EPS"]:
+                if key in eps_df.index:
+                    eps_q = eps_df.loc[key].sort_index()
+                    result["eps_key_used"] = key
+                    break
+            
+            if eps_q is not None:
+                if hasattr(eps_q.index, 'tz') and eps_q.index.tz is not None:
+                    eps_q.index = eps_q.index.tz_localize(None)
+                
+                result["eps_index"] = [str(i)[:10] for i in eps_q.index[-8:]]
+                result["eps_values"] = [round(float(v), 4) if v is not None else None for v in eps_q.values[-8:]]
+                
+                price_monthly = hist["Close"].resample("ME").last()
+                if hasattr(price_monthly.index, 'tz') and price_monthly.index.tz is not None:
+                    price_monthly.index = price_monthly.index.tz_localize(None)
+                
+                count = 0
+                for date, price in list(price_monthly.items())[-12:]:
+                    past_eps = eps_q[eps_q.index <= date].tail(4)
+                    ttm = float(past_eps.sum()) if len(past_eps) == 4 else None
+                    pe = round(float(price)/ttm, 2) if ttm and ttm != 0 else None
+                    result["sample_pe"].append({
+                        "date": date.strftime("%b %Y"),
+                        "price": round(float(price), 2),
+                        "ttm_eps": round(ttm, 4) if ttm else None,
+                        "eps_count": len(past_eps),
+                        "pe": pe
+                    })
+        
+        return result
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "trace": traceback.format_exc()}
+
 @app.get("/debug-rows/{ticker}")
 def debug_rows(ticker: str):
     """מחזיר את שמות השורות האמיתיים מ-yfinance"""
@@ -454,30 +509,46 @@ def metric_history(ticker: str, metric: str):
                             eps_q = eps_df.loc[key].sort_index()
                             break
                     if eps_q is not None:
+                        # yfinance מחזיר מהחדש לישן – הופכים
+                        eps_q = eps_q.sort_index()
+                        # וודא שאין timezone mismatch
+                        if hasattr(eps_q.index, 'tz') and eps_q.index.tz is not None:
+                            eps_q.index = eps_q.index.tz_localize(None)
                         price_monthly = hist["Close"].resample("ME").last()
+                        if hasattr(price_monthly.index, 'tz') and price_monthly.index.tz is not None:
+                            price_monthly.index = price_monthly.index.tz_localize(None)
                         series = []
                         for date, price in price_monthly.items():
                             # TTM EPS = סכום 4 רבעונים אחרונים
                             past_eps = eps_q[eps_q.index <= date].tail(4)
-                            if len(past_eps) == 4:
-                                ttm_eps = past_eps.sum()
-                                if ttm_eps and ttm_eps > 0:
-                                    pe = round(price / ttm_eps, 2)
-                                    if metric == "pe_ratio":
-                                        series.append({"date": date.strftime("%b %Y"), "value": pe})
-                                    elif metric == "peg_ratio":
-                                        # PEG = P/E / growth rate
-                                        # growth = שינוי EPS YoY
-                                        older = eps_q[eps_q.index <= date - pd.DateOffset(years=1)].tail(4)
-                                        if len(older) == 4:
-                                            old_ttm = older.sum()
-                                            if old_ttm and old_ttm > 0:
-                                                growth = ((ttm_eps - old_ttm) / old_ttm) * 100
-                                                if growth > 0:
-                                                    peg = round(pe / growth, 3)
-                                                    series.append({"date": date.strftime("%b %Y"), "value": peg})
+                            if len(past_eps) < 4:
+                                continue
+                            ttm_eps = past_eps.sum()
+                            if not ttm_eps or ttm_eps == 0:
+                                continue
+                            pe = round(float(price) / float(ttm_eps), 2)
+                            # P/E שלילי לא משמעותי – מדלג
+                            if pe <= 0 or pe > 2000:
+                                continue
+                            if metric == "pe_ratio":
+                                series.append({"date": date.strftime("%b %Y"), "value": pe})
+                            elif metric == "peg_ratio":
+                                older = eps_q[eps_q.index <= date - pd.DateOffset(years=1)].tail(4)
+                                if len(older) < 4:
+                                    continue
+                                old_ttm = older.sum()
+                                if not old_ttm or old_ttm == 0:
+                                    continue
+                                growth = ((float(ttm_eps) - float(old_ttm)) / abs(float(old_ttm))) * 100
+                                if growth <= 0:
+                                    continue
+                                peg = round(pe / growth, 3)
+                                if 0 < peg < 100:
+                                    series.append({"date": date.strftime("%b %Y"), "value": peg})
                         result_data["quarterly"] = series
                         result_data["annual"] = series[::12] if len(series) > 12 else series
+                        if not series:
+                            result_data["use_price"] = True
             except Exception as e:
                 result_data["use_price"] = True
         else:
