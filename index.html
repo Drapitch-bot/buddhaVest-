@@ -779,6 +779,19 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "metric_source_moat":    {"he": "חישוב שלנו – מודד יציבות המרווח הגולמי לאורך זמן", "en": "Our calculation – measures gross margin stability over time", "ru": "Наш расчёт – измеряет стабильность валовой маржи со временем", "es": "Cálculo propio – mide la estabilidad del margen bruto a lo largo del tiempo"},
 "metric_source_pe":      {"he": "חישוב שלנו – מחיר מניה חלקי רווח למניה (TTM)", "en": "Our calculation – stock price divided by earnings per share (TTM)", "ru": "Наш расчёт – цена акции делённая на прибыль на акцию (TTM)", "es": "Cálculo propio – precio de la acción dividido entre el beneficio por acción (TTM)"},
 "metric_source_peg":     {"he": "חישוב שלנו – P/E חלקי קצב הצמיחה השנתי של הרווח", "en": "Our calculation – P/E divided by the annual earnings growth rate", "ru": "Наш расчёт – P/E делённое на годовой темп роста прибыли", "es": "Cálculo propio – PER dividido entre la tasa de crecimiento anual de beneficios"},
+"etf_info_title":      {"he": "פרטי הקרן", "en": "Fund Details", "ru": "Сведения о фонде", "es": "Detalles del fondo"},
+"etf_family":          {"he": "חברת ניהול", "en": "Fund Family", "ru": "Управляющая компания", "es": "Gestora del fondo"},
+"etf_category":        {"he": "קטגוריה", "en": "Category", "ru": "Категория", "es": "Categoría"},
+"etf_assets":          {"he": "נכסים מנוהלים", "en": "Total Assets", "ru": "Активы под управлением", "es": "Activos totales"},
+"etf_expense":         {"he": "דמי ניהול שנתיים", "en": "Expense Ratio", "ru": "Коэффициент расходов", "es": "Comisión de gestión"},
+"etf_yield":           {"he": "תשואת דיבידנד", "en": "Distribution Yield", "ru": "Доходность дивидендов", "es": "Rendimiento de distribución"},
+"etf_ytd":             {"he": "תשואה מתחילת השנה", "en": "YTD Return", "ru": "Доходность с начала года", "es": "Rentabilidad en el año"},
+"etf_1y":              {"he": "תשואה שנה אחרונה", "en": "1-Year Return", "ru": "Доходность за 1 год", "es": "Rentabilidad a 1 año"},
+"etf_3y":              {"he": "תשואה ממוצעת 3 שנים", "en": "3-Year Avg Return", "ru": "Средняя доходность за 3 года", "es": "Rentabilidad media a 3 años"},
+"etf_5y":              {"he": "תשואה ממוצעת 5 שנים", "en": "5-Year Avg Return", "ru": "Средняя доходность за 5 лет", "es": "Rentabilidad media a 5 años"},
+"etf_beta":            {"he": "בטא", "en": "Beta", "ru": "Бета", "es": "Beta"},
+"etf_holdings":        {"he": "אחזקות מובילות", "en": "Top Holdings", "ru": "Основные активы", "es": "Principales posiciones"},
+"etf_no_financials":   {"he": "זוהי קרן סל (ETF) – אין דוחות כספיים כמו לחברות. ראה פרטי הקרן למעלה.", "en": "This is an ETF – no financial statements like companies. See fund details above.", "ru": "Это ETF – нет финансовой отчётности как у компаний. См. сведения о фонде выше.", "es": "Este es un ETF – no tiene estados financieros como las empresas. Ver detalles del fondo arriba."},
 "forward_pe_label":    {"he": "P/E קדימה", "en": "Forward P/E", "ru": "Форвардный P/E", "es": "PER futuro"},
 "forward_pe_note":     {"he": "מכפיל רווח מבוסס תחזיות עתידיות – מדויק יותר מ-P/E היסטורי", "en": "P/E based on future earnings estimates – more forward-looking than trailing P/E", "ru": "P/E на основе прогнозов – точнее исторического P/E", "es": "PER basado en estimaciones futuras – más prospectivo que el PER histórico"},
 "trailing_pe_label":   {"he": "P/E תוצאתי", "en": "Trailing P/E", "ru": "Исторический P/E", "es": "PER histórico"},
@@ -1969,6 +1982,7 @@ async function analyzeTicker(rawInput) {
     loadTickerNews(ticker);
     loadTickerEvents(ticker);
     loadTickerFinancials(ticker);
+    loadETFInfo(ticker);
     preloadMetricHistory(ticker);
     loadTickerSignals(ticker);
   } catch (err) {
@@ -2281,6 +2295,11 @@ function renderResult(data) {
       return html2;
     })()}
 
+    <div class="card" id="etfInfoCardWrap" style="display:none;">
+      <h3><i class="ti ti-building-bank" style="color:#f59e0b"></i>${t('etf_info_title')}</h3>
+      <div id="etfInfoCard"></div>
+    </div>
+
     <div class="card">
       <h3><i class="ti ti-calendar-event" style="color:#34d399"></i>${t('events_title')}</h3>
       <div id="eventsContainer">
@@ -2332,6 +2351,71 @@ function renderResult(data) {
       }
     }
   }
+}
+
+async function loadETFInfo(ticker) {
+  try {
+    const res = await fetch(`${API_BASE}/etf-info/${ticker}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.is_etf) return;
+
+    // הסתר קטע דוחות כספיים והחלף בהודעה
+    const finCard = document.getElementById("financialsContainer");
+    if (finCard) {
+      finCard.closest(".card").querySelector("h3").innerHTML = 
+        `<i class="ti ti-alert-circle" style="color:#f59e0b"></i>${t("etf_no_financials")}`;
+      finCard.innerHTML = `<p style="font-size:12px;color:var(--text-dimmer);padding:8px 0;">${t("etf_no_financials")}</p>`;
+    }
+
+    // הוסף כרטיס ETF לפני הדוחות
+    const etfCard = document.getElementById("etfInfoCard");
+    if (!etfCard) return;
+    const wrap = document.getElementById("etfInfoCardWrap");
+    if (wrap) wrap.style.display = "block";
+
+    const fmt = (v, pct=false, money=false) => {
+      if (v === null || v === undefined) return "—";
+      if (money) {
+        const abs = Math.abs(v);
+        if (abs >= 1e12) return "$"+(v/1e12).toFixed(2)+"T";
+        if (abs >= 1e9)  return "$"+(v/1e9).toFixed(2)+"B";
+        if (abs >= 1e6)  return "$"+(v/1e6).toFixed(2)+"M";
+      }
+      if (pct) return (v*100).toFixed(2)+"%";
+      return v;
+    };
+
+    let html = `<div class="metrics-grid">`;
+
+    if (data.fund_family) html += `<div class="metric-tile"><p class="m-label">${t("etf_family")}</p><p class="m-value" style="font-size:14px;">${data.fund_family}</p></div>`;
+    if (data.category)   html += `<div class="metric-tile"><p class="m-label">${t("etf_category")}</p><p class="m-value" style="font-size:14px;">${data.category}</p></div>`;
+    if (data.total_assets) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_assets")}</p><p class="m-value ltr">${fmt(data.total_assets, false, true)}</p></div>`;
+    if (data.expense_ratio) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_expense")}</p><p class="m-value ltr" style="color:${data.expense_ratio < 0.003 ? "var(--green)" : data.expense_ratio > 0.01 ? "var(--red)" : "var(--yellow)"}">${(data.expense_ratio*100).toFixed(2)}%</p></div>`;
+    if (data.yield)      html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_yield")}</p><p class="m-value ltr">${fmt(data.yield, true)}</p></div>`;
+    if (data.ytd_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_ytd")}</p><p class="m-value ltr" style="color:${data.ytd_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.ytd_return, true)}</p></div>`;
+    if (data.one_year_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_1y")}</p><p class="m-value ltr" style="color:${data.one_year_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.one_year_return, true)}</p></div>`;
+    if (data.three_year_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_3y")}</p><p class="m-value ltr" style="color:${data.three_year_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.three_year_return, true)}</p></div>`;
+    if (data.five_year_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_5y")}</p><p class="m-value ltr" style="color:${data.five_year_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.five_year_return, true)}</p></div>`;
+    if (data.beta)       html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_beta")}</p><p class="m-value ltr">${typeof data.beta === "number" ? data.beta.toFixed(2) : data.beta}</p></div>`;
+
+    html += `</div>`;
+
+    if (data.top_holdings && data.top_holdings.length) {
+      html += `<p style="font-size:12px;font-weight:600;color:var(--text);margin:12px 0 8px;">${t("etf_holdings")}</p>`;
+      html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
+      data.top_holdings.forEach(h => {
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;direction:ltr;">
+          <span style="color:var(--text)">${h.name}</span>
+          <span style="color:var(--accent);font-weight:500;">${h.pct}%</span>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    etfCard.innerHTML = html;
+    etfCard.closest(".card").style.display = "block";
+  } catch(e) {}
 }
 
 async function loadTickerFinancials(ticker) {

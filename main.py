@@ -865,6 +865,61 @@ def ticker_financials(ticker: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/etf-info/{ticker}")
+def etf_info(ticker: str):
+    """נתונים ספציפיים ל-ETF"""
+    cache_key = f"etf_{ticker.upper()}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        import yfinance as yf
+        stock = yf.Ticker(ticker)
+        info = stock.info or {}
+
+        # בדוק שזה ETF
+        quote_type = info.get("quoteType", "")
+        if quote_type not in ("ETF", "MUTUALFUND"):
+            return {"is_etf": False}
+
+        result = {
+            "is_etf": True,
+            "quote_type": quote_type,
+            "fund_family": info.get("fundFamily"),
+            "category": info.get("category"),
+            "inception_date": info.get("fundInceptionDate"),
+            "total_assets": info.get("totalAssets"),
+            "expense_ratio": info.get("expenseRatio") or info.get("annualReportExpenseRatio"),
+            "nav": info.get("navPrice") or info.get("regularMarketPrice"),
+            "yield": info.get("yield") or info.get("dividendYield"),
+            "ytd_return": info.get("ytdReturn"),
+            "one_year_return": info.get("oneYearReturn") or info.get("52WeekChange"),
+            "three_year_return": info.get("threeYearAverageReturn"),
+            "five_year_return": info.get("fiveYearAverageReturn"),
+            "beta": info.get("beta3Year") or info.get("beta"),
+            "trailing_pe": info.get("trailingPE"),
+            "holdings_count": info.get("holdingsCount"),
+        }
+
+        # Top holdings
+        try:
+            holdings = stock.funds_data.top_holdings
+            if holdings is not None and not holdings.empty:
+                result["top_holdings"] = [
+                    {"name": row.get("Name", idx), "pct": round(float(row.get("Holding Percent", 0)) * 100, 2)}
+                    for idx, row in holdings.head(10).iterrows()
+                ]
+        except Exception:
+            result["top_holdings"] = []
+
+        _cache_set(cache_key, result, CACHE_TTL["stock"])
+        return result
+
+    except Exception as e:
+        return {"is_etf": False, "error": str(e)}
+
+
 @app.get("/exchange-rate")
 def exchange_rate(currency: str = "ILS"):
     currency = currency.upper()
