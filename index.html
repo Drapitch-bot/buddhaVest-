@@ -792,7 +792,7 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "etf_beta":            {"he": "בטא", "en": "Beta", "ru": "Бета", "es": "Beta"},
 "etf_holdings":        {"he": "אחזקות מובילות", "en": "Top Holdings", "ru": "Основные активы", "es": "Principales posiciones"},
 "etf_no_financials":   {"he": "זוהי קרן סל (ETF) – אין דוחות כספיים כמו לחברות. ראה פרטי הקרן למעלה.", "en": "This is an ETF – no financial statements like companies. See fund details above.", "ru": "Это ETF – нет финансовой отчётности как у компаний. См. сведения о фонде выше.", "es": "Este es un ETF – no tiene estados financieros como las empresas. Ver detalles del fondo arriba."},
-"forward_pe_label":    {"he": "P/E קדימה", "en": "Forward P/E", "ru": "Форвардный P/E", "es": "PER futuro"},
+"valuation_extra_note": {"he": "מדדים אלו אינם נכללים בציון הכולל – הם מידע נוסף להשוואה", "en": "These metrics are not included in the overall score – additional context only", "ru": "Эти показатели не входят в общую оценку – только дополнительный контекст", "es": "Estas métricas no se incluyen en la puntuación general – solo contexto adicional"}, "forward_pe_label":    {"he": "P/E קדימה", "en": "Forward P/E", "ru": "Форвардный P/E", "es": "PER futuro"},
 "forward_pe_note":     {"he": "מכפיל רווח מבוסס תחזיות עתידיות – מדויק יותר מ-P/E היסטורי", "en": "P/E based on future earnings estimates – more forward-looking than trailing P/E", "ru": "P/E на основе прогнозов – точнее исторического P/E", "es": "PER basado en estimaciones futuras – más prospectivo que el PER histórico"},
 "trailing_pe_label":   {"he": "P/E תוצאתי", "en": "Trailing P/E", "ru": "Исторический P/E", "es": "PER histórico"},
 "pb_label":            {"he": "מחיר/ספר", "en": "Price/Book", "ru": "Цена/балансовая стоимость", "es": "Precio/valor contable"},
@@ -2291,7 +2291,7 @@ function renderResult(data) {
         const col = ve.ev_to_ebitda < 10 ? 'var(--green)' : ve.ev_to_ebitda > 25 ? 'var(--red)' : 'var(--yellow)';
         html2 += `<div class="metric-tile"><p class="m-label ltr">${t('ev_ebitda_label')}</p><p class="m-value ltr" style="color:${col}">${ve.ev_to_ebitda}</p><p class="m-note note-neutral">${t('ev_ebitda_note')}</p></div>`;
       }
-      html2 += '</div></div>';
+      html2 += `</div><p style="font-size:10px;color:var(--text-dimmer);margin:8px 0 0;text-align:center;">${t('valuation_extra_note')}</p></div>`;
       return html2;
     })()}
 
@@ -2473,26 +2473,28 @@ async function loadTickerFinancials(ticker) {
         return `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:16px;">${t("financials_no_data")}</p>`;
       }
       // הגבל ל-4 עמודות אחרונות במובייל
-      const isMobile = window.innerWidth < 600;
-      const maxCols = isMobile ? 4 : tbl.columns.length;
-      const cols = tbl.columns.slice(0, maxCols);
-      let html = `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -14px;">
-        <table style="border-collapse:collapse; font-size:11px; direction:ltr; min-width:100%;">
+      const cols = tbl.columns;
+      const shortLabel = (s) => s.length > 25 ? s.slice(0, 23) + '…' : s;
+      let html = `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -14px; padding:0 14px;">
+        <table style="border-collapse:collapse; direction:ltr; table-layout:fixed; width:max-content;">
+          <colgroup>
+            <col style="width:130px;">
+            ${cols.map(() => '<col style="width:72px;">').join('')}
+          </colgroup>
           <thead>
             <tr style="border-bottom:1px solid var(--border);">
-              <th style="text-align:left; padding:6px 8px; color:var(--text-dimmer); font-weight:500; position:sticky; left:0; background:var(--card-bg); min-width:160px; max-width:160px; z-index:1;"></th>`;
+              <th style="text-align:left; padding:5px 8px; color:var(--text-dimmer); font-size:10px; font-weight:500; position:sticky; left:0; background:var(--card-bg); border-right:1px solid var(--border); z-index:2;"></th>`;
       cols.forEach(col => {
-        html += `<th style="text-align:right; padding:6px 10px; color:var(--text-dimmer); font-weight:500; white-space:nowrap; min-width:80px;">${col}</th>`;
+        html += `<th style="text-align:right; padding:5px 8px; color:var(--text-dimmer); font-size:10px; font-weight:500; white-space:nowrap;">${col}</th>`;
       });
       html += `</tr></thead><tbody>`;
       tbl.rows.forEach((row, i) => {
-        const bg = i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)";
-        html += `<tr style="background:${bg};">
-          <td style="padding:6px 8px; color:var(--text); position:sticky; left:0; background:${bg}; font-weight:500; min-width:160px; max-width:160px; line-height:1.4; white-space:normal; z-index:1; border-right:1px solid var(--border);">${row.label}</td>`;
-        // מספר עמודות לפי גודל מסך
-        row.values.slice(0, maxCols).forEach(v => {
+        const bg = i % 2 === 0 ? "var(--card-bg)" : "rgba(255,255,255,0.025)";
+        html += `<tr>
+          <td style="padding:5px 8px; color:var(--text); font-size:10px; font-weight:500; position:sticky; left:0; background:${bg}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px; border-right:1px solid var(--border); z-index:1;" title="${row.label}">${shortLabel(row.label)}</td>`;
+        row.values.forEach(v => {
           const color = v !== null && v < 0 ? "var(--red)" : "var(--text)";
-          html += `<td style="text-align:right; padding:6px 10px; color:${color}; white-space:nowrap; min-width:80px;">${fmtVal(v)}</td>`;
+          html += `<td style="text-align:right; padding:5px 8px; color:${color}; font-size:11px; white-space:nowrap; background:${bg};">${fmtVal(v)}</td>`;
         });
         html += `</tr>`;
       });
