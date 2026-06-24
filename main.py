@@ -518,65 +518,96 @@ def metric_history(ticker: str, metric: str):
             # מדד ללא היסטוריה – החזר היסטוריית מחיר
             result_data["use_price"] = True
         elif metric in ("pe_ratio", "peg_ratio"):
-            # P/E ו-PEG – חישוב מהיסטוריית מחיר + EPS רבעוני
             try:
-                hist = stock.history(period="5y")
-                eps_df = _get_quarterly_income(stock)
-                if hist is not None and not hist.empty and eps_df is not None and not eps_df.empty:
-                    import pandas as pd
-                    # EPS שנתי גלגלי (TTM) לכל תאריך
-                    eps_q = None
-                    for key in ["Diluted EPS", "Basic EPS", "Normalized EBITDA"]:
-                        if key in eps_df.index:
-                            eps_q = eps_df.loc[key].sort_index()
-                            break
-                    if eps_q is not None:
-                        # yfinance מחזיר מהחדש לישן – הופכים
-                        eps_q = eps_q.sort_index()
-                        # וודא שאין timezone mismatch
-                        if hasattr(eps_q.index, 'tz') and eps_q.index.tz is not None:
-                            eps_q.index = eps_q.index.tz_localize(None)
-                        price_monthly = hist["Close"].resample("ME").last()
-                        if hasattr(price_monthly.index, 'tz') and price_monthly.index.tz is not None:
-                            price_monthly.index = price_monthly.index.tz_localize(None)
-                        series = []
-                        for date, price in price_monthly.items():
-                            past_eps = eps_q[eps_q.index <= date].tail(4)
-                            if len(past_eps) < 4:
+                import pandas as pd, math as _math
+                hist = stock.history(period="max")
+                eps_q_df = _get_quarterly_income(stock)
+                eps_a_df = _get_annual_income(stock)
+
+                def get_eps_series(df):
+                    if df is None or df.empty: return None
+                    for key in ["Diluted EPS", "Basic EPS"]:
+                        if key in df.index:
+                            s = df.loc[key].sort_index().dropna()
+                            if hasattr(s.index, "tz") and s.index.tz:
+                                s.index = s.index.tz_localize(None)
+                            return s
+                    return None
+
+                eps_q = get_eps_series(eps_q_df)
+                eps_a = get_eps_series(eps_a_df)
+
+                if hist is None or hist.empty or (eps_q is None and eps_a is None):
+                    result_data["use_price"] = True
+                else:
+                    price_monthly = hist["Close"].resample("ME").last()
+                    if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
+                        price_monthly.index = price_monthly.index.tz_localize(None)
+
+                    series_q = []
+                    series_a = []
+                    seen_years = set()
+
+                    for date, price in price_monthly.items():
+                        price = float(price)
+                        ttm_eps = None
+
+                        # נסה TTM מ-4 רבעונים
+                        if eps_q is not None:
+                            past = eps_q[eps_q.index <= date].tail(4)
+                            if len(past) == 4:
+                                ttm_eps = float(past.sum())
+
+                        # fallback לשנתי
+                        if (ttm_eps is None or ttm_eps == 0) and eps_a is not None:
+                            past_a = eps_a[eps_a.index <= date].tail(1)
+                            if len(past_a) == 1:
+                                ttm_eps = float(past_a.iloc[0])
+
+                        if not ttm_eps or ttm_eps == 0:
+                            continue
+                        pe = round(price / ttm_eps, 2)
+                        if pe <= 0 or pe > 3000 or _math.isnan(pe) or _math.isinf(pe):
+                            continue
+
+                        if metric == "pe_ratio":
+                            pt = {"date": date.strftime("%b %Y"), "value": pe}
+                            series_q.append(pt)
+                            yr = pt["date"].split(" ")[-1]
+                            if yr not in seen_years:
+                                seen_years.add(yr)
+                                series_a.append(pt)
+
+                        elif metric == "peg_ratio":
+                            prev_ttm = None
+                            if eps_q is not None:
+                                past_prev = eps_q[eps_q.index <= date - pd.DateOffset(years=1)].tail(4)
+                                if len(past_prev) == 4:
+                                    prev_ttm = float(past_prev.sum())
+                            if (prev_ttm is None or prev_ttm == 0) and eps_a is not None:
+                                past_a_prev = eps_a[eps_a.index <= date - pd.DateOffset(years=1)].tail(1)
+                                if len(past_a_prev) == 1:
+                                    prev_ttm = float(past_a_prev.iloc[0])
+                            if not prev_ttm or prev_ttm == 0:
                                 continue
-                            # סנן nulls
-                            valid_eps = past_eps.dropna()
-                            if len(valid_eps) < 4:
+                            growth = ((ttm_eps - prev_ttm) / abs(prev_ttm)) * 100
+                            if growth <= 0:
                                 continue
-                            ttm_eps = float(valid_eps.sum())
-                            if ttm_eps == 0:
-                                continue
-                            pe = round(float(price) / ttm_eps, 2)
-                            if pe <= 0 or pe > 2000:
-                                continue
-                            if metric == "pe_ratio":
-                                series.append({"date": date.strftime("%b %Y"), "value": pe})
-                            elif metric == "peg_ratio":
-                                older = eps_q[eps_q.index <= date - pd.DateOffset(years=1)].tail(4)
-                                if len(older) < 4:
-                                    continue
-                                valid_older = older.dropna()
-                                if len(valid_older) < 4:
-                                    continue
-                                old_ttm = float(valid_older.sum())
-                                if old_ttm == 0:
-                                    continue
-                                growth = ((ttm_eps - old_ttm) / abs(old_ttm)) * 100
-                                if growth <= 0:
-                                    continue
-                                peg = round(pe / growth, 3)
-                                if 0 < peg < 100:
-                                    series.append({"date": date.strftime("%b %Y"), "value": peg})
-                        result_data["quarterly"] = series
-                        result_data["annual"] = series[::12] if len(series) > 12 else series
-                        if not series:
-                            result_data["use_price"] = True
-            except Exception as e:
+                            peg = round(pe / growth, 3)
+                            if 0 < peg < 200 and not _math.isnan(peg):
+                                pt = {"date": date.strftime("%b %Y"), "value": peg}
+                                series_q.append(pt)
+                                yr = pt["date"].split(" ")[-1]
+                                if yr not in seen_years:
+                                    seen_years.add(yr)
+                                    series_a.append(pt)
+
+                    result_data["quarterly"] = series_q
+                    result_data["annual"] = series_a
+                    if not series_q:
+                        result_data["use_price"] = True
+
+            except Exception:
                 result_data["use_price"] = True
         else:
             source, field1, field2, calc = METRIC_MAP[metric]
