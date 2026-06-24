@@ -2483,15 +2483,15 @@ async function loadTickerFinancials(ticker) {
           </colgroup>
           <thead>
             <tr style="border-bottom:1px solid var(--border);">
-              <th style="text-align:left; padding:5px 8px; color:var(--text-dimmer); font-size:10px; font-weight:500; position:sticky; left:0; background:var(--card-bg); border-right:1px solid var(--border); z-index:2;"></th>`;
+              <th style="text-align:left; padding:5px 8px; color:var(--text-dimmer); font-size:10px; font-weight:500; position:sticky; left:0; background:var(--card); border-right:1px solid var(--card-border); z-index:2;"></th>`;
       cols.forEach(col => {
         html += `<th style="text-align:right; padding:5px 8px; color:var(--text-dimmer); font-size:10px; font-weight:500; white-space:nowrap;">${col}</th>`;
       });
       html += `</tr></thead><tbody>`;
       tbl.rows.forEach((row, i) => {
-        const bg = i % 2 === 0 ? "var(--card-bg)" : "rgba(255,255,255,0.025)";
+        const bg = i % 2 === 0 ? "var(--card)" : "rgba(255,255,255,0.025)";
         html += `<tr>
-          <td style="padding:5px 8px; color:var(--text); font-size:10px; font-weight:500; position:sticky; left:0; background:${bg}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px; border-right:1px solid var(--border); z-index:1;" title="${row.label}">${shortLabel(row.label)}</td>`;
+          <td style="padding:5px 8px; color:var(--text); font-size:10px; font-weight:500; position:sticky; left:0; background:${bg}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px; border-right:1px solid var(--card-border); z-index:1;" title="${row.label}">${shortLabel(row.label)}</td>`;
         row.values.forEach(v => {
           const color = v !== null && v < 0 ? "var(--red)" : "var(--text)";
           html += `<td style="text-align:right; padding:5px 8px; color:${color}; font-size:11px; white-space:nowrap; background:${bg};">${fmtVal(v)}</td>`;
