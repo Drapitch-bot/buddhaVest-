@@ -297,13 +297,25 @@ def analyze(ticker: str, lang: str = "he"):
                         rows.append({"date": col.strftime("%b %Y") if hasattr(col,"strftime") else str(col)[:7], "value": val})
                     except: continue
                 return list(reversed(rows))
+            fin_annual = _get_annual_income(_stk)
+            def make_entry(q_series, a_df, f1, f2=None, pct=False):
+                a_series = quick_series(a_df, f1, f2, pct) if a_df is not None and not a_df.empty else []
+                return {"quarterly": q_series, "annual": a_series}
+
+            gm_q  = quick_series(fin, "Gross Profit", "Revenue", pct=True)
+            om_q  = quick_series(fin, "Operating Income", "Revenue", pct=True)
+            nm_q  = quick_series(fin, "Net Income", "Revenue", pct=True)
+            rev_q = quick_series(fin, "Revenue")
+            ni_q  = quick_series(fin, "Net Income")
+            eps_q = quick_series(fin, "Diluted EPS")
+
             result["inline_history"] = {
-                "gross_margin":     quick_series(fin, "Gross Profit", "Revenue", pct=True),
-                "operating_margin": quick_series(fin, "Operating Income", "Revenue", pct=True),
-                "net_margin":       quick_series(fin, "Net Income", "Revenue", pct=True),
-                "revenue":          quick_series(fin, "Revenue"),
-                "net_income":       quick_series(fin, "Net Income"),
-                "eps":              quick_series(fin, "Diluted EPS"),
+                "gross_margin":     make_entry(gm_q,  fin_annual, "Gross Profit", "Revenue", pct=True),
+                "operating_margin": make_entry(om_q,  fin_annual, "Operating Income", "Revenue", pct=True),
+                "net_margin":       make_entry(nm_q,  fin_annual, "Net Income", "Revenue", pct=True),
+                "revenue":          make_entry(rev_q, fin_annual, "Revenue"),
+                "net_income":       make_entry(ni_q,  fin_annual, "Net Income"),
+                "eps":              make_entry(eps_q, fin_annual, "Diluted EPS"),
             }
     except Exception:
         result["inline_history"] = {}
