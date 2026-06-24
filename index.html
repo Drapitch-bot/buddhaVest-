@@ -2431,18 +2431,40 @@ async function loadTickerFinancials(ticker) {
     let activeSheet = "income";
     let activePeriod = "quarterly";
 
+    // שורות חשובות בלבד – מסנן שורות טכניות
+    const IMPORTANT_ROWS = new Set([
+      "Total Revenue","Operating Revenue","Gross Profit","Operating Income",
+      "EBIT","EBITDA","Net Income","Net Income Common Stockholders",
+      "Diluted EPS","Basic EPS","Research And Development",
+      "Selling General And Administration","Total Expenses",
+      "Total Assets","Current Assets","Current Liabilities",
+      "Total Debt","Long Term Debt","Stockholders Equity","Common Stock Equity",
+      "Cash And Cash Equivalents","Cash Cash Equivalents And Short Term Investments",
+      "Total Liabilities Net Minority Interest","Working Capital",
+      "Operating Cash Flow","Free Cash Flow","Capital Expenditure",
+      "Net Income From Continuing Operations","Net Income Continuous Operations",
+    ]);
+
     function fmtVal(v) {
       if (v === null || v === undefined) return "—";
       const abs = Math.abs(v);
-      if (abs >= 1e12) return (v/1e12).toFixed(2) + "T";
-      if (abs >= 1e9)  return (v/1e9).toFixed(2) + "B";
-      if (abs >= 1e6)  return (v/1e6).toFixed(2) + "M";
-      if (abs >= 1e3)  return (v/1e3).toFixed(1) + "K";
-      return v.toFixed(2);
+      const neg = v < 0;
+      let str;
+      if (abs >= 1e12) str = (abs/1e12).toFixed(2) + "T";
+      else if (abs >= 1e9)  str = (abs/1e9).toFixed(2) + "B";
+      else if (abs >= 1e6)  str = (abs/1e6).toFixed(2) + "M";
+      else if (abs >= 1e3)  str = (abs/1e3).toFixed(1) + "K";
+      else str = abs.toFixed(2);
+      return neg ? "-" + str : str;
     }
 
     function getTable() {
-      return data[activeSheet + "_" + activePeriod] || {columns: [], rows: []};
+      const tbl = data[activeSheet + "_" + activePeriod] || {columns: [], rows: []};
+      // סנן רק שורות חשובות
+      return {
+        columns: tbl.columns,
+        rows: tbl.rows.filter(r => IMPORTANT_ROWS.has(r.label))
+      };
     }
 
     function renderTable() {
@@ -2450,22 +2472,27 @@ async function loadTickerFinancials(ticker) {
       if (!tbl.columns.length || !tbl.rows.length) {
         return `<p style="color:var(--text-dimmer); font-size:12px; text-align:center; padding:16px;">${t("financials_no_data")}</p>`;
       }
-      let html = `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch;">
-        <table style="width:100%; border-collapse:collapse; font-size:11px; direction:ltr;">
+      // הגבל ל-4 עמודות אחרונות במובייל
+      const isMobile = window.innerWidth < 600;
+      const maxCols = isMobile ? 4 : tbl.columns.length;
+      const cols = tbl.columns.slice(0, maxCols);
+      let html = `<div style="overflow-x:auto; -webkit-overflow-scrolling:touch; margin:0 -14px;">
+        <table style="border-collapse:collapse; font-size:11px; direction:ltr; min-width:100%;">
           <thead>
             <tr style="border-bottom:1px solid var(--border);">
-              <th style="text-align:left; padding:6px 8px; color:var(--text-dimmer); font-weight:500; position:sticky; left:0; background:var(--card-bg); min-width:140px;"></th>`;
-      tbl.columns.forEach(col => {
-        html += `<th style="text-align:right; padding:6px 8px; color:var(--text-dimmer); font-weight:500; white-space:nowrap;">${col}</th>`;
+              <th style="text-align:left; padding:6px 8px; color:var(--text-dimmer); font-weight:500; position:sticky; left:0; background:var(--card-bg); min-width:160px; max-width:160px; z-index:1;"></th>`;
+      cols.forEach(col => {
+        html += `<th style="text-align:right; padding:6px 10px; color:var(--text-dimmer); font-weight:500; white-space:nowrap; min-width:80px;">${col}</th>`;
       });
       html += `</tr></thead><tbody>`;
       tbl.rows.forEach((row, i) => {
         const bg = i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)";
         html += `<tr style="background:${bg};">
-          <td style="padding:5px 8px; color:var(--text); position:sticky; left:0; background:${bg}; font-weight:500;">${row.label}</td>`;
-        row.values.forEach(v => {
+          <td style="padding:6px 8px; color:var(--text); position:sticky; left:0; background:${bg}; font-weight:500; min-width:160px; max-width:160px; line-height:1.4; white-space:normal; z-index:1; border-right:1px solid var(--border);">${row.label}</td>`;
+        // מספר עמודות לפי גודל מסך
+        row.values.slice(0, maxCols).forEach(v => {
           const color = v !== null && v < 0 ? "var(--red)" : "var(--text)";
-          html += `<td style="text-align:right; padding:5px 8px; color:${color}; white-space:nowrap;">${fmtVal(v)}</td>`;
+          html += `<td style="text-align:right; padding:6px 10px; color:${color}; white-space:nowrap; min-width:80px;">${fmtVal(v)}</td>`;
         });
         html += `</tr>`;
       });
