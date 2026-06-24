@@ -779,6 +779,17 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "metric_source_moat":    {"he": "חישוב שלנו – מודד יציבות המרווח הגולמי לאורך זמן", "en": "Our calculation – measures gross margin stability over time", "ru": "Наш расчёт – измеряет стабильность валовой маржи со временем", "es": "Cálculo propio – mide la estabilidad del margen bruto a lo largo del tiempo"},
 "metric_source_pe":      {"he": "חישוב שלנו – מחיר מניה חלקי רווח למניה (TTM)", "en": "Our calculation – stock price divided by earnings per share (TTM)", "ru": "Наш расчёт – цена акции делённая на прибыль на акцию (TTM)", "es": "Cálculo propio – precio de la acción dividido entre el beneficio por acción (TTM)"},
 "metric_source_peg":     {"he": "חישוב שלנו – P/E חלקי קצב הצמיחה השנתי של הרווח", "en": "Our calculation – P/E divided by the annual earnings growth rate", "ru": "Наш расчёт – P/E делённое на годовой темп роста прибыли", "es": "Cálculo propio – PER dividido entre la tasa de crecimiento anual de beneficios"},
+"forward_pe_label":    {"he": "P/E קדימה", "en": "Forward P/E", "ru": "Форвардный P/E", "es": "PER futuro"},
+"forward_pe_note":     {"he": "מכפיל רווח מבוסס תחזיות עתידיות – מדויק יותר מ-P/E היסטורי", "en": "P/E based on future earnings estimates – more forward-looking than trailing P/E", "ru": "P/E на основе прогнозов – точнее исторического P/E", "es": "PER basado en estimaciones futuras – más prospectivo que el PER histórico"},
+"trailing_pe_label":   {"he": "P/E תוצאתי", "en": "Trailing P/E", "ru": "Исторический P/E", "es": "PER histórico"},
+"pb_label":            {"he": "מחיר/ספר", "en": "Price/Book", "ru": "Цена/балансовая стоимость", "es": "Precio/valor contable"},
+"ps_label":            {"he": "מחיר/מכירות", "en": "Price/Sales", "ru": "Цена/выручка", "es": "Precio/ventas"},
+"ev_ebitda_label":     {"he": "EV/EBITDA", "en": "EV/EBITDA", "ru": "EV/EBITDA", "es": "EV/EBITDA"},
+"ev_ebitda_note":      {"he": "מכפיל ארגוני – מתאים להשוואת חברות ללא קשר למבנה ההון", "en": "Enterprise multiple – useful for comparing companies regardless of capital structure", "ru": "Корпоративный мультипликатор – удобен для сравнения компаний", "es": "Múltiplo empresarial – útil para comparar empresas independientemente de su estructura de capital"},
+"pb_note":             {"he": "מחיר ביחס לשווי הנכסים הנקי. מתחת ל-1 = נסחר מתחת לשווי הספרים", "en": "Price relative to net asset value. Below 1 = trading below book value", "ru": "Цена относительно чистой стоимости активов. Ниже 1 = торгуется ниже балансовой стоимости", "es": "Precio relativo al valor neto de activos. Por debajo de 1 = cotiza por debajo del valor contable"},
+"ps_note":             {"he": "מחיר ביחס להכנסות. שימושי לחברות ללא רווח עדיין", "en": "Price relative to revenue. Useful for companies not yet profitable", "ru": "Цена относительно выручки. Полезно для убыточных компаний", "es": "Precio en relación a los ingresos. Útil para empresas aún no rentables"},
+"valuation_section":   {"he": "מכפילי שווי נוספים", "en": "Additional Valuation Multiples", "ru": "Дополнительные мультипликаторы", "es": "Múltiplos de valoración adicionales"},
+"forward_vs_trailing": {"he": "P/E קדימה נמוך מ-P/E היסטורי = הרווחים צפויים לגדול", "en": "Forward P/E lower than trailing = earnings expected to grow", "ru": "Форвардный P/E ниже исторического = прибыль ожидается выше", "es": "PER futuro menor que histórico = se espera que los beneficios crezcan"},
 "financials_title":    {"he": "דוחות כספיים", "en": "Financial Statements", "ru": "Финансовая отчётность", "es": "Estados financieros"},
 "financials_income":   {"he": "דוח רווח והפסד", "en": "Income Statement", "ru": "Отчёт о прибылях и убытках", "es": "Cuenta de resultados"},
 "financials_balance":  {"he": "מאזן", "en": "Balance Sheet", "ru": "Бухгалтерский баланс", "es": "Balance general"},
@@ -2246,6 +2257,29 @@ function renderResult(data) {
         </div>
       </div>
     </div>
+
+    ${(() => {
+      const ve = data.valuation_extra || {};
+      if (!ve.forward_pe && !ve.price_to_book && !ve.price_to_sales && !ve.ev_to_ebitda) return '';
+      let html2 = `<div class="card"><h3><i class="ti ti-calculator" style="color:#f59e0b"></i>${t('valuation_section')}</h3><div class="metrics-grid">`;
+      if (ve.forward_pe) {
+        const col = ve.trailing_pe && ve.forward_pe < ve.trailing_pe ? 'var(--green)' : 'var(--text)';
+        html2 += `<div class="metric-tile"><p class="m-label ltr">${t('forward_pe_label')}</p><p class="m-value ltr" style="color:${col}">${ve.forward_pe}</p><p class="m-note note-neutral">${t('forward_pe_note')}</p>${ve.trailing_pe ? `<p style="font-size:9px;color:var(--text-dimmer);margin-top:4px;direction:ltr;">${t('trailing_pe_label')}: ${ve.trailing_pe}</p>` : ''}</div>`;
+      }
+      if (ve.price_to_book) {
+        const col = ve.price_to_book < 1 ? 'var(--green)' : ve.price_to_book > 5 ? 'var(--red)' : 'var(--yellow)';
+        html2 += `<div class="metric-tile"><p class="m-label ltr">${t('pb_label')}</p><p class="m-value ltr" style="color:${col}">${ve.price_to_book}</p><p class="m-note note-neutral">${t('pb_note')}</p></div>`;
+      }
+      if (ve.price_to_sales) {
+        html2 += `<div class="metric-tile"><p class="m-label ltr">${t('ps_label')}</p><p class="m-value ltr">${ve.price_to_sales}</p><p class="m-note note-neutral">${t('ps_note')}</p></div>`;
+      }
+      if (ve.ev_to_ebitda) {
+        const col = ve.ev_to_ebitda < 10 ? 'var(--green)' : ve.ev_to_ebitda > 25 ? 'var(--red)' : 'var(--yellow)';
+        html2 += `<div class="metric-tile"><p class="m-label ltr">${t('ev_ebitda_label')}</p><p class="m-value ltr" style="color:${col}">${ve.ev_to_ebitda}</p><p class="m-note note-neutral">${t('ev_ebitda_note')}</p></div>`;
+      }
+      html2 += '</div></div>';
+      return html2;
+    })()}
 
     <div class="card">
       <h3><i class="ti ti-calendar-event" style="color:#34d399"></i>${t('events_title')}</h3>

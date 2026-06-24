@@ -171,7 +171,11 @@ def analyze(ticker: str, lang: str = "he"):
         raise HTTPException(status_code=502, detail=f"Could not fetch data for '{ticker}': {e}")
 
     # אם yfinance מחזיר info ריק - הסימול כנראה לא קיים (או שזו בעיית סיומת בורסה)
-    if not data.get("info") or data["info"].get("currentPrice") is None:
+    if not data.get("info") or (
+        data["info"].get("currentPrice") is None and
+        data["info"].get("regularMarketPrice") is None and
+        data["info"].get("navPrice") is None
+    ):
         # ניסיון גיבוי חינמי (Stooq, בלי מפתח API) - לפעמים Yahoo לא מזהה מנייה
         # שכן קיימת, בעיקר בבורסות לא-אמריקאיות. Stooq נותן רק מחיר, לא ניתוח
         # פונדמנטלי מלא - אז זה נשאר "תוצאה חלקית" עם הסבר ברור, לא ניתוח מלא.
@@ -246,6 +250,25 @@ def analyze(ticker: str, lang: str = "he"):
         "industry": info.get("industry"),
         "business_summary": info.get("longBusinessSummary"),
     }
+
+    # Forward P/E ו-Sector comparison
+    try:
+        info = data.get("info", {})
+        forward_pe = info.get("forwardPE")
+        trailing_pe = info.get("trailingPE")
+        sector = info.get("sector")
+        industry_pe = None  # yfinance לא מחזיר ממוצע סקטור ישירות
+        
+        result["valuation_extra"] = {
+            "forward_pe": round(float(forward_pe), 2) if forward_pe else None,
+            "trailing_pe": round(float(trailing_pe), 2) if trailing_pe else None,
+            "price_to_book": round(float(info.get("priceToBook", 0)), 2) if info.get("priceToBook") else None,
+            "price_to_sales": round(float(info.get("priceToSalesTrailing12Months", 0)), 2) if info.get("priceToSalesTrailing12Months") else None,
+            "ev_to_ebitda": round(float(info.get("enterpriseToEbitda", 0)), 2) if info.get("enterpriseToEbitda") else None,
+            "sector": sector,
+        }
+    except Exception:
+        result["valuation_extra"] = {}
 
     # שער דולר-שקל - כדי שה-frontend יוכל להציג מחיר גם בשקלים
     try:
