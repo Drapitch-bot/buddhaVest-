@@ -68,18 +68,51 @@
 
   /* מצב בהיר — כתב כהה בכל המלל */
   :root.light-mode { color-scheme: light; }
-  :root.light-mode .card h3, :root.light-mode h1, :root.light-mode h2, :root.light-mode h3, :root.light-mode h4 { color: var(--text); }
   :root.light-mode body { color: var(--text); }
+  :root.light-mode .card h3, :root.light-mode h1, :root.light-mode h2, :root.light-mode h3, :root.light-mode h4 { color: var(--text); }
+
+  /* tiles */
   :root.light-mode .index-tile .i-val { color: var(--text); }
   :root.light-mode .index-tile .i-label { color: var(--text-dim); }
   :root.light-mode .mover-row .m-ticker { color: var(--text); }
+  :root.light-mode .metric-tile .m-val { color: var(--text); }
+  :root.light-mode .metric-tile .m-label { color: var(--text-dim); }
+  :root.light-mode .overview-tile .o-val { color: var(--text); }
+  :root.light-mode .overview-tile .o-label { color: var(--text-dim); }
+
+  /* טבלאות */
   :root.light-mode .markets-table td { color: var(--text); }
   :root.light-mode .markets-table th { color: var(--text-dim); }
+
+  /* ירוק/אדום — שינויי מחיר */
+  :root.light-mode .pos { color: var(--green) !important; }
+  :root.light-mode .neg { color: var(--red) !important; }
+  :root.light-mode [style*="color:var(--green)"] { color: var(--green) !important; }
+  :root.light-mode [style*="color:var(--red)"] { color: var(--red) !important; }
+  :root.light-mode [style*="color:var(--blue)"] { color: var(--blue) !important; }
+  :root.light-mode [style*="color:var(--purple)"] { color: var(--purple) !important; }
+  :root.light-mode [style*="color:var(--amber)"] { color: var(--amber) !important; }
+  :root.light-mode [style*="color:var(--text)"] { color: var(--text) !important; }
+  :root.light-mode [style*="color:var(--text-dim)"] { color: var(--text-dim) !important; }
+  :root.light-mode [style*="color:var(--text-dimmer)"] { color: var(--text-dimmer) !important; }
+  :root.light-mode [style*="color:var(--accent)"] { color: var(--accent) !important; }
+
+  /* שונות */
   :root.light-mode .notif-text { color: var(--text-dim); }
   :root.light-mode .greeting { color: var(--text-dim); }
   :root.light-mode .source-note { color: var(--text-dimmer); }
   :root.light-mode .fo-title { color: var(--text); }
   :root.light-mode .fo-text { color: var(--text-dim); }
+  :root.light-mode .dividend-line { color: var(--text-dim); }
+  :root.light-mode .lang-note { color: var(--text-dim); }
+  :root.light-mode .stock-title .price-usd { color: var(--text); }
+  :root.light-mode .stock-title .price-ils { color: var(--text-dim); }
+  :root.light-mode .munger-q { color: var(--text); }
+  :root.light-mode .munger-d { color: var(--text-dim); }
+  :root.light-mode .rec-text { color: var(--text); }
+  :root.light-mode .signals-item { color: var(--text-dim); }
+  :root.light-mode .news-item-title { color: var(--text); }
+  :root.light-mode .news-item-meta { color: var(--text-dimmer); }
 
   /* כפתור מעבר בין מצבים — ניתן לגרירה */
   #themeToggleBtn {
@@ -211,7 +244,9 @@
   }
   .tip-banner i { font-size: 16px; color: var(--amber); flex-shrink: 0; margin-top: 1px; }
   .tip-banner p { font-size: 12px; color: var(--accent); margin: 0; }
-  :root.light-mode .tip-banner p { color: var(--text-dim); }
+  :root.light-mode .tip-banner { background: var(--card); border: 1px solid var(--card-border); }
+  :root.light-mode .tip-banner p { color: var(--text); }
+  :root.light-mode .tip-banner i { color: var(--amber); }
 
   .mover-row {
     background: var(--card-alt); border: 0.5px solid var(--card-border); border-radius: 10px; padding: 10px 12px;
