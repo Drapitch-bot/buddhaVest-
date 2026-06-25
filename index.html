@@ -159,7 +159,7 @@
     margin-bottom: 0;
   }
   .notif-panel.open { max-height: 320px; opacity: 1; margin-bottom: 14px; }
-  .notif-title { font-size: 13px; font-weight: 600; padding: 12px 14px 6px; margin: 0; color: #e5e5e5; }
+  .notif-title { font-size: 13px; font-weight: 600; padding: 12px 14px 6px; margin: 0; color: var(--text); }
   .notif-item { display: flex; gap: 10px; padding: 8px 14px; align-items: flex-start; }
   .notif-item i { font-size: 18px; margin-top: 2px; flex-shrink: 0; }
   .notif-text { font-size: 12px; margin: 0; color: var(--text-dim); line-height: 1.4; }
@@ -181,7 +181,7 @@
   .ticker-pill:hover { border-color: var(--purple); color: var(--text); }
 
   .card { background: var(--card); border: 0.5px solid var(--card-border); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
-  .card h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; color: #e5e5e5; display: flex; align-items: center; gap: 6px; }
+  .card h3 { font-size: 13px; font-weight: 600; margin: 0 0 10px; color: var(--text); display: flex; align-items: center; gap: 6px; }
 
   .index-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 0; }
   .index-tile { background: var(--card-alt); border: 0.5px solid var(--card-border); border-radius: 10px; padding: 10px 12px; }
@@ -194,7 +194,8 @@
     margin-bottom: 14px; display: flex; align-items: flex-start; gap: 8px;
   }
   .tip-banner i { font-size: 16px; color: var(--amber); flex-shrink: 0; margin-top: 1px; }
-  .tip-banner p { font-size: 12px; color: #c4b5fd; margin: 0; }
+  .tip-banner p { font-size: 12px; color: var(--accent); margin: 0; }
+  :root.light-mode .tip-banner p { color: var(--text-dim); }
 
   .mover-row {
     background: var(--card-alt); border: 0.5px solid var(--card-border); border-radius: 10px; padding: 10px 12px;
@@ -233,7 +234,7 @@
 
   .dividend-line {
     margin-top: 12px; padding-top: 12px; border-top: 0.5px solid var(--card-border);
-    display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c4b5fd;
+    display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim);
   }
   .dividend-line i { font-size: 15px; color: var(--amber); flex-shrink: 0; }
 
@@ -360,7 +361,7 @@
   .lang-btn.active { color: #fff; border-color: var(--purple); background: var(--purple-bg); }
 
   .lang-note {
-    display: none; font-size: 12px; color: #c4b5fd; background: var(--purple-bg);
+    display: none; font-size: 12px; color: var(--text-dim); background: var(--purple-bg);
     border-radius: 10px; padding: 10px 12px; margin: 0 0 14px;
   }
   .lang-note.show { display: block; }
@@ -430,7 +431,7 @@
 </head>
 <body>
 
-<button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle Dark/Light mode">🌙</button>
+<button id="themeToggleBtn" title="Toggle Dark/Light mode">🌙</button>
 
 <div class="full-overlay hidden" id="fullOverlay">
   <i class="ti" id="fullOverlayIcon"></i>
@@ -2812,7 +2813,7 @@ function drawPriceChart(dates, prices) {
       // but is nearly impossible to trigger reliably with a finger.
       interaction: { mode: "index", intersect: false },
       scales: {
-        x: { ticks: { color: "#767b87", maxTicksLimit: sparse ? prices.length : 6, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
+        x: { ticks: { color: getComputedStyle(document.documentElement).getPropertyValue('--text-dimmer').trim() || "#767b87", maxTicksLimit: sparse ? prices.length : 6, autoSkip: true, font: { size: 10 } }, grid: { display: false } },
         y: { display: false }
       }
     }
@@ -2929,31 +2930,15 @@ document.addEventListener("DOMContentLoaded", function() {
   const notifIcon = document.getElementById("notifRefreshIcon");
   if (logo && notifIcon) notifIcon.src = logo.src;
   makeDraggable(document.getElementById("themeToggleBtn"));
-  // אם כבר במצב בהיר — הסמל הסגול מוסתר, הבודהא קליקבילי
   if (document.documentElement.classList.contains("light-mode")) {
-    const brandIcon = document.getElementById("brandIcon");
-    const buddhaImg = document.getElementById("buddhaImg");
-    if (brandIcon) { brandIcon.style.display = "none"; brandIcon.onclick = null; }
-    if (buddhaImg) { buddhaImg.style.height = "30px"; buddhaImg.onclick = onBrandClick; buddhaImg.style.cursor = "pointer"; }
     const btn = document.getElementById("themeToggleBtn");
-    if (btn) btn.textContent = "🌙";
+    if (btn) btn.textContent = "☀️";
   }
 });
 
 function toggleTheme() {
   const isLight = document.documentElement.classList.toggle("light-mode");
-  const brandIcon = document.getElementById("brandIcon");
-  const buddhaImg = document.getElementById("buddhaImg");
-  if (isLight) {
-    // light mode: הסמל הסגול מוסתר, הבודהא קליקבילי
-    if (brandIcon) { brandIcon.style.display = "none"; brandIcon.onclick = null; }
-    if (buddhaImg) { buddhaImg.style.height = "30px"; buddhaImg.onclick = onBrandClick; buddhaImg.style.cursor = "pointer"; }
-  } else {
-    // dark mode: הסמל הסגול קליקבילי, הבודהא לא
-    if (brandIcon) { brandIcon.style.display = "block"; brandIcon.onclick = onBrandClick; }
-    if (buddhaImg) { buddhaImg.style.height = "52px"; buddhaImg.onclick = null; buddhaImg.style.cursor = "default"; }
-  }
-  document.getElementById("themeToggleBtn").textContent = isLight ? "🌙" : "☀️";
+  document.getElementById("themeToggleBtn").textContent = isLight ? "☀️" : "🌙";
   try { localStorage.setItem("bv_theme", isLight ? "light" : "dark"); } catch(e) {}
 }
 
