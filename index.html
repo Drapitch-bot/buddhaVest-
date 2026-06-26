@@ -967,6 +967,7 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "financials_loading":  {"he": "טוען דוחות...", "en": "Loading statements...", "ru": "Загрузка отчётов...", "es": "Cargando estados..."},
 "financials_no_data":  {"he": "אין נתונים זמינים", "en": "No data available", "ru": "Нет данных", "es": "Sin datos disponibles"},
 "events_title":        {"he": "יומן אירועים", "en": "Events Calendar", "ru": "Календарь событий", "es": "Calendario de eventos"},
+"events_desc":         {"he": "מה מוצג כאן: תאריך הדוח הרבעוני הבא (אם ידוע), תאריכי דיבידנד קרובים, ותקציר של 4 הדוחות הרבעוניים האחרונים — הכנסות, רווח נקי, EPS ומרווח גולמי. כל הנתונים מגיעים מ-Yahoo Finance.", "en": "What's shown here: the next quarterly earnings date (if known), upcoming dividend dates, and a summary of the last 4 quarterly reports — revenue, net income, EPS and gross margin. All data from Yahoo Finance.", "ru": "Что здесь показано: дата следующего квартального отчёта (если известна), ближайшие даты дивидендов и краткое изложение последних 4 квартальных отчётов — выручка, чистая прибыль, EPS и валовая маржа. Все данные из Yahoo Finance.", "es": "Qué se muestra aquí: la fecha del próximo informe trimestral (si se conoce), fechas de dividendos próximas y un resumen de los últimos 4 informes trimestrales — ingresos, beneficio neto, EPS y margen bruto. Todos los datos de Yahoo Finance."},
 "events_upcoming":     {"he": "קרוב", "en": "Upcoming", "ru": "Предстоящие", "es": "Próximos"},
 "events_past":         {"he": "דוחות אחרונים", "en": "Recent Reports", "ru": "Последние отчёты", "es": "Informes recientes"},
 "events_earnings":     {"he": "דוח רווחים הבא", "en": "Next Earnings Report", "ru": "Следующий отчёт о прибыли", "es": "Próximo informe de ganancias"},
@@ -2732,9 +2733,9 @@ async function loadTickerEvents(ticker) {
       return;
     }
     const now = new Date().toISOString().slice(0,10);
-    const upcoming = events.filter(e => e.date >= now);
-    const past = events.filter(e => e.date < now);
-    
+    const upcoming = events.filter(e => e.date >= now).sort((a,b) => a.date.localeCompare(b.date));
+    const past     = events.filter(e => e.date <  now).sort((a,b) => b.date.localeCompare(a.date));
+
     const typeIcon = {
       earnings: "ti-report-money",
       dividend: "ti-coin",
@@ -2754,21 +2755,19 @@ async function loadTickerEvents(ticker) {
       calendar: "Calendar"
     };
 
-    // פירוק detail של past_earnings לשדות קריאים
     function parsePastDetail(detail, date) {
       if (!detail) return "";
-      const parts = [];
       const revMatch = detail.match(/Rev:\s*(\S+)/);
       const niMatch  = detail.match(/NI:\s*(\S+)/);
       const epsMatch = detail.match(/EPS:\s*(\S+)/);
       const gmMatch  = detail.match(/GM:\s*(\S+)/);
-      // תאריך → רבעון
       let period = "";
       if (date) {
         const d = new Date(date);
         const q = Math.floor(d.getMonth() / 3) + 1;
         period = `Q${q} ${d.getFullYear()}`;
       }
+      const parts = [];
       if (revMatch) parts.push(`${t("events_revenue")}: ${revMatch[1]}`);
       if (niMatch)  parts.push(`${t("events_net_income")}: ${niMatch[1]}`);
       if (epsMatch) parts.push(`EPS: ${epsMatch[1]}`);
@@ -2776,24 +2775,24 @@ async function loadTickerEvents(ticker) {
       return (period ? `<span style="font-weight:600;">${period}</span> · ` : "") + parts.join(" · ");
     }
 
-    // פירוק detail של upcoming earnings
     function parseUpcomingDetail(detail) {
       if (!detail) return "";
-      // פורמט: "Q3 2026 · EPS צפוי: $X · הכנסות צפויות: $XB"
       const parts = detail.split(" · ");
       if (parts.length <= 1) return detail;
-      const period = parts[0]; // Q3 2026
+      const period = parts[0];
       const rest = parts.slice(1).join(" · ");
       return `<span style="font-weight:600;">${period}</span>${rest ? " · " + rest : ""}`;
     }
 
-    let html = "";
+    let html = `<p style="font-size:11px; color:var(--text-dimmer); margin:0 0 10px; line-height:1.5;">${t("events_desc")}</p>`;
+
     if (upcoming.length) {
       html += `<p style="font-size:11px; font-weight:600; color:var(--accent); margin:0 0 6px;">${t("events_upcoming")}</p>`;
       upcoming.forEach(e => {
         const detailLine = e.type === "earnings" && e.detail
           ? `<p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${parseUpcomingDetail(e.detail)}</p>`
-          : e.detail ? `<p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${e.date}${e.detail ? " · " + e.detail : ""}</p>`
+          : e.detail
+          ? `<p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${e.date} · ${e.detail}</p>`
           : `<p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${e.date}</p>`;
         html += `<div style="display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:0.5px solid var(--card-border);">
           <i class="ti ${typeIcon[e.type] || 'ti-calendar'}" style="font-size:16px; color:${typeColor[e.type] || '#888'}; flex-shrink:0; margin-top:1px;"></i>
