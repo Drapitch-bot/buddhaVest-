@@ -968,10 +968,14 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "financials_no_data":  {"he": "אין נתונים זמינים", "en": "No data available", "ru": "Нет данных", "es": "Sin datos disponibles"},
 "events_title":        {"he": "יומן אירועים", "en": "Events Calendar", "ru": "Календарь событий", "es": "Calendario de eventos"},
 "events_upcoming":     {"he": "קרוב", "en": "Upcoming", "ru": "Предстоящие", "es": "Próximos"},
-"events_past":         {"he": "אחרון", "en": "Past", "ru": "Прошедшие", "es": "Pasados"},
-"events_earnings":     {"he": "דוח רווחים", "en": "Earnings Report", "ru": "Отчёт о прибыли", "es": "Informe de ganancias"},
+"events_past":         {"he": "דוחות אחרונים", "en": "Recent Reports", "ru": "Последние отчёты", "es": "Informes recientes"},
+"events_earnings":     {"he": "דוח רווחים הבא", "en": "Next Earnings Report", "ru": "Следующий отчёт о прибыли", "es": "Próximo informe de ganancias"},
 "events_dividend":     {"he": "תאריך קום דיבידנד", "en": "Ex-Dividend Date", "ru": "Дата экс-дивиденда", "es": "Fecha ex-dividendo"},
 "events_no_data":      {"he": "אין אירועים זמינים", "en": "No events available", "ru": "Нет доступных событий", "es": "No hay eventos disponibles"},
+"events_past_q":       {"he": "דוח רבעוני", "en": "Quarterly Report", "ru": "Квартальный отчёт", "es": "Informe trimestral"},
+"events_revenue":      {"he": "הכנסות", "en": "Revenue", "ru": "Выручка", "es": "Ingresos"},
+"events_net_income":   {"he": "רווח נקי", "en": "Net Income", "ru": "Чистая прибыль", "es": "Beneficio neto"},
+"events_period":       {"he": "תקופה", "en": "Period", "ru": "Период", "es": "Período"},
 "metric_explanations": {
   "gross_margin":     {"he": "מרווח גולמי מראה כמה נשאר מההכנסות אחרי עלויות הייצור. ככל שגבוה יותר – כוח תמחור חזק יותר.", "en": "Gross margin shows how much revenue remains after production costs. Higher = stronger pricing power.", "ru": "Валовая маржа показывает, сколько выручки остаётся после производственных затрат. Выше = сильнее ценовая власть.", "es": "El margen bruto muestra cuánto queda de los ingresos tras los costes de producción. Mayor = más poder de precios."},
   "operating_margin": {"he": "מרווח תפעולי מראה את הרווחיות לפני מס וריבית. מדד מרכזי ליעילות העסקית.", "en": "Operating margin shows profitability before tax and interest. A key measure of business efficiency.", "ru": "Операционная маржа показывает прибыльность до налогов и процентов. Ключевой показатель эффективности.", "es": "El margen operativo muestra la rentabilidad antes de impuestos e intereses. Clave para medir eficiencia."},
@@ -2745,9 +2749,28 @@ async function loadTickerEvents(ticker) {
     const typeLabel = {
       earnings: t("events_earnings"),
       dividend: t("events_dividend"),
-      past_earnings: t("events_past") + " Q",
+      past_earnings: t("events_past_q"),
       calendar: "Calendar"
     };
+
+    // פירוק detail של past_earnings לשדות קריאים
+    function parsePastDetail(detail, date) {
+      if (!detail) return "";
+      // פורמט: "Rev: $111.2B · NI: $29.6B"
+      const parts = [];
+      const revMatch = detail.match(/Rev:\s*([^\s·]+)/);
+      const niMatch  = detail.match(/NI:\s*([^\s·]+)/);
+      // תאריך → רבעון
+      let period = "";
+      if (date) {
+        const d = new Date(date);
+        const q = Math.floor(d.getMonth() / 3) + 1;
+        period = `Q${q} ${d.getFullYear()}`;
+      }
+      if (revMatch) parts.push(`${t("events_revenue")}: ${revMatch[1]}`);
+      if (niMatch)  parts.push(`${t("events_net_income")}: ${niMatch[1]}`);
+      return (period ? `<span style="font-weight:600;">${period}</span> · ` : "") + parts.join(" · ");
+    }
 
     let html = "";
     if (upcoming.length) {
@@ -2765,11 +2788,15 @@ async function loadTickerEvents(ticker) {
     if (past.length) {
       html += `<p style="font-size:11px; font-weight:600; color:var(--text-dim); margin:10px 0 6px;">${t("events_past")}</p>`;
       past.slice(0,4).forEach(e => {
+        const isPastEarnings = e.type === "past_earnings";
+        const detailHtml = isPastEarnings
+          ? `<p style="font-size:11px; color:var(--text-dim); margin:2px 0 0;">${parsePastDetail(e.detail, e.date)}</p>`
+          : `<p style="font-size:11px; color:var(--text-dim); margin:2px 0 0;">${e.date}${e.detail ? " · " + e.detail : ""}</p>`;
         html += `<div style="display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:0.5px solid var(--card-border);">
           <i class="ti ${typeIcon[e.type] || 'ti-calendar'}" style="font-size:16px; color:${typeColor[e.type] || 'var(--text-dimmer)'}; flex-shrink:0; margin-top:1px;"></i>
           <div>
             <p style="font-size:12px; color:var(--text); margin:0;">${typeLabel[e.type] || e.label}</p>
-            <p style="font-size:11px; color:var(--text-dim); margin:2px 0 0;">${e.date}${e.detail ? " · " + e.detail : ""}</p>
+            ${detailHtml}
           </div>
         </div>`;
       });
