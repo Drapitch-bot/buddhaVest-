@@ -872,11 +872,19 @@ def ticker_events(ticker: str):
             try:
                 dt = datetime.fromtimestamp(next_earnings, tz=timezone.utc)
                 if dt > datetime.now(tz=timezone.utc):
+                    q_num = (dt.month - 1) // 3 + 1
+                    eps_est = info.get("forwardEps") or info.get("epsForward")
+                    rev_est = info.get("revenueEstimate") or info.get("averageRevenueEstimate")
+                    detail_parts = [f"Q{q_num} {dt.year}"]
+                    if eps_est:
+                        detail_parts.append(f"EPS צפוי: ${eps_est:.2f}")
+                    if rev_est:
+                        detail_parts.append(f"הכנסות צפויות: ${rev_est/1e9:.1f}B")
                     events.append({
                         "type": "earnings",
                         "date": dt.strftime("%Y-%m-%d"),
                         "label": "Earnings Report",
-                        "detail": f"Q{(dt.month-1)//3+1} {dt.year}"
+                        "detail": " · ".join(detail_parts)
                     })
             except Exception:
                 pass
@@ -925,15 +933,33 @@ def ticker_events(ticker: str):
                 for col in fin.columns[:4]:
                     try:
                         date_str = col.strftime("%Y-%m-%d") if hasattr(col, 'strftime') else str(col)[:10]
-                        rev = fin.loc["Total Revenue", col] if "Total Revenue" in fin.index else None
-                        ni = fin.loc["Net Income", col] if "Net Income" in fin.index else None
+                        def _get_row(df, *names):
+                            for n in names:
+                                if n in df.index:
+                                    v = df.loc[n, col]
+                                    if v is not None:
+                                        import math
+                                        try:
+                                            if not math.isnan(float(v)):
+                                                return float(v)
+                                        except Exception:
+                                            pass
+                            return None
+                        rev  = _get_row(fin, "Total Revenue", "Operating Revenue")
+                        ni   = _get_row(fin, "Net Income", "Net Income Common Stockholders")
+                        eps  = _get_row(fin, "Diluted EPS", "Basic EPS")
+                        gp   = _get_row(fin, "Gross Profit")
                         detail_parts = []
-                        if rev: detail_parts.append(f"Rev: ${rev/1e9:.1f}B")
-                        if ni: detail_parts.append(f"NI: ${ni/1e9:.1f}B")
+                        if rev is not None: detail_parts.append(f"Rev: ${rev/1e9:.1f}B")
+                        if ni  is not None: detail_parts.append(f"NI: ${ni/1e9:.1f}B")
+                        if eps is not None: detail_parts.append(f"EPS: ${eps:.2f}")
+                        if gp  is not None and rev and rev > 0:
+                            gm = round(gp / rev * 100, 1)
+                            detail_parts.append(f"GM: {gm}%")
                         events.append({
                             "type": "past_earnings",
                             "date": date_str,
-                            "label": f"Q Report",
+                            "label": "Q Report",
                             "detail": " · ".join(detail_parts)
                         })
                     except Exception:

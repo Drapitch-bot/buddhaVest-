@@ -723,7 +723,11 @@ def calculate_score(data: dict) -> dict:
     return {
         "ticker": data.get("ticker"),
         "company_name": info.get("longName", data.get("ticker")),
-        "current_price": _safe_info(info, "currentPrice"),
+        "current_price": (
+            _safe_info(info, "currentPrice") or
+            _safe_info(info, "navPrice") or
+            _safe_info(info, "regularMarketPrice")
+        ),
         "final_score": round(final_score),
         "recommendation": recommendation,
         "recommendation_color": rec_color,

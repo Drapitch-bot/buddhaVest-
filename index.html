@@ -975,6 +975,7 @@ const I18N = {"greeting_home": {"he": "השוק · בזמן אמת", "en": "Mark
 "events_past_q":       {"he": "דוח רבעוני", "en": "Quarterly Report", "ru": "Квартальный отчёт", "es": "Informe trimestral"},
 "events_revenue":      {"he": "הכנסות", "en": "Revenue", "ru": "Выручка", "es": "Ingresos"},
 "events_net_income":   {"he": "רווח נקי", "en": "Net Income", "ru": "Чистая прибыль", "es": "Beneficio neto"},
+"events_gross_margin": {"he": "מרווח גולמי", "en": "Gross Margin", "ru": "Валовая маржа", "es": "Margen bruto"},
 "events_period":       {"he": "תקופה", "en": "Period", "ru": "Период", "es": "Período"},
 "metric_explanations": {
   "gross_margin":     {"he": "מרווח גולמי מראה כמה נשאר מההכנסות אחרי עלויות הייצור. ככל שגבוה יותר – כוח תמחור חזק יותר.", "en": "Gross margin shows how much revenue remains after production costs. Higher = stronger pricing power.", "ru": "Валовая маржа показывает, сколько выручки остаётся после производственных затрат. Выше = сильнее ценовая власть.", "es": "El margen bruto muestra cuánto queda de los ingresos tras los costes de producción. Mayor = más poder de precios."},
@@ -2756,10 +2757,11 @@ async function loadTickerEvents(ticker) {
     // פירוק detail של past_earnings לשדות קריאים
     function parsePastDetail(detail, date) {
       if (!detail) return "";
-      // פורמט: "Rev: $111.2B · NI: $29.6B"
       const parts = [];
-      const revMatch = detail.match(/Rev:\s*([^\s·]+)/);
-      const niMatch  = detail.match(/NI:\s*([^\s·]+)/);
+      const revMatch = detail.match(/Rev:\s*(\S+)/);
+      const niMatch  = detail.match(/NI:\s*(\S+)/);
+      const epsMatch = detail.match(/EPS:\s*(\S+)/);
+      const gmMatch  = detail.match(/GM:\s*(\S+)/);
       // תאריך → רבעון
       let period = "";
       if (date) {
@@ -2769,18 +2771,35 @@ async function loadTickerEvents(ticker) {
       }
       if (revMatch) parts.push(`${t("events_revenue")}: ${revMatch[1]}`);
       if (niMatch)  parts.push(`${t("events_net_income")}: ${niMatch[1]}`);
+      if (epsMatch) parts.push(`EPS: ${epsMatch[1]}`);
+      if (gmMatch)  parts.push(`${t("events_gross_margin")}: ${gmMatch[1]}`);
       return (period ? `<span style="font-weight:600;">${period}</span> · ` : "") + parts.join(" · ");
+    }
+
+    // פירוק detail של upcoming earnings
+    function parseUpcomingDetail(detail) {
+      if (!detail) return "";
+      // פורמט: "Q3 2026 · EPS צפוי: $X · הכנסות צפויות: $XB"
+      const parts = detail.split(" · ");
+      if (parts.length <= 1) return detail;
+      const period = parts[0]; // Q3 2026
+      const rest = parts.slice(1).join(" · ");
+      return `<span style="font-weight:600;">${period}</span>${rest ? " · " + rest : ""}`;
     }
 
     let html = "";
     if (upcoming.length) {
       html += `<p style="font-size:11px; font-weight:600; color:var(--accent); margin:0 0 6px;">${t("events_upcoming")}</p>`;
       upcoming.forEach(e => {
+        const detailLine = e.type === "earnings" && e.detail
+          ? `<p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${parseUpcomingDetail(e.detail)}</p>`
+          : e.detail ? `<p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${e.date}${e.detail ? " · " + e.detail : ""}</p>`
+          : `<p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${e.date}</p>`;
         html += `<div style="display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:0.5px solid var(--card-border);">
           <i class="ti ${typeIcon[e.type] || 'ti-calendar'}" style="font-size:16px; color:${typeColor[e.type] || '#888'}; flex-shrink:0; margin-top:1px;"></i>
           <div>
             <p style="font-size:12px; font-weight:500; color:var(--text); margin:0;">${typeLabel[e.type] || e.label}</p>
-            <p style="font-size:11px; color:var(--text-dimmer); margin:2px 0 0;">${e.date}${e.detail ? " · " + e.detail : ""}</p>
+            ${detailLine}
           </div>
         </div>`;
       });
