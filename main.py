@@ -922,18 +922,37 @@ def ticker_events(ticker: str):
         try:
             fin = _get_quarterly_income(stock)
             if fin is not None and not fin.empty:
-                for col in fin.columns[:4]:
+                # מיון עמודות לפי תאריך יורד (החדש ביותר ראשון) — yfinance לא מבטיח סדר
+                sorted_cols = sorted(fin.columns, reverse=True)
+                for col in sorted_cols[:4]:
                     try:
                         date_str = col.strftime("%Y-%m-%d") if hasattr(col, 'strftime') else str(col)[:10]
-                        rev = fin.loc["Total Revenue", col] if "Total Revenue" in fin.index else None
-                        ni = fin.loc["Net Income", col] if "Net Income" in fin.index else None
+                        def _get_row(df, *names):
+                            for n in names:
+                                if n in df.index:
+                                    v = df.loc[n, col]
+                                    if v is not None:
+                                        import math
+                                        try:
+                                            if not math.isnan(float(v)):
+                                                return float(v)
+                                        except Exception:
+                                            pass
+                            return None
+                        rev  = _get_row(fin, "Total Revenue", "Operating Revenue")
+                        ni   = _get_row(fin, "Net Income", "Net Income Common Stockholders")
+                        eps  = _get_row(fin, "Diluted EPS", "Basic EPS")
+                        gp   = _get_row(fin, "Gross Profit")
                         detail_parts = []
-                        if rev: detail_parts.append(f"Rev: ${rev/1e9:.1f}B")
-                        if ni: detail_parts.append(f"NI: ${ni/1e9:.1f}B")
+                        if rev is not None: detail_parts.append(f"Rev: ${rev/1e9:.1f}B")
+                        if ni  is not None: detail_parts.append(f"NI: ${ni/1e9:.1f}B")
+                        if eps is not None: detail_parts.append(f"EPS: ${eps:.2f}")
+                        if gp  is not None and rev and rev > 0:
+                            detail_parts.append(f"GM: {round(gp/rev*100,1)}%")
                         events.append({
                             "type": "past_earnings",
                             "date": date_str,
-                            "label": f"Q Report",
+                            "label": "Q Report",
                             "detail": " · ".join(detail_parts)
                         })
                     except Exception:
@@ -941,11 +960,8 @@ def ticker_events(ticker: str):
         except Exception:
             pass
 
-        # מיין: upcoming עולה (הקרוב ראשון), past יורד (האחרון ראשון)
-        now_str = __import__('datetime').datetime.now(__import__('datetime').timezone.utc).strftime("%Y-%m-%d")
-        upcoming_events = sorted([e for e in events if e["date"] >= now_str], key=lambda x: x["date"])
-        past_events     = sorted([e for e in events if e["date"] <  now_str], key=lambda x: x["date"], reverse=True)
-        events = upcoming_events + past_events
+        # מיין לפי תאריך
+        events.sort(key=lambda x: x["date"], reverse=True)
 
         result = {"ticker": ticker.upper(), "events": events}
         _cache_set(cache_key, result, CACHE_TTL["stock"])
