@@ -3026,19 +3026,17 @@ checkAppStatus().then(ok => { if (ok) { startApp(); startAutoRefresh(); } });
 // ---------- Dark/Light mode ----------
 
 document.addEventListener("DOMContentLoaded", function() {
-  const logo = document.getElementById("brandIcon");
-  const notifIcon = document.getElementById("notifRefreshIcon");
-  if (logo && notifIcon) notifIcon.src = logo.src;
-  // שמור src מקוריים
-  const buddhaImg = document.getElementById("buddhaImg");
-  if (buddhaImg) buddhaImg.dataset.darkSrc = buddhaImg.src;
-  if (logo) logo.dataset.darkSrc = logo.src;
   makeDraggable(document.getElementById("themeToggleBtn"));
-  if (document.documentElement.classList.contains("light-mode")) {
+  const isLight = document.documentElement.classList.contains("light-mode");
+  if (isLight) {
     const btn = document.getElementById("themeToggleBtn");
     if (btn) btn.textContent = "☀️";
     applyThemeImages(true);
   }
+  // העתק src של סמל הריענון לפאנל ההתראות (לפי המצב הנוכחי)
+  const ic = document.getElementById("brandIcon");
+  const notifIcon = document.getElementById("notifRefreshIcon");
+  if (ic && notifIcon) notifIcon.src = ic.src;
 });
 
 function applyThemeImages(isLight) {
@@ -3056,6 +3054,9 @@ function applyThemeImages(isLight) {
   if (ti) ti.src = isLight ? LIGHT_TEXT   : DARK_TEXT;
   if (ic) ic.src = isLight ? LIGHT_ICON   : DARK_ICON;
   if (ni) ni.src = isLight ? LIGHT_ICON   : DARK_ICON;
+  // עדכן notifRefreshIcon לפי הסמל הנוכחי
+  var notifIcon2 = document.getElementById("notifRefreshIcon");
+  if (notifIcon2 && ic) notifIcon2.src = ic.src;
 }
 
 
