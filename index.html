@@ -3050,10 +3050,10 @@ function applyThemeImages(isLight) {
   var ti = document.querySelector('img[alt="BuddhaVest"]');
   var ic = document.getElementById("brandIcon");
   var ni = document.getElementById("notifRefreshIcon");
-  if (bi) bi.src = isLight ? LIGHT_BUDDHA : DARK_BUDDHA;
-  if (ti) ti.src = isLight ? LIGHT_TEXT   : DARK_TEXT;
-  if (ic) ic.src = isLight ? LIGHT_ICON   : DARK_ICON;
-  if (ni) ni.src = isLight ? LIGHT_ICON   : DARK_ICON;
+  if (bi) { bi.src = isLight ? LIGHT_BUDDHA : DARK_BUDDHA; bi.style.height = isLight ? "47px" : "52px"; }
+  if (ti) { ti.src = isLight ? LIGHT_TEXT   : DARK_TEXT;   ti.style.height = isLight ? "21px" : "22px"; }
+  if (ic) { ic.src = isLight ? LIGHT_ICON   : DARK_ICON;   ic.style.height = isLight ? "29px" : "30px"; }
+  if (ni) { ni.src = isLight ? LIGHT_ICON   : DARK_ICON; }
   // עדכן notifRefreshIcon לפי הסמל הנוכחי
   var notifIcon2 = document.getElementById("notifRefreshIcon");
   if (notifIcon2 && ic) notifIcon2.src = ic.src;
