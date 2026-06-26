@@ -533,6 +533,11 @@ def metric_history(ticker: str, metric: str):
             # Calculated
             "pe_ratio":         ("calc_pe", None, None, None),
             "peg_ratio":        ("calc_peg", None, None, None),
+            # Valuation multiples (price-based)
+            "forward_pe":       ("calc_forward_pe", None, None, None),
+            "price_to_book":    ("calc_pb", None, None, None),
+            "price_to_sales":   ("calc_ps", None, None, None),
+            "ev_to_ebitda":     ("calc_ev_ebitda", None, None, None),
         }
 
         result_data = {"ticker": ticker.upper(), "metric": metric, "quarterly": [], "annual": [], "use_price": False}
@@ -624,6 +629,137 @@ def metric_history(ticker: str, metric: str):
                                 if yr not in seen_years:
                                     seen_years.add(yr)
                                     series_a.append(pt)
+
+                    result_data["quarterly"] = series_q
+                    result_data["annual"] = series_a
+                    if not series_q:
+                        result_data["use_price"] = True
+
+            except Exception:
+                result_data["use_price"] = True
+        elif metric in ("calc_forward_pe", "calc_pb", "calc_ps", "calc_ev_ebitda",
+                        "forward_pe", "price_to_book", "price_to_sales", "ev_to_ebitda"):
+            # מחשב היסטוריה של מכפיל על-ידי: מחיר חודשי / נתון פיננסי רבעוני TTM
+            try:
+                import math as _math
+                hist = stock.history(period="max")
+                info = stock.info or {}
+                shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+
+                income_q  = _get_quarterly_income(stock)
+                income_a  = _get_annual_income(stock)
+                balance_q = _get_quarterly_balance(stock)
+                balance_a = _get_annual_balance(stock)
+
+                def get_series(df, field_aliases):
+                    """מחזיר pandas Series של שדה לפי aliases"""
+                    if df is None or df.empty:
+                        return None
+                    for alias in field_aliases:
+                        row = find_row(df, alias)
+                        if row:
+                            s = df.loc[row].sort_index().dropna()
+                            if hasattr(s.index, "tz") and s.index.tz:
+                                s.index = s.index.tz_localize(None)
+                            return s.apply(float)
+                    return None
+
+                def ttm_at(series_q, series_a, date, periods=4):
+                    """TTM: סכום 4 רבעונים אחרונים לפני date"""
+                    if series_q is not None:
+                        past = series_q[series_q.index <= date].tail(periods)
+                        if len(past) == periods:
+                            return float(past.sum())
+                    if series_a is not None:
+                        past = series_a[series_a.index <= date].tail(1)
+                        if len(past) == 1:
+                            return float(past.iloc[0])
+                    return None
+
+                def last_at(series_q, series_a, date):
+                    """ערך אחרון לפני date"""
+                    if series_q is not None:
+                        past = series_q[series_q.index <= date].tail(1)
+                        if len(past) == 1:
+                            return float(past.iloc[0])
+                    if series_a is not None:
+                        past = series_a[series_a.index <= date].tail(1)
+                        if len(past) == 1:
+                            return float(past.iloc[0])
+                    return None
+
+                if hist is None or hist.empty or not shares:
+                    result_data["use_price"] = True
+                else:
+                    shares = float(shares)
+                    price_monthly = hist["Close"].resample("ME").last().dropna()
+                    if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
+                        price_monthly.index = price_monthly.index.tz_localize(None)
+
+                    # הכן series לפי מכפיל
+                    rev_q = get_series(income_q,  ["Total Revenue", "Operating Revenue"])
+                    rev_a = get_series(income_a,  ["Total Revenue", "Operating Revenue"])
+                    bv_q  = get_series(balance_q, ["Stockholders Equity", "Common Stock Equity"])
+                    bv_a  = get_series(balance_a, ["Stockholders Equity", "Common Stock Equity"])
+                    ebitda_q = get_series(income_q, ["EBITDA", "Normalized EBITDA"])
+                    ebitda_a = get_series(income_a, ["EBITDA", "Normalized EBITDA"])
+                    debt_q = get_series(balance_q, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
+                    debt_a = get_series(balance_a, ["Total Debt", "Long Term Debt And Capital Lease Obligation"])
+                    cash_q = get_series(balance_q, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
+                    cash_a = get_series(balance_a, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"])
+                    eps_q  = get_series(income_q,  ["Diluted EPS", "Basic EPS"])
+                    eps_a  = get_series(income_a,  ["Diluted EPS", "Basic EPS"])
+
+                    series_q, series_a = [], []
+                    seen_years = set()
+
+                    for date, price in price_monthly.items():
+                        price = float(price)
+                        val = None
+                        try:
+                            if metric == "forward_pe":
+                                # Forward P/E: אין היסטוריה אמיתית — נשתמש ב-trailing P/E (EPS TTM)
+                                ttm_eps = ttm_at(eps_q, eps_a, date)
+                                if ttm_eps and ttm_eps > 0:
+                                    val = round(price / ttm_eps, 2)
+                                    if val <= 0 or val > 3000:
+                                        val = None
+                            elif metric == "price_to_book":
+                                bv = last_at(bv_q, bv_a, date)
+                                if bv and bv > 0 and shares > 0:
+                                    bv_per_share = bv / shares
+                                    val = round(price / bv_per_share, 2)
+                                    if val <= 0 or val > 500:
+                                        val = None
+                            elif metric == "price_to_sales":
+                                rev = ttm_at(rev_q, rev_a, date)
+                                if rev and rev > 0 and shares > 0:
+                                    rev_per_share = rev / shares
+                                    val = round(price / rev_per_share, 2)
+                                    if val <= 0 or val > 1000:
+                                        val = None
+                            elif metric == "ev_to_ebitda":
+                                ebitda = ttm_at(ebitda_q, ebitda_a, date)
+                                debt   = last_at(debt_q, debt_a, date) or 0
+                                cash   = last_at(cash_q, cash_a, date) or 0
+                                if ebitda and ebitda > 0 and shares > 0:
+                                    market_cap = price * shares
+                                    ev = market_cap + debt - cash
+                                    val = round(ev / ebitda, 2)
+                                    if val <= 0 or val > 2000:
+                                        val = None
+                        except Exception:
+                            val = None
+
+                        if val is None or _math.isnan(val) or _math.isinf(val):
+                            continue
+
+                        pt = {"date": date.strftime("%b %Y"), "value": val}
+                        series_q.append(pt)
+                        yr = pt["date"].split(" ")[-1]
+                        if yr not in seen_years:
+                            seen_years.add(yr)
+                            series_a.append(pt)
 
                     result_data["quarterly"] = series_q
                     result_data["annual"] = series_a
