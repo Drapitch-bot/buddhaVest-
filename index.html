@@ -2563,12 +2563,16 @@ async function loadETFInfo(ticker) {
 
     let html = `<div class="metrics-grid">`;
 
+    const _etfTicker = data.ticker || ticker;
+    const _ts = `cursor:pointer; transition:opacity .15s;`;
+    const _th = `onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'"`;
+
     if (data.fund_family) html += `<div class="metric-tile"><p class="m-label">${t("etf_family")}</p><p class="m-value" style="font-size:14px;">${data.fund_family}</p></div>`;
     if (data.category)   html += `<div class="metric-tile"><p class="m-label">${t("etf_category")}</p><p class="m-value" style="font-size:14px;">${data.category}</p></div>`;
-    if (data.total_assets) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_assets")}</p><p class="m-value ltr">${fmt(data.total_assets, false, true)}</p></div>`;
+    if (data.total_assets) html += `<div class="metric-tile" style="${_ts}" ${_th} onclick="openMetricHistory('${_etfTicker}','price','${t('etf_assets')}')"><p class="m-label ltr">${t("etf_assets")}</p><p class="m-value ltr">${fmt(data.total_assets, false, true)}</p></div>`;
     if (data.expense_ratio) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_expense")}</p><p class="m-value ltr" style="color:${data.expense_ratio < 0.003 ? "var(--green)" : data.expense_ratio > 0.01 ? "var(--red)" : "var(--yellow)"}">${(data.expense_ratio*100).toFixed(2)}%</p></div>`;
     if (data.yield)      html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_yield")}</p><p class="m-value ltr">${fmt(data.yield, true)}</p></div>`;
-    if (data.ytd_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_ytd")}</p><p class="m-value ltr" style="color:${data.ytd_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.ytd_return, true)}</p></div>`;
+    if (data.ytd_return) html += `<div class="metric-tile" style="${_ts}" ${_th} onclick="openMetricHistory('${_etfTicker}','price','${t('etf_ytd')}')"><p class="m-label ltr">${t("etf_ytd")}</p><p class="m-value ltr" style="color:${data.ytd_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.ytd_return, true)}</p></div>`;
     if (data.one_year_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_1y")}</p><p class="m-value ltr" style="color:${data.one_year_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.one_year_return, true)}</p></div>`;
     if (data.three_year_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_3y")}</p><p class="m-value ltr" style="color:${data.three_year_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.three_year_return, true)}</p></div>`;
     if (data.five_year_return) html += `<div class="metric-tile"><p class="m-label ltr">${t("etf_5y")}</p><p class="m-value ltr" style="color:${data.five_year_return >= 0 ? "var(--green)" : "var(--red)"}">${fmt(data.five_year_return, true)}</p></div>`;
