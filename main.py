@@ -1038,6 +1038,21 @@ def etf_info(ticker: str):
         if quote_type not in ("ETF", "MUTUALFUND"):
             return {"is_etf": False}
 
+        # חישוב ytd_return מהיסטוריית מחירים — מדויק יותר מ-API
+        ytd_return = info.get("ytdReturn")
+        try:
+            hist = stock.history(period="ytd")
+            if hist is not None and not hist.empty and len(hist) >= 2:
+                price_start = float(hist["Close"].iloc[0])
+                price_end   = float(hist["Close"].iloc[-1])
+                if price_start > 0:
+                    ytd_calc = (price_end - price_start) / price_start
+                    # אם הערך מה-API חריג מאוד (>10x שונה מהחישוב), השתמש בחישוב
+                    if ytd_return is None or abs(ytd_return) > 10 or abs(ytd_return - ytd_calc) > 0.5:
+                        ytd_return = round(ytd_calc, 4)
+        except Exception:
+            pass
+
         result = {
             "is_etf": True,
             "quote_type": quote_type,
@@ -1048,7 +1063,7 @@ def etf_info(ticker: str):
             "expense_ratio": info.get("expenseRatio") or info.get("annualReportExpenseRatio"),
             "nav": info.get("navPrice") or info.get("regularMarketPrice"),
             "yield": info.get("yield") or info.get("dividendYield"),
-            "ytd_return": info.get("ytdReturn"),
+            "ytd_return": ytd_return,
             "one_year_return": info.get("oneYearReturn") or info.get("52WeekChange"),
             "three_year_return": info.get("threeYearAverageReturn"),
             "five_year_return": info.get("fiveYearAverageReturn"),

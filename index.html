@@ -2538,9 +2538,9 @@ async function loadETFInfo(ticker) {
     // הסתר קטע דוחות כספיים והחלף בהודעה
     const finCard = document.getElementById("financialsContainer");
     if (finCard) {
-      finCard.closest(".card").querySelector("h3").innerHTML = 
+      finCard.closest(".card").querySelector("h3").innerHTML =
         `<i class="ti ti-alert-circle" style="color:#f59e0b"></i>${t("etf_no_financials")}`;
-      finCard.innerHTML = `<p style="font-size:12px;color:var(--text-dimmer);padding:8px 0;">${t("etf_no_financials")}</p>`;
+      finCard.innerHTML = "";
     }
 
     // הוסף כרטיס ETF לפני הדוחות
