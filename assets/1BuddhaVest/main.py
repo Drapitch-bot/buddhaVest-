@@ -149,6 +149,21 @@ class SanitizedJSONResponse(JSONResponse):
 app.router.default_response_class = SanitizedJSONResponse
 
 
+# ─── Cache pre-warming ────────────────────────────────────────────────────────
+# כשהשרת מתעורר (cold start ב-Render) – מאחסן חדשות לכל השפות ברקע,
+# כדי שהמשתמש הראשון יקבל תשובה מהירה מה-cache ולא יחכה לתרגום.
+def _prewarm_news():
+    time.sleep(5)  # wait for server to fully start
+    for _lang in ["en", "he", "ru", "es"]:
+        try:
+            general_news(_lang)
+        except Exception:
+            pass
+
+threading.Thread(target=_prewarm_news, daemon=True).start()
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 @app.get("/")
 def root():
     # אם index.html נמצא באותה תיקייה כמו main.py - מגישים אותו (האפליקציה עצמה).
