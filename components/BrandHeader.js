@@ -9,8 +9,8 @@ import {
   View, Text, Image, TouchableOpacity, Animated,
   StyleSheet, Modal, ScrollView, TouchableWithoutFeedback,
 } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Svg, { Path, Circle } from 'react-native-svg';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
@@ -62,7 +62,7 @@ export default function BrandHeader({ onRefresh, greeting }) {
   const notifItems = [
     { icon: '👋', text: t.notif_welcome },
     { icon: '💡', text: t.notif_tip },
-    { icon: '🔄', text: t.notif_refresh },
+    { icon: null, isLogo: true, text: t.notif_refresh },
   ];
 
   return (
@@ -146,7 +146,15 @@ export default function BrandHeader({ onRefresh, greeting }) {
                 <ScrollView>
                   {notifItems.map((item, i) => (
                     <View key={i} style={[s.notifItem, { borderBottomColor: colors.cardBorder }]}>
-                      <Text style={{ fontSize: 20, marginRight: 10 }}>{item.icon}</Text>
+                      {item.isLogo ? (
+                        <Image
+                          source={isDark ? ICON_DARK : ICON_LIGHT}
+                          style={{ width: 24, height: 24, marginRight: 10 }}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Text style={{ fontSize: 20, marginRight: 10 }}>{item.icon}</Text>
+                      )}
                       <View style={{ flex: 1 }}>
                         <Text style={[s.notifText, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
                         <Text style={[s.notifTime, { color: colors.textDimmer }]}>

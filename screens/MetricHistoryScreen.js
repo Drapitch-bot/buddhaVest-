@@ -391,11 +391,19 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Fallback notice */}
               {(usePrice || usingYahooFallback) && (
                 <View style={[s.noDataBanner, {
-                  backgroundColor: (colors.amber || '#fbbf24') + '22',
-                  borderColor: colors.amber || '#fbbf24',
+                  backgroundColor: (colors.accent || '#6366f1') + '15',
+                  borderColor: (colors.accent || '#6366f1') + '40',
                 }]}>
-                  <Text style={[s.noDataText, { color: colors.amber || '#fbbf24' }]}>
-                    {t.use_price_fallback || 'No history available for this metric – showing stock price as context'}
+                  <Text style={[s.noDataText, { color: colors.textDim }]}>
+                    {tileValue != null
+                      ? (t.use_price_fallback_with_value || 'No historical series tracked for this metric. Current value: {v}. Showing stock price chart for reference.')
+                          .replace('{v}', typeof tileValue === 'number'
+                            ? (Math.abs(tileValue) >= 1e9 ? '$' + (tileValue / 1e9).toFixed(2) + 'B'
+                              : Math.abs(tileValue) >= 1e6 ? '$' + (tileValue / 1e6).toFixed(2) + 'M'
+                              : tileValue % 1 === 0 ? tileValue.toString()
+                              : tileValue.toFixed(2))
+                            : String(tileValue))
+                      : (t.use_price_fallback || 'No historical series tracked for this metric. Showing stock price chart for reference.')}
                   </Text>
                 </View>
               )}

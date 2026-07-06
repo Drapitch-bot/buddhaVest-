@@ -576,11 +576,15 @@ def metric_history(ticker: str, metric: str):
             "price_to_book":    ("calc_pb", None, None, None),
             "price_to_sales":   ("calc_ps", None, None, None),
             "ev_to_ebitda":     ("calc_ev_ebitda", None, None, None),
+            # Income statement — direct fields
+            "cost_of_revenue":  ("income", "Cost Of Revenue", None, "abs"),
         }
+
+        CALC_SPECIAL = {"buyback", "dividend"}
 
         result_data = {"ticker": ticker.upper(), "metric": metric, "quarterly": [], "annual": [], "use_price": False}
 
-        if metric not in METRIC_MAP:
+        if metric not in METRIC_MAP and metric not in CALC_SPECIAL:
             # מדד ללא היסטוריה – החזר היסטוריית מחיר
             result_data["use_price"] = True
         elif metric in ("pe_ratio", "peg_ratio"):
@@ -806,6 +810,135 @@ def metric_history(ticker: str, metric: str):
 
             except Exception:
                 result_data["use_price"] = True
+
+        elif metric in CALC_SPECIAL:
+            # ── buyback / dividend — calculated from cashflow / dividend history ──
+            try:
+                import math as _math
+                hist = stock.history(period="max")
+                info = stock.info or {}
+
+                if metric == "buyback":
+                    # Buyback yield = TTM repurchases / market cap * 100
+                    # Calculated per month using price history + quarterly cashflow
+                    shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+                    cf_q = _get_quarterly_cashflow(stock)
+                    cf_a = _get_annual_cashflow(stock)
+
+                    repurchase_aliases = [
+                        "Repurchase Of Capital Stock",
+                        "Common Stock Repurchase",
+                        "Repurchase Of Common Stock",
+                        "Issuance Of Capital Stock",  # fallback — may appear as negative
+                    ]
+
+                    def _get_repurchase(df):
+                        if df is None or df.empty:
+                            return None
+                        for alias in repurchase_aliases:
+                            row = find_row(df, alias)
+                            if row:
+                                s = df.loc[row].sort_index().dropna()
+                                if hasattr(s.index, "tz") and s.index.tz:
+                                    s.index = s.index.tz_localize(None)
+                                # repurchase entries are typically negative — take abs
+                                return s.apply(lambda x: abs(float(x)))
+                        return None
+
+                    rep_q = _get_repurchase(cf_q)
+                    rep_a = _get_repurchase(cf_a)
+
+                    if hist is None or hist.empty or not shares or (rep_q is None and rep_a is None):
+                        result_data["use_price"] = True
+                    else:
+                        shares_f = float(shares)
+                        price_monthly = hist["Close"].resample("ME").last().dropna()
+                        if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
+                            price_monthly.index = price_monthly.index.tz_localize(None)
+
+                        series_q, series_a, seen_years = [], [], set()
+                        for date, price in price_monthly.items():
+                            price = float(price)
+                            try:
+                                ttm_rep = None
+                                if rep_q is not None:
+                                    past = rep_q[rep_q.index <= date].tail(4)
+                                    if len(past) >= 2:
+                                        ttm_rep = float(past.sum())
+                                if (not ttm_rep) and rep_a is not None:
+                                    past = rep_a[rep_a.index <= date].tail(1)
+                                    if len(past) == 1:
+                                        ttm_rep = float(past.iloc[0])
+                                if not ttm_rep or ttm_rep <= 0:
+                                    continue
+                                market_cap = price * shares_f
+                                if market_cap <= 0:
+                                    continue
+                                val = round(ttm_rep / market_cap * 100, 2)
+                                if val <= 0 or val > 50 or _math.isnan(val) or _math.isinf(val):
+                                    continue
+                                pt = {"date": date.strftime("%b %Y"), "value": val}
+                                series_q.append(pt)
+                                yr = pt["date"].split(" ")[-1]
+                                if yr not in seen_years:
+                                    seen_years.add(yr)
+                                    series_a.append(pt)
+                            except Exception:
+                                continue
+
+                        result_data["quarterly"] = series_q
+                        result_data["annual"]    = series_a
+                        if not series_q:
+                            result_data["use_price"] = True
+
+                elif metric == "dividend":
+                    # Dividend yield = trailing 12-month dividends / price * 100
+                    try:
+                        divs = stock.dividends
+                        if divs is None or divs.empty or hist is None or hist.empty:
+                            result_data["use_price"] = True
+                        else:
+                            if hasattr(divs.index, "tz") and divs.index.tz:
+                                divs.index = divs.index.tz_localize(None)
+                            divs_monthly = divs.resample("ME").sum()
+
+                            price_monthly = hist["Close"].resample("ME").last().dropna()
+                            if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
+                                price_monthly.index = price_monthly.index.tz_localize(None)
+
+                            series_q, series_a, seen_years = [], [], set()
+                            for date, price in price_monthly.items():
+                                price = float(price)
+                                if price <= 0:
+                                    continue
+                                try:
+                                    ttm_div = float(
+                                        divs_monthly[divs_monthly.index <= date].tail(12).sum()
+                                    )
+                                    if ttm_div <= 0:
+                                        continue
+                                    val = round(ttm_div / price * 100, 2)
+                                    if val <= 0 or val > 30 or _math.isnan(val) or _math.isinf(val):
+                                        continue
+                                    pt = {"date": date.strftime("%b %Y"), "value": val}
+                                    series_q.append(pt)
+                                    yr = pt["date"].split(" ")[-1]
+                                    if yr not in seen_years:
+                                        seen_years.add(yr)
+                                        series_a.append(pt)
+                                except Exception:
+                                    continue
+
+                            result_data["quarterly"] = series_q
+                            result_data["annual"]    = series_a
+                            if not series_q:
+                                result_data["use_price"] = True
+                    except Exception:
+                        result_data["use_price"] = True
+
+            except Exception:
+                result_data["use_price"] = True
+
         else:
             source, field1, field2, calc = METRIC_MAP[metric]
 

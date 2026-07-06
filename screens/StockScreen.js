@@ -590,27 +590,27 @@ export default function StockScreen({ route, navigation }) {
                     note={t.forward_pe_note || 'P/E multiple based on future projections'}
                     valColor={ve.trailing_pe && ve.forward_pe < ve.trailing_pe ? colors.green : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: 'Forward P/E' }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: 'Forward P/E', tileNote: t.forward_pe_note || 'P/E multiple based on future projections', tileScore: null, tileValue: ve.forward_pe ?? null }); }} />
                 ) : null}
                 {ve.price_to_book ? (
                   <ValTile label="P/B" value={String(ve.price_to_book)}
                     note={t.pb_note || 'Price relative to net asset value'}
                     valColor={ve.price_to_book < 1 ? colors.green : ve.price_to_book > 5 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: 'P/B' }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: 'P/B', tileNote: t.pb_note || 'Price relative to net asset value', tileScore: null, tileValue: ve.price_to_book ?? null }); }} />
                 ) : null}
                 {ve.price_to_sales ? (
                   <ValTile label="P/S" value={String(ve.price_to_sales)}
                     note={t.ps_note || 'Price relative to revenue'}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: 'P/S' }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: 'P/S', tileNote: t.ps_note || 'Price relative to revenue', tileScore: null, tileValue: ve.price_to_sales ?? null }); }} />
                 ) : null}
                 {ve.ev_to_ebitda ? (
                   <ValTile label="EV/EBITDA" value={String(ve.ev_to_ebitda)}
                     note={t.ev_ebitda_note || 'Enterprise multiple'}
                     valColor={ve.ev_to_ebitda < 10 ? colors.green : ve.ev_to_ebitda > 25 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: 'EV/EBITDA' }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: 'EV/EBITDA', tileNote: t.ev_ebitda_note || 'Enterprise multiple', tileScore: null, tileValue: ve.ev_to_ebitda ?? null }); }} />
                 ) : null}
               </View>
               <Text style={[s.noteSmall, { color: colors.textDimmer }]}>
