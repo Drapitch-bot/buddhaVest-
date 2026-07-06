@@ -1,0 +1,33 @@
+export const darkColors = {
+  bg: '#1c1f26',
+  card: '#262a33',
+  cardAlt: '#2c3039',
+  cardBorder: '#3a3f4b',
+  text: '#f5f5f5',
+  textDim: '#a8acb5',
+  textDimmer: '#767b87',
+  green: '#4ade80',
+  amber: '#fbbf24',
+  red: '#f87171',
+  blue: '#60a5fa',
+  purple: '#f59e0b',
+  purpleBg: '#2d1f00',
+  accent: '#f59e0b',
+};
+
+export const lightColors = {
+  bg: '#f0f2f5',
+  card: '#ffffff',
+  cardAlt: '#eef0f4',
+  cardBorder: '#c8cdd8',
+  text: '#0f1117',
+  textDim: '#374151',
+  textDimmer: '#6b7280',
+  green: '#15803d',
+  amber: '#b45309',
+  red: '#b91c1c',
+  blue: '#1d4ed8',
+  purple: '#d97706',
+  purpleBg: '#fef3c7',
+  accent: '#d97706',
+};
