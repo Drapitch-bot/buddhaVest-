@@ -2,6 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Linking, Image } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
 
+const _TRANSLATE_LANG = { he: 'iw', ru: 'ru', es: 'es' };
+function openArticle(url, lang) {
+  if (!url) return;
+  if (lang === 'en') { Linking.openURL(url); return; }
+  const tl = _TRANSLATE_LANG[lang] || lang;
+  Linking.openURL(`https://translate.google.com/translate?hl=${tl}&sl=auto&u=${encodeURIComponent(url)}`);
+}
+
 export default function NewsCard({ ticker, colors, t, lang = 'en' }) {
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +49,7 @@ export default function NewsCard({ ticker, colors, t, lang = 'en' }) {
           <TouchableOpacity
             key={i}
             style={[s.newsItem, { borderBottomColor: colors.cardBorder }]}
-            onPress={() => item.link && Linking.openURL(item.link)}>
+            onPress={() => openArticle(item.link, lang)}>
             {item.thumbnail && <Image source={{ uri: item.thumbnail }} style={s.thumb} resizeMode="cover" />}
             <View style={{ flex: 1 }}>
               <Text style={[s.newsTitle, { color: colors.text }]} numberOfLines={3}>{item.title}</Text>
