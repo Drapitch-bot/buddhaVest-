@@ -436,7 +436,7 @@ export default function StockScreen({ route, navigation }) {
                     </Text>
                     {ov.business_summary ? (
                       <View style={{ marginTop: 6 }}>
-                        <Text style={[s.bizSummary, { color: colors.textDimmer }]} numberOfLines={bizExpanded ? undefined : 3}>
+                        <Text style={[s.bizSummary, { color: colors.textDimmer, textAlign: lang === 'he' ? 'right' : 'left', writingDirection: lang === 'he' ? 'rtl' : 'ltr' }]} numberOfLines={bizExpanded ? undefined : 3}>
                           {ov.business_summary}
                         </Text>
                         {ov.business_summary.length > 200 ? (

@@ -286,7 +286,7 @@ def analyze(ticker: str, lang: str = "he"):
         "avg_volume": info.get("averageVolume"),
         "sector": info.get("sector"),
         "industry": info.get("industry"),
-        "business_summary": _translate_text(info.get("longBusinessSummary") or "", lang) or None,
+        "business_summary": _translate_text((info.get("longBusinessSummary") or "")[:1500], lang) or None,
     }
 
     # Forward P/E ו-Sector comparison

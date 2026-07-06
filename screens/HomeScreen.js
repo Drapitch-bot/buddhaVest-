@@ -111,6 +111,11 @@ export default function HomeScreen({ navigation }) {
     return function() { clearInterval(iv); };
   }, []);
 
+  // Reload news when language changes
+  useEffect(function() {
+    loadNews();
+  }, [lang]);
+
   // Derived indices: baseIndices + FX tile for current language (no extra fetch on lang switch)
   const FX_CONFIG = {
     he: { key: 'ILS', label: 'USD/ILS', fxPrefix: '₪' },
@@ -167,7 +172,7 @@ export default function HomeScreen({ navigation }) {
 
   async function loadNews() {
     try {
-      const res  = await fetch(ENDPOINTS.news());
+      const res  = await fetch(ENDPOINTS.news(lang));
       const data = await res.json();
       setNews((data.articles || []).slice(0, 3));
     } catch {}
