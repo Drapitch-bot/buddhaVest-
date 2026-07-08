@@ -34,7 +34,7 @@ from ticker_search import search_tickers
 from stooq_fallback import get_stooq_quote
 
 # Tiingo API — key lives here on the server, never in the mobile bundle
-TIINGO_TOKEN = "a7a7fcb16721295ef8d1fe22fc0e5b797394f1a0"
+TIINGO_TOKEN = os.environ.get("TIINGO_TOKEN", "a7a7fcb16721295ef8d1fe22fc0e5b797394f1a0")
 
 # ─── Translation ──────────────────────────────────────────────────────────────
 # Maps app lang codes → Google Translate target codes
@@ -176,12 +176,7 @@ threading.Thread(target=_prewarm_news, daemon=True).start()
 
 @app.get("/")
 def root():
-    # אם index.html נמצא באותה תיקייה כמו main.py - מגישים אותו (האפליקציה עצמה).
-    # אם לא - מחזירים הודעת סטטוס פשוטה (שימושי לבדיקה שהשרת בכלל רץ).
-    index_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"status": "BuddhaVest API is running", "note": "index.html not found next to main.py"}
+    return {"status": "ok"}
 
 
 @app.get("/status")
