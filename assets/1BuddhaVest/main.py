@@ -39,6 +39,15 @@ TIINGO_TOKEN = "a7a7fcb16721295ef8d1fe22fc0e5b797394f1a0"
 # ─── Translation ──────────────────────────────────────────────────────────────
 # Maps app lang codes → Google Translate target codes
 _TRANSLATE_LANG = {"he": "iw", "ru": "ru", "es": "es"}
+# RTL languages — prepend U+200F (RLM) so Unicode Bidi algorithm treats paragraph as RTL
+# even when text starts with an LTR word (e.g. "Apple היא חברה...")
+_RTL_LANGS = {"he"}
+
+def _rtl_wrap(text: str, lang: str) -> str:
+    """Prepend RLM marker to RTL-language text so bidi rendering is correct."""
+    if lang in _RTL_LANGS and text and not text.startswith("‏"):
+        return "‏" + text
+    return text
 
 try:
     from deep_translator import GoogleTranslator as _GT
@@ -48,7 +57,8 @@ try:
             return text
         target = _TRANSLATE_LANG.get(lang, lang)
         try:
-            return _GT(source="auto", target=target).translate(text) or text
+            result = _GT(source="auto", target=target).translate(text) or text
+            return _rtl_wrap(result, lang)
         except Exception:
             return text
 
@@ -59,7 +69,7 @@ try:
         target = _TRANSLATE_LANG.get(lang, lang)
         try:
             translated = _GT(source="auto", target=target).translate_batch(texts)
-            return [t or orig for t, orig in zip(translated, texts)]
+            return [_rtl_wrap(t or orig, lang) for t, orig in zip(translated, texts)]
         except Exception:
             return texts
 except ImportError:
@@ -183,6 +193,81 @@ def status():
     """
     flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MAINTENANCE.flag")
     return {"maintenance": os.path.exists(flag_path)}
+
+
+@app.get("/privacy")
+def privacy():
+    """Privacy Policy page — required by Google Play and App Store."""
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BuddhaVest — Privacy Policy</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         max-width: 780px; margin: 0 auto; padding: 32px 20px;
+         color: #1a1a2e; background: #f9fafb; line-height: 1.7; }
+  h1   { font-size: 26px; color: #0f1117; margin-bottom: 4px; }
+  h2   { font-size: 17px; color: #1e293b; margin-top: 32px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+  p, li { font-size: 15px; color: #374151; }
+  a    { color: #f59e0b; }
+  .meta { font-size: 13px; color: #6b7280; margin-bottom: 32px; }
+  .box  { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 14px 18px;
+          border-radius: 0 8px 8px 0; margin: 24px 0; }
+</style>
+</head>
+<body>
+
+<h1>BuddhaVest — Privacy Policy</h1>
+<p class="meta">Last updated: July 2026 &nbsp;·&nbsp; Contact: <a href="mailto:supportbuddhavest@gmail.com">supportbuddhavest@gmail.com</a></p>
+
+<div class="box">
+  <strong>BuddhaVest is a stock research tool, not a financial advisor.</strong>
+  All data, scores, and analysis are for informational purposes only and do not constitute investment advice.
+  Past performance does not guarantee future results.
+</div>
+
+<h2>1. Information We Collect</h2>
+<p>BuddhaVest does <strong>not</strong> require account registration and does <strong>not</strong> collect personal information such as your name, email address, or financial account details.</p>
+<p>The following data is stored <strong>locally on your device only</strong> (via AsyncStorage) and is never transmitted to our servers:</p>
+<ul>
+  <li>Your watchlist (ticker symbols you save)</li>
+  <li>Your research journal entries</li>
+  <li>App preferences: language, color theme, notification seen state</li>
+</ul>
+
+<h2>2. Data We Process on Our Servers</h2>
+<p>When you use the app, our backend server processes the following to serve you data:</p>
+<ul>
+  <li><strong>Ticker symbols</strong> you search or view (e.g., "AAPL") — used to fetch market data and are not stored or linked to your identity.</li>
+  <li><strong>Language preference</strong> — sent with analysis requests to translate content server-side. Not stored.</li>
+</ul>
+<p>We do not log IP addresses in any persistent way and do not build user profiles.</p>
+
+<h2>3. Third-Party Services</h2>
+<p>BuddhaVest retrieves market data and news from public financial data sources. Article translation is powered by Google Translate. These services have their own privacy policies:</p>
+<ul>
+  <li><a href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
+</ul>
+<p>We do not share your data with advertisers or any third party for commercial purposes.</p>
+
+<h2>4. Children's Privacy</h2>
+<p>BuddhaVest is not directed at children under 13. We do not knowingly collect data from children.</p>
+
+<h2>5. Data Security</h2>
+<p>All communication between the app and our server uses HTTPS. Locally stored data remains on your device and is subject to your device's own security.</p>
+
+<h2>6. Changes to This Policy</h2>
+<p>We may update this policy from time to time. The "Last updated" date at the top reflects the most recent revision. Continued use of the app after changes constitutes acceptance of the updated policy.</p>
+
+<h2>7. Contact</h2>
+<p>Questions about this policy? Email us at <a href="mailto:supportbuddhavest@gmail.com">supportbuddhavest@gmail.com</a>.</p>
+
+</body>
+</html>"""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
 
 
 @app.get("/search")
