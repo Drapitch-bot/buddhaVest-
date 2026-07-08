@@ -5,7 +5,7 @@ import Svg, { Path, Defs, LinearGradient, Stop, Line, Circle, Text as SvgText, R
 const { width: SCREEN_W } = Dimensions.get('window');
 
 // data = { dates: string[], prices: number[] }  (from API history field)
-export default function PriceChart({ data, colors, height = 200 }) {
+export default function PriceChart({ data, colors, height = 200, showCurrency = true }) {
   const [tooltipIdx, setTooltipIdx] = useState(null);
   const chartRef = useRef(null);
 
@@ -80,6 +80,7 @@ export default function PriceChart({ data, colors, height = 200 }) {
   const tipY = tp ? Math.max(tp.y - TOOLTIP_H - 6, PAD.top) : 0;
 
   function fmtPrice(v) {
+    if (!showCurrency) return v >= 1000 ? (v / 1000).toFixed(2) + 'K' : v.toFixed(2);
     return v >= 1000 ? '$' + (v / 1000).toFixed(2) + 'K' : '$' + v.toFixed(2);
   }
 

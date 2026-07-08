@@ -29,6 +29,18 @@ const METRIC_KEY_MAP = {
 
 const FETCH_TIMEOUT_MS = 55000;
 
+// Metrics that are ratios/percentages — no $ sign in chart tooltip
+const RATIO_METRICS = new Set([
+  'pe_ratio', 'forward_pe', 'peg_ratio',
+  'price_to_book', 'price_to_sales', 'pb_ratio', 'ps_ratio',
+  'ev_to_ebitda', 'ev_ebitda',
+  'debt_to_equity', 'debt_equity', 'liab_equity', 'liabilities_to_equity',
+  'current_ratio',
+  'gross_margin', 'operating_margin', 'net_margin', 'profit_margin',
+  'roe', 'roa',
+  'moat',
+]);
+
 // Normalize a single item from the server into { date, value }
 function normalizeItem(item) {
   if (Array.isArray(item)) {
@@ -295,7 +307,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={[s.back, { color: colors.accent }]}>{'<'}</Text>
         </TouchableOpacity>
-        <Text style={[s.title, { color: colors.text }]}>{label || metricKey}</Text>
+        <Text style={[s.title, { color: colors.text }]}>{t.metric_names?.[metricKey] || label || metricKey}</Text>
         <View style={{ width: 30 }} />
       </View>
 
@@ -411,20 +423,21 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Chart */}
               {chartData ? (
                 <>
-                  <PriceChart data={chartData} colors={colors} height={220} />
-                  {currentValue != null && (
+                  <PriceChart data={chartData} colors={colors} height={220} showCurrency={usePrice || usingYahooFallback || !RATIO_METRICS.has(metricKey)} />
+                  {(tileValue != null && !usingYahooFallback) || currentValue != null ? (
                     <Text style={[s.currentValue, { color: colors.text }]}>
-                      {typeof currentValue === 'number'
-                        ? (Math.abs(currentValue) >= 1e9
-                            ? '$' + (currentValue / 1e9).toFixed(2) + 'B'
-                            : Math.abs(currentValue) >= 1e6
-                            ? '$' + (currentValue / 1e6).toFixed(2) + 'M'
-                            : currentValue % 1 === 0
-                            ? currentValue.toString()
-                            : currentValue.toFixed(2))
-                        : String(currentValue)}
+                      {(function() {
+                        // Prefer tileValue (live API) over currentValue (last historical point)
+                        // so the number always matches what was shown on the tile.
+                        const v = (!usingYahooFallback && tileValue != null) ? tileValue : currentValue;
+                        if (v == null) return '';
+                        if (typeof v !== 'number') return String(v);
+                        if (Math.abs(v) >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+                        if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+                        return v % 1 === 0 ? v.toString() : v.toFixed(2);
+                      })()}
                     </Text>
-                  )}
+                  ) : null}
                 </>
               ) : (
                 <View style={{ alignItems: 'center', marginTop: 24, marginBottom: 16, paddingHorizontal: 20 }}>
@@ -507,7 +520,7 @@ const makeStyles = (c) => StyleSheet.create({
 
   retryBtn:     { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 },
 
-  explBox:      { marginTop: 16, padding: 14, borderRadius: 10, borderWidth: 1 },
-  explText:     { fontSize: 13, lineHeight: 20 },
+  explBox:      { marginTop: 16, padding: 12, borderRadius: 10, borderWidth: 1 },
+  explText:     { fontSize: 11, lineHeight: 16 },
   sourceTag:    { fontSize: 11, marginTop: 8, textAlign: 'center' },
 });
