@@ -687,20 +687,20 @@ def calculate_score(data: dict) -> dict:
     final_score = _weighted_average(category_scores)
 
     if final_score is None:
-        recommendation = "אין מספיק מידע"
+        recommendation = "insufficient"
         rec_color = "gray"
         rec_explanation = "לא נמצא מספיק מידע פיננסי כדי לנקד את החברה הזו."
         final_score = 0
     elif final_score >= 75:
-        recommendation = "קנייה"
+        recommendation = "buy"
         rec_color = "green"
         rec_explanation = "פונדמנטלס חזקים ומחיר סביר - החברה הזו עומדת ברוב הקריטריונים."
     elif final_score >= 50:
-        recommendation = "המתן"
+        recommendation = "hold"
         rec_color = "amber"
         rec_explanation = "עסק לא רע, אבל התזמון או המחיר עדיין לא אידיאליים."
     else:
-        recommendation = "הימנע"
+        recommendation = "avoid"
         rec_color = "red"
         rec_explanation = "כמה דגלים אדומים - זה לא עומד בסטנדרט כרגע."
 
