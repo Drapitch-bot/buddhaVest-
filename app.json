@@ -34,10 +34,18 @@
     "plugins": [
       "expo-web-browser"
     ],
+    "updates": {
+      "url": "https://u.expo.dev/1c6dd877-b901-48af-95b6-b90dc3687954",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "extra": {
       "privacyPolicyUrl": "https://buddhavest.onrender.com/privacy",
       "eas": {
-        "projectId": ""
+        "projectId": "1c6dd877-b901-48af-95b6-b90dc3687954"
       }
     }
   }
