@@ -39,6 +39,7 @@ const RATIO_METRICS = new Set([
   'gross_margin', 'operating_margin', 'net_margin', 'profit_margin',
   'roe', 'roa',
   'moat',
+  'dividend', 'buyback',
 ]);
 
 // Normalize a single item from the server into { date, value }
@@ -410,8 +411,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
                     {tileValue != null
                       ? (t.use_price_fallback_with_value || 'No historical series tracked for this metric. Current value: {v}. Showing stock price chart for reference.')
                           .replace('{v}', typeof tileValue === 'number'
-                            ? (Math.abs(tileValue) >= 1e9 ? '$' + (tileValue / 1e9).toFixed(2) + 'B'
-                              : Math.abs(tileValue) >= 1e6 ? '$' + (tileValue / 1e6).toFixed(2) + 'M'
+                            ? (Math.abs(tileValue) >= 1e12 ? '$' + (Math.abs(tileValue) / 1e12).toFixed(2) + 'T'
+                              : Math.abs(tileValue) >= 1e9  ? '$' + (Math.abs(tileValue) / 1e9).toFixed(2) + 'B'
+                              : Math.abs(tileValue) >= 1e6  ? '$' + (Math.abs(tileValue) / 1e6).toFixed(2) + 'M'
                               : tileValue % 1 === 0 ? tileValue.toString()
                               : tileValue.toFixed(2))
                             : String(tileValue))
@@ -432,8 +434,14 @@ export default function MetricHistoryScreen({ route, navigation }) {
                         const v = (!usingYahooFallback && tileValue != null) ? tileValue : currentValue;
                         if (v == null) return '';
                         if (typeof v !== 'number') return String(v);
-                        if (Math.abs(v) >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
-                        if (Math.abs(v) >= 1e6) return '$' + (v / 1e6).toFixed(2) + 'M';
+                        const isRatio = RATIO_METRICS.has(metricKey);
+                        const abs = Math.abs(v);
+                        const sign = v < 0 ? '-' : '';
+                        if (!isRatio) {
+                          if (abs >= 1e12) return sign + '$' + (abs / 1e12).toFixed(2) + 'T';
+                          if (abs >= 1e9)  return sign + '$' + (abs / 1e9).toFixed(2) + 'B';
+                          if (abs >= 1e6)  return sign + '$' + (abs / 1e6).toFixed(2) + 'M';
+                        }
                         return v % 1 === 0 ? v.toString() : v.toFixed(2);
                       })()}
                     </Text>
@@ -451,13 +459,17 @@ export default function MetricHistoryScreen({ route, navigation }) {
                         <>
                           <Text style={[s.currentValue, { color: colors.text, marginBottom: 8 }]}>
                             {typeof tileValue === 'number'
-                              ? (Math.abs(tileValue) >= 1e9
-                                  ? '$' + (tileValue / 1e9).toFixed(2) + 'B'
-                                  : Math.abs(tileValue) >= 1e6
-                                  ? '$' + (tileValue / 1e6).toFixed(2) + 'M'
-                                  : tileValue % 1 === 0
-                                  ? tileValue.toString()
-                                  : tileValue.toFixed(2))
+                              ? (() => {
+                                  const isRatio = RATIO_METRICS.has(metricKey);
+                                  const abs = Math.abs(tileValue);
+                                  const sign = tileValue < 0 ? '-' : '';
+                                  if (!isRatio) {
+                                    if (abs >= 1e12) return sign + '$' + (abs / 1e12).toFixed(2) + 'T';
+                                    if (abs >= 1e9)  return sign + '$' + (abs / 1e9).toFixed(2) + 'B';
+                                    if (abs >= 1e6)  return sign + '$' + (abs / 1e6).toFixed(2) + 'M';
+                                  }
+                                  return tileValue % 1 === 0 ? tileValue.toString() : tileValue.toFixed(2);
+                                })()
                               : String(tileValue)}
                           </Text>
                           <View style={[s.noDataBanner, {

@@ -350,14 +350,28 @@ def metric_peg_ratio(info):
 
 
 def metric_free_cash_flow(cashflow):
-    ocf = _safe_get(cashflow, "Operating Cash Flow")
-    capex = _safe_get(cashflow, "Capital Expenditure")
-    if ocf is None:
-        return {"value": None, "label": "Free Cash Flow", "explanation": "אין מספיק נתונים.",
-                "explanation_parts": [("metric_no_data", {})], "score": None}
-
-    capex = capex or 0
-    fcf = ocf + capex  # capex כבר שלילי ב-yfinance
+    # נסה לשלוף Free Cash Flow ישירות — yfinance מחשב אותו ולרוב כולל שורה ישירה,
+    # מדויקת יותר מחישוב ידני (OCF - Capex) שתלוי בזיהוי נכון של שם שורת ה-capex.
+    fcf = _safe_get(cashflow, "Free Cash Flow")
+    if fcf is None:
+        # fallback: חשב ידנית OCF פחות הוצאות הון
+        ocf = _safe_get(cashflow, "Operating Cash Flow")
+        if ocf is None:
+            return {"value": None, "label": "Free Cash Flow", "explanation": "אין מספיק נתונים.",
+                    "explanation_parts": [("metric_no_data", {})], "score": None}
+        # yfinance משתמש בשמות שונים להוצאות הון — ננסה כמה אפשרויות
+        capex = None
+        for cap_name in [
+            "Capital Expenditure",
+            "Capital Expenditures",
+            "Purchase Of Property Plant And Equipment",
+            "Capital Expenditure Reported",
+        ]:
+            capex = _safe_get(cashflow, cap_name)
+            if capex is not None:
+                break
+        capex = capex or 0
+        fcf = ocf + capex  # capex כבר שלילי ב-yfinance
 
     if fcf > 0:
         score, note, key = 90, "תזרים מזומנים חופשי חיובי - העסק מייצר מזומן פנוי אמיתי.", "fcf_positive"

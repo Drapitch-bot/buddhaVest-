@@ -80,8 +80,14 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
   const tipY = tp ? Math.max(tp.y - TOOLTIP_H - 6, PAD.top) : 0;
 
   function fmtPrice(v) {
-    if (!showCurrency) return v >= 1000 ? (v / 1000).toFixed(2) + 'K' : v.toFixed(2);
-    return v >= 1000 ? '$' + (v / 1000).toFixed(2) + 'K' : '$' + v.toFixed(2);
+    const prefix = showCurrency ? '$' : '';
+    const abs = Math.abs(v);
+    const sign = v < 0 ? '-' : '';
+    if (abs >= 1e12) return sign + prefix + (abs / 1e12).toFixed(2) + 'T';
+    if (abs >= 1e9)  return sign + prefix + (abs / 1e9).toFixed(2) + 'B';
+    if (abs >= 1e6)  return sign + prefix + (abs / 1e6).toFixed(2) + 'M';
+    if (abs >= 1e3)  return sign + prefix + (abs / 1e3).toFixed(2) + 'K';
+    return sign + prefix + abs.toFixed(2);
   }
 
   // fmtDate for tooltip: "Jan 15, 2024" or quarter string as-is
@@ -134,7 +140,15 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
         {/* Y axis labels */}
         {yLevels.map((v, i) => (
           <SvgText key={i} x={W - 4} y={yOf(v) + 4} fontSize={9} fill={colors.textDimmer || '#6b7280'} textAnchor="end">
-            {v >= 1000 ? (v / 1000).toFixed(1) + 'K' : v.toFixed(1)}
+            {(() => {
+              const abs = Math.abs(v);
+              const sign = v < 0 ? '-' : '';
+              if (abs >= 1e12) return sign + (abs / 1e12).toFixed(1) + 'T';
+              if (abs >= 1e9)  return sign + (abs / 1e9).toFixed(1) + 'B';
+              if (abs >= 1e6)  return sign + (abs / 1e6).toFixed(1) + 'M';
+              if (abs >= 1e3)  return sign + (abs / 1e3).toFixed(1) + 'K';
+              return v.toFixed(1);
+            })()}
           </SvgText>
         ))}
 
