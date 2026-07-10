@@ -88,7 +88,7 @@ function TickerAvatar({ ticker, idx, size = 32 }) {
 }
 
 export default function HomeScreen({ navigation }) {
-  const { colors, t, isDark, lang } = useApp();
+  const { colors, t, isDark, lang, langReady } = useApp();
   const insets = useSafeAreaInsets();
 
   const [baseIndices, setBaseIndices] = useState([]);   // S&P, Nasdaq, VIX only
@@ -105,14 +105,17 @@ export default function HomeScreen({ navigation }) {
   // Use a ref so the interval always calls the latest loadAll closure
   const loadAllRef = useRef(null);
 
+  // Wait for real lang from AsyncStorage before first fetch
   useEffect(function() {
+    if (!langReady) return;
     loadAll();
     const iv = setInterval(function() { loadAllRef.current && loadAllRef.current(); }, 30000);
     return function() { clearInterval(iv); };
-  }, []);
+  }, [langReady]);
 
   // Reload news when language changes
   useEffect(function() {
+    if (!langReady) return;
     loadNews();
   }, [lang]);
 

@@ -8,7 +8,10 @@ const AppContext = createContext();
 export function AppProvider({ children }) {
   const [isDark, setIsDark] = useState(true);
   const [lang, setLang] = useState('en');
+  const [langReady, setLangReady] = useState(false);
   const [watchlist, setWatchlist] = useState([]);
+  const [translateArticles, setTranslateArticles] = useState(true);
+  const [showLocalCurrency, setShowLocalCurrency] = useState(true);
 
   const colors = isDark ? darkColors : lightColors;
   const t = getLang(lang);
@@ -22,10 +25,15 @@ export function AppProvider({ children }) {
       const theme = await AsyncStorage.getItem('theme');
       const savedLang = await AsyncStorage.getItem('lang');
       const savedWatchlist = await AsyncStorage.getItem('watchlist');
+      const savedTranslate = await AsyncStorage.getItem('translateArticles');
+      const savedLocalCurrency = await AsyncStorage.getItem('showLocalCurrency');
       if (theme) setIsDark(theme === 'dark');
       if (savedLang) setLang(savedLang);
       if (savedWatchlist) setWatchlist(JSON.parse(savedWatchlist));
+      if (savedTranslate !== null) setTranslateArticles(savedTranslate === 'true');
+      if (savedLocalCurrency !== null) setShowLocalCurrency(savedLocalCurrency === 'true');
     } catch (e) {}
+    setLangReady(true);
   }
 
   async function toggleTheme() {
@@ -37,6 +45,25 @@ export function AppProvider({ children }) {
   async function changeLang(newLang) {
     setLang(newLang);
     await AsyncStorage.setItem('lang', newLang);
+  }
+
+  async function toggleTranslateArticles() {
+    const next = !translateArticles;
+    setTranslateArticles(next);
+    await AsyncStorage.setItem('translateArticles', String(next));
+  }
+
+  async function toggleShowLocalCurrency() {
+    const next = !showLocalCurrency;
+    setShowLocalCurrency(next);
+    await AsyncStorage.setItem('showLocalCurrency', String(next));
+  }
+
+  function resetSettingsState() {
+    setTranslateArticles(true);
+    setShowLocalCurrency(true);
+    setWatchlist([]);
+    setLang('he');
   }
 
   async function toggleWatchlist(ticker, name) {
@@ -57,8 +84,10 @@ export function AppProvider({ children }) {
 
   return (
     <AppContext.Provider value={{
-      isDark, colors, lang, t, watchlist,
+      isDark, colors, lang, langReady, t, watchlist,
+      translateArticles, showLocalCurrency,
       toggleTheme, changeLang, toggleWatchlist, isInWatchlist,
+      toggleTranslateArticles, toggleShowLocalCurrency, resetSettingsState,
     }}>
       {children}
     </AppContext.Provider>

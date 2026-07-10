@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
+import { translateNewsItems } from '../utils/translate';
 import BrandHeader from '../components/BrandHeader';
 
 const _TRANSLATE_LANG = { he: 'iw', ru: 'ru', es: 'es' };
@@ -17,21 +18,22 @@ function openArticle(url, lang) {
 }
 
 export default function NewsScreen() {
-  const { colors, t, lang } = useApp();
+  const { colors, t, lang, langReady } = useApp();
   const insets = useSafeAreaInsets();
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => { loadNews(); }, [lang]);
+  useEffect(() => { if (langReady) loadNews(); }, [lang, langReady]);
 
   async function loadNews() {
     try {
-      const res  = await fetch(ENDPOINTS.news(lang));
-      const data = await res.json();
-      // HTML uses data.articles
-      setNews(data.articles || data.news || []);
-    } catch {}
+      const res   = await fetch(ENDPOINTS.news(lang));
+      const data  = await res.json();
+      const raw   = data.articles || data.news || [];
+      const items = await translateNewsItems(raw, lang);
+      setNews(items);
+    } catch (e) {}
     setLoading(false);
   }
 
