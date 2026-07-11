@@ -120,7 +120,6 @@ const s = StyleSheet.create({
   quoteWrap: {
     flex: 1,
     alignItems: 'flex-end',
-  
     paddingRight: 4,
   },
   quoteText: {
