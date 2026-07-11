@@ -71,13 +71,13 @@ export default function ETFCard({ ticker, colors, t, navigation }) {
       </View>
 
       {/* Holdings */}
-      {data.holdings?.length > 0 && (
+      {data.top_holdings?.length > 0 && (
         <>
           <Text style={[s.holdingsTitle, { color: colors.textDim }]}>{t.holdings}</Text>
-          {data.holdings.map((h, i) => (
+          {data.top_holdings.map((h, i) => (
             <View key={i} style={[s.holdingRow, { borderBottomColor: colors.cardBorder }]}>
               <Text style={[s.holdingName, { color: colors.text }]}>{h.name || h.symbol}</Text>
-              <Text style={[s.holdingPct, { color: colors.accent }]}>{(h.percent || 0).toFixed(2)}%</Text>
+              <Text style={[s.holdingPct, { color: colors.accent }]}>{(h.pct || 0).toFixed(2)}%</Text>
             </View>
           ))}
         </>

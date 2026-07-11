@@ -14,6 +14,7 @@ import NewsScreen from './screens/NewsScreen';
 import MoreScreen from './screens/MoreScreen';
 import StockScreen from './screens/StockScreen';
 import MetricHistoryScreen from './screens/MetricHistoryScreen';
+import ArticleScreen from './screens/ArticleScreen';
 
 I18nManager.allowRTL(true);
 
@@ -53,6 +54,7 @@ function HomeNavigator() {
       <HomeStack.Screen name="Root"          component={HomeScreen} />
       <HomeStack.Screen name="Stock"         component={StockScreen} />
       <HomeStack.Screen name="MetricHistory" component={MetricHistoryScreen} />
+      <HomeStack.Screen name="Article"       component={ArticleScreen} />
     </HomeStack.Navigator>
   );
 }
@@ -64,6 +66,7 @@ function SearchNavigator() {
       <SearchStack.Screen name="Root"          component={SearchScreen} />
       <SearchStack.Screen name="Stock"         component={StockScreen} />
       <SearchStack.Screen name="MetricHistory" component={MetricHistoryScreen} />
+      <SearchStack.Screen name="Article"       component={ArticleScreen} />
     </SearchStack.Navigator>
   );
 }
@@ -75,6 +78,7 @@ function WatchlistNavigator() {
       <WatchlistStack.Screen name="Root"          component={WatchlistScreen} />
       <WatchlistStack.Screen name="Stock"         component={StockScreen} />
       <WatchlistStack.Screen name="MetricHistory" component={MetricHistoryScreen} />
+      <WatchlistStack.Screen name="Article"       component={ArticleScreen} />
     </WatchlistStack.Navigator>
   );
 }
@@ -83,7 +87,8 @@ function NewsNavigator() {
   const { colors } = useApp();
   return (
     <NewsStack.Navigator screenOptions={stackOpts(colors)}>
-      <NewsStack.Screen name="Root" component={NewsScreen} />
+      <NewsStack.Screen name="Root"    component={NewsScreen} />
+      <NewsStack.Screen name="Article" component={ArticleScreen} />
     </NewsStack.Navigator>
   );
 }

@@ -45,15 +45,19 @@ function recColor(color, colors) {
 
 function recLabel(rec, t) {
   if (!rec) return '';
-  // Use i18n keys matching the API recommendation values
+  // Normalize: lowercase + underscores
+  const key = rec.toLowerCase().replace(/[\s-]/g, '_');
   const map = {
-    buy:         t.rec_buy         || 'Buy',
-    sell:        t.rec_sell        || 'Sell',
-    hold:        t.rec_hold        || 'Hold',
-    strong_buy:  t.rec_strong_buy  || 'Strong Buy',
-    strong_sell: t.rec_strong_sell || 'Strong Sell',
+    buy:              t.rec_buy          || 'Buy',
+    sell:             t.rec_sell         || 'Sell',
+    hold:             t.rec_hold         || 'Hold',
+    strong_buy:       t.rec_strong_buy   || 'Strong Buy',
+    strong_sell:      t.rec_strong_sell  || 'Strong Sell',
+    avoid:            t.rec_avoid        || 'Avoid',
+    insufficient:     t.rec_insufficient || 'Insufficient Data',
+    insufficient_data: t.rec_insufficient || 'Insufficient Data',
   };
-  return map[rec] || rec;
+  return map[key] || rec;
 }
 
 function TickerAvatar({ ticker, idx }) {
@@ -175,7 +179,7 @@ export default function WatchlistScreen({ navigation }) {
                 )}
                 {p.score != null && (
                   <Text style={[styles.change, { color: rColor }]}>
-                    {p.score + '% ' + (p.recommendation || '')}
+                    {p.score + '% ' + recLabel(p.recommendation, t)}
                   </Text>
                 )}
               </View>

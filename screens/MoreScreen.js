@@ -6,7 +6,7 @@ import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Switch, TextInput, FlatList, Image,
-  Alert, Platform,
+  Alert, Platform, Linking,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,17 +27,20 @@ const LANGS = [
 const JOURNAL_KEY = 'buddhavest_journal';
 
 // ─── Sub-screen: Settings ─────────────────────────────────────────────────────
-function SettingsScreen({ colors, t, insets, isDark, toggleTheme, lang, changeLang, watchlist, onBack }) {
-  async function resetAll() {
+function SettingsScreen({ colors, t, insets, isDark, toggleTheme, lang, changeLang,
+                          translateArticles, toggleTranslateArticles,
+                          showLocalCurrency, toggleShowLocalCurrency, resetSettingsState, onBack }) {
+  function resetAll() {
     Alert.alert(
       t.settings_reset_all,
       t.settings_reset_all_sub,
       [
-        { text: t.cancel, style: 'cancel' },
+        { text: t.cancel || 'Cancel', style: 'cancel' },
         {
-          text: t.reset, style: 'destructive', onPress: async () => {
-            await AsyncStorage.multiRemove(['watchlist', 'lang', JOURNAL_KEY]);
-            changeLang('he');
+          text: t.reset || 'Reset', style: 'destructive', onPress: async () => {
+            await AsyncStorage.multiRemove(['watchlist', 'lang', JOURNAL_KEY,
+              'translateArticles', 'showLocalCurrency']);
+            resetSettingsState(); // reset state immediately, not just on next launch
           },
         },
       ]
@@ -53,79 +56,102 @@ function SettingsScreen({ colors, t, insets, isDark, toggleTheme, lang, changeLa
       </TouchableOpacity>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
 
-      <View style={[ss.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-        <Text style={[ss.cardTitle, { color: colors.text }]}>{'⚙️ ' + t.more_settings_title}</Text>
+        {/* ── Appearance ── */}
+        <View style={[ss.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <Text style={[ss.cardTitle, { color: colors.text }]}>{'⚙️ ' + t.more_settings_title}</Text>
 
-        {/* Server connection */}
-        <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={[ss.mTicker, { color: colors.text }]}>{t.settings_connection_title}</Text>
-            <Text style={[ss.mName, { color: colors.textDim }]}>{t.settings_connection_sub}</Text>
-            <Text style={[ss.mName, { color: colors.accent }]}>{API_BASE}</Text>
+          {/* Theme */}
+          <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[ss.mTicker, { color: colors.text }]}>{isDark ? '🌙 ' + t.darkMode : '☀️ ' + t.lightMode}</Text>
+            </View>
+            <Switch value={isDark} onValueChange={toggleTheme}
+              trackColor={{ false: colors.cardBorder, true: colors.accent }} thumbColor="#fff" />
           </View>
-        </View>
 
-        {/* Theme */}
-        <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={[ss.mTicker, { color: colors.text }]}>{isDark ? '🌙 ' + t.darkMode : '☀️ ' + t.lightMode}</Text>
-          </View>
-          <Switch
-            value={isDark}
-            onValueChange={toggleTheme}
-            trackColor={{ false: colors.cardBorder, true: colors.accent }}
-            thumbColor="#fff"
-          />
-        </View>
-
-        {/* Language */}
-        <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={[ss.mTicker, { color: colors.text }]}>{t.language}</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-              {LANGS.map(l => (
-                <TouchableOpacity
-                  key={l.code}
-                  style={[ss.langBtn, {
-                    backgroundColor: lang === l.code ? colors.purpleBg : colors.cardAlt,
-                    borderColor: lang === l.code ? colors.purple : colors.cardBorder,
-                  }]}
-                  onPress={() => changeLang(l.code)}>
-                  <Text style={[ss.langText, { color: lang === l.code ? colors.purple : colors.text }]}>{l.label}</Text>
-                </TouchableOpacity>
-              ))}
+          {/* Language */}
+          <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[ss.mTicker, { color: colors.text }]}>{t.language}</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                {LANGS.map(l => (
+                  <TouchableOpacity key={l.code}
+                    style={[ss.langBtn, {
+                      backgroundColor: lang === l.code ? colors.purpleBg : colors.cardAlt,
+                      borderColor: lang === l.code ? colors.purple : colors.cardBorder,
+                    }]}
+                    onPress={() => changeLang(l.code)}>
+                    <Text style={[ss.langText, { color: lang === l.code ? colors.purple : colors.text }]}>{l.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           </View>
-        </View>
 
-        {/* Version */}
-        <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={[ss.mTicker, { color: colors.text }]}>{t.version}</Text>
-            <Text style={[ss.mName, { color: colors.textDim }]}>BuddhaVest v1.2</Text>
-            <Text style={[ss.mName, { color: colors.textDimmer, fontSize: 11 }]}>
-              {t.settings_version_features}
-            </Text>
-          </View>
-        </View>
-
-        {/* Reset all */}
-        <TouchableOpacity onPress={resetAll}>
-          <View style={[ss.moverRow, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
-            <LinearGradient colors={['#fb7185', '#e11d48']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={ss.moverIcon}>
-              <Text style={{ fontSize: 14 }}>🔄</Text>
-            </LinearGradient>
+          {/* Translate articles */}
+          <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
             <View style={{ flex: 1 }}>
-              <Text style={[ss.mTicker, { color: colors.text }]}>{t.settings_reset_all}</Text>
-              <Text style={[ss.mName, { color: colors.textDim }]}>{t.settings_reset_all_sub}</Text>
+              <Text style={[ss.mTicker, { color: colors.text }]}>{'🌐 ' + (t.settings_translate_articles || 'Auto-translate articles')}</Text>
+              <Text style={[ss.mName, { color: colors.textDim }]}>{t.settings_translate_articles_sub || 'Opens articles translated to UI language'}</Text>
+            </View>
+            <Switch value={translateArticles} onValueChange={toggleTranslateArticles}
+              trackColor={{ false: colors.cardBorder, true: colors.accent }} thumbColor="#fff" />
+          </View>
+
+          {/* Local currency */}
+          {lang !== 'en' && (
+            <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[ss.mTicker, { color: colors.text }]}>{'💱 ' + (t.settings_local_currency || 'Show local currency')}</Text>
+                <Text style={[ss.mName, { color: colors.textDim }]}>{t.settings_local_currency_sub || 'Show extra price in local currency'}</Text>
+              </View>
+              <Switch value={showLocalCurrency} onValueChange={toggleShowLocalCurrency}
+                trackColor={{ false: colors.cardBorder, true: colors.accent }} thumbColor="#fff" />
+            </View>
+          )}
+        </View>
+
+        {/* ── About ── */}
+        <View style={[ss.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <Text style={[ss.cardTitle, { color: colors.text }]}>{'ℹ️ ' + (t.version || 'Version')}</Text>
+
+          <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[ss.mTicker, { color: colors.text }]}>BuddhaVest v1.2</Text>
+              <Text style={[ss.mName, { color: colors.textDimmer, fontSize: 11 }]}>{t.settings_version_features}</Text>
+            </View>
+          </View>
+
+          {/* Contact */}
+          <TouchableOpacity style={[ss.settingsRow, { borderBottomColor: 'transparent' }]}
+            onPress={() => Linking.openURL('mailto:' + (t.settings_contact_email || 'supportbuddhavest@gmail.com'))}>
+            <View style={{ flex: 1 }}>
+              <Text style={[ss.mTicker, { color: colors.text }]}>{'✉️ ' + (t.settings_contact_title || 'Contact')}</Text>
+              <Text style={[ss.mName, { color: colors.accent }]}>{t.settings_contact_email || 'supportbuddhavest@gmail.com'}</Text>
             </View>
             <Text style={{ color: colors.textDimmer, fontSize: 14 }}>›</Text>
-          </View>
-        </TouchableOpacity>
-      </View>
+          </TouchableOpacity>
 
-      <Text style={[ss.sourceNote, { color: colors.textDimmer }]}>{t.app_info}</Text>
-      <Text style={[ss.sourceNote, { color: colors.textDimmer }]}>{t.copyright_notice}</Text>
+        </View>
+
+        {/* ── Reset ── */}
+        <View style={[ss.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <TouchableOpacity onPress={resetAll}>
+            <View style={[ss.moverRow, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
+              <LinearGradient colors={['#fb7185', '#e11d48']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={ss.moverIcon}>
+                <Text style={{ fontSize: 14 }}>🔄</Text>
+              </LinearGradient>
+              <View style={{ flex: 1 }}>
+                <Text style={[ss.mTicker, { color: colors.text }]}>{t.settings_reset_all}</Text>
+                <Text style={[ss.mName, { color: colors.textDim }]}>{t.settings_reset_all_sub}</Text>
+              </View>
+              <Text style={{ color: colors.textDimmer, fontSize: 14 }}>›</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={[ss.sourceNote, { color: colors.textDimmer }]}>{t.app_info}</Text>
+        <Text style={[ss.sourceNote, { color: colors.textDimmer }]}>{t.copyright_notice}</Text>
       </ScrollView>
     </View>
   );
@@ -293,6 +319,7 @@ function ToSScreen({ colors, insets, onBack, t }) {
     { title: t.tos_s4_title, body: t.tos_s4_body },
     { title: t.tos_s5_title, body: t.tos_s5_body },
     { title: t.tos_s6_title, body: t.tos_s6_body },
+    { title: t.tos_s7_title, body: t.tos_s7_body },
   ];
 
   return (
@@ -313,7 +340,7 @@ function ToSScreen({ colors, insets, onBack, t }) {
             </View>
           ))}
         </View>
-        <Text style={[ss.sourceNote, { color: colors.textDimmer }]}>© 2026 BuddhaVest · All rights reserved</Text>
+        <Text style={[ss.sourceNote, { color: colors.textDimmer }]}>{t.copyright_notice}</Text>
       </ScrollView>
     </View>
   );
@@ -321,7 +348,9 @@ function ToSScreen({ colors, insets, onBack, t }) {
 
 // ─── Main MoreScreen ──────────────────────────────────────────────────────────
 export default function MoreScreen({ navigation, route }) {
-  const { colors, t, isDark, toggleTheme, lang, changeLang, watchlist } = useApp();
+  const { colors, t, isDark, toggleTheme, lang, changeLang, watchlist,
+          translateArticles, showLocalCurrency,
+          toggleTranslateArticles, toggleShowLocalCurrency, resetSettingsState } = useApp();
   const insets = useSafeAreaInsets();
   const [view, setView] = useState('main'); // 'main' | 'settings' | 'journal' | 'about' | 'tos'
   const [journalInitTicker, setJournalInitTicker] = useState('');
@@ -332,7 +361,10 @@ export default function MoreScreen({ navigation, route }) {
     if (tk) { setJournalInitTicker(tk); setView('journal'); }
   }, [route?.params?.addJournalTicker]);
 
-  const shared = { colors, t, insets, isDark, toggleTheme, lang, changeLang, watchlist, onBack: () => setView('main') };
+  const shared = { colors, t, insets, isDark, toggleTheme, lang, changeLang, watchlist,
+                   translateArticles, showLocalCurrency,
+                   toggleTranslateArticles, toggleShowLocalCurrency, resetSettingsState,
+                   onBack: () => setView('main') };
 
   if (view === 'settings') return <SettingsScreen {...shared} />;
   if (view === 'journal')  return <JournalScreen  {...shared} initialTicker={journalInitTicker} />;
@@ -345,7 +377,7 @@ export default function MoreScreen({ navigation, route }) {
     { icon: '⭐', gradient: ['#fbbf24', '#d97706'], title: t.more_watchlist_title, sub: t.more_watchlist_sub, action: () => navigation.navigate('WatchlistTab') },
     { icon: '📓', gradient: ['#a78bfa', '#7c3aed'], title: t.more_journal_title,  sub: t.more_journal_sub,   action: () => setView('journal') },
     { icon: '⚙️', gradient: ['#4ade80', '#16a34a'], title: t.more_settings_title, sub: t.more_settings_sub,  action: () => setView('settings') },
-    { icon: '🛡️', gradient: ['#34d399', '#059669'], title: t.more_tos_title,      sub: t.more_settings_sub,  action: () => setView('tos') },
+    { icon: '🛡️', gradient: ['#34d399', '#059669'], title: t.more_tos_title,      sub: t.more_tos_sub,       action: () => setView('tos') },
     { icon: '❓', gradient: ['#38bdf8', '#6366f1'], title: t.more_about_title,    sub: t.more_about_sub,     action: () => setView('about') },
   ];
 
@@ -438,6 +470,7 @@ const ss = StyleSheet.create({
   langText:     { fontSize: 13, fontWeight: '600' },
 
   // Journal
+  journalInput:    { borderRadius: 10, borderWidth: 0.5, padding: 10, marginBottom: 8, fontSize: 13 },
   journalTextarea: { borderRadius: 10, borderWidth: 0.5, padding: 10, marginBottom: 10, fontSize: 13, minHeight: 80 },
   journalSaveBtn:  { borderRadius: 10, padding: 12, alignItems: 'center', marginBottom: 16 },
   journalEntry:    { borderRadius: 10, borderWidth: 0.5, padding: 10, marginBottom: 8 },

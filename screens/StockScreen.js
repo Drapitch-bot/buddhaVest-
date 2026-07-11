@@ -7,6 +7,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
+import { openArticle } from '../utils/linkUtils';
 import ScoreGauge from '../components/ScoreGauge';
 import PriceChart from '../components/PriceChart';
 import MetricTile from '../components/MetricTile';
@@ -79,7 +80,7 @@ function timeAgo(published, t) {
 }
 
 // ── MetricsGrid ───────────────────────────────────────────────────────────────
-function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker }) {
+function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t }) {
   const pairs = metricKeys.filter(function(k) {
     const m = metrics[k];
     if (!m) return false;
@@ -91,10 +92,11 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker }) {
     <View style={s.metricsGrid}>
       {pairs.map(function(key) {
         const m = metrics[key];
+        const displayLabel = t.metric_names?.[key] || m.label || key;
         return (
           <MetricTile
             key={key}
-            label={m.label || key}
+            label={displayLabel}
             value={metricValueDisplay(key, m)}
             note={m.explanation}
             score={m.score}
@@ -103,7 +105,7 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker }) {
               navigation.navigate('MetricHistory', {
                 ticker: ticker,
                 metricKey: key,
-                label: m.label || key,
+                label: displayLabel,
                 tileNote: m.explanation || null,
                 tileScore: m.score ?? null,
                 tileValue: m.value ?? null,
@@ -136,7 +138,7 @@ function BreakdownRow({ label, score, sub, colors }) {
 }
 
 // ── SignalItem ────────────────────────────────────────────────────────────────
-function SignalItem({ item, colors, t }) {
+function SignalItem({ item, colors, t, lang, navigation }) {
   const toneColors = { positive: colors.green, negative: colors.red, neutral: colors.textDimmer };
   const toneIcons  = { positive: '▲', negative: '▼', neutral: '—' };
   const tColor = toneColors[item.tone] || colors.textDimmer;
@@ -145,7 +147,7 @@ function SignalItem({ item, colors, t }) {
   return (
     <TouchableOpacity
       style={[s.newsCard, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
-      onPress={function() { if (hasLink) Linking.openURL(item.link); }}
+      onPress={function() { openArticle(item.link, lang, navigation); }}
       activeOpacity={hasLink ? 0.75 : 1}>
       <Text style={[s.nTitle, { color: colors.text }]}>
         <Text style={{ color: tColor }}>{tIcon + ' '}</Text>
@@ -361,7 +363,7 @@ export default function StockScreen({ route, navigation }) {
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={function() { Linking.openURL('https://seekingalpha.com/symbol/' + ticker); }}
+                  onPress={function() { openArticle('https://seekingalpha.com/symbol/' + ticker); }}
                   style={[s.iconBtn, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
                   <Text style={{ fontSize: 15, color: colors.textDim }}>{'↗'}</Text>
@@ -421,7 +423,7 @@ export default function StockScreen({ route, navigation }) {
               <View style={s.overviewGrid}>
                 {ov.market_cap ? (
                   <View style={[s.overviewTile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
-                    <Text style={[s.oLabel, { color: colors.textDim }]}>Market Cap</Text>
+                    <Text style={[s.oLabel, { color: colors.textDim }]}>{t.market_cap || 'Market Cap'}</Text>
                     <Text style={[s.oValue, { color: colors.text }]}>{'$' + formatBigNumber(ov.market_cap)}</Text>
                   </View>
                 ) : null}
@@ -430,7 +432,7 @@ export default function StockScreen({ route, navigation }) {
                     { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder },
                     ov.business_summary ? { width: '100%' } : null,
                   ]}>
-                    <Text style={[s.oLabel, { color: colors.textDim }]}>Sector</Text>
+                    <Text style={[s.oLabel, { color: colors.textDim }]}>{t.sector_label || 'Sector'}</Text>
                     <Text style={[s.oValue, { color: colors.text }]} numberOfLines={2}>
                       {ov.sector + (ov.industry && ov.industry !== ov.sector ? ' · ' + ov.industry : '')}
                     </Text>
@@ -452,13 +454,13 @@ export default function StockScreen({ route, navigation }) {
                 ) : null}
                 {ov.volume ? (
                   <View style={[s.overviewTile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
-                    <Text style={[s.oLabel, { color: colors.textDim }]}>Volume</Text>
+                    <Text style={[s.oLabel, { color: colors.textDim }]}>{t.volume_label || 'Volume'}</Text>
                     <Text style={[s.oValue, { color: colors.text }]}>{formatBigNumber(ov.volume)}</Text>
                   </View>
                 ) : null}
                 {ov.avg_volume ? (
                   <View style={[s.overviewTile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
-                    <Text style={[s.oLabel, { color: colors.textDim }]}>Avg Volume</Text>
+                    <Text style={[s.oLabel, { color: colors.textDim }]}>{t.avg_volume_label || 'Avg Volume'}</Text>
                     <Text style={[s.oValue, { color: colors.text }]}>{formatBigNumber(ov.avg_volume)}</Text>
                   </View>
                 ) : null}
@@ -466,7 +468,7 @@ export default function StockScreen({ route, navigation }) {
 
               {ov.week52_low != null && ov.week52_high != null ? (
                 <View>
-                  <Text style={[s.oLabel, { color: colors.textDim, marginBottom: 6 }]}>52-Week Range</Text>
+                  <Text style={[s.oLabel, { color: colors.textDim, marginBottom: 6 }]}>{t.week52_label || '52-Week Range'}</Text>
                   <LinearGradient
                     colors={['#f87171', '#fbbf24', '#4ade80']}
                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
@@ -486,14 +488,14 @@ export default function StockScreen({ route, navigation }) {
           {(m.pe_ratio && m.pe_ratio.value != null) || (m.peg_ratio && m.peg_ratio.value != null) ? (
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <Text style={[s.cardTitle, { color: colors.text }]}>{'🏷️ ' + (t.valuation || 'Valuation')}</Text>
-              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} />
+              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} />
             </View>
           ) : null}
 
           {/* Profitability card */}
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[s.cardTitle, { color: colors.text }]}>{'📊 ' + (t.profitability || 'Profitability & Margins')}</Text>
-            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} />
+            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} />
           </View>
 
           {/* Balance card */}
@@ -506,7 +508,7 @@ export default function StockScreen({ route, navigation }) {
                 ...(m.cash_runway && m.cash_runway.value != null ? ['cash_runway'] : []),
                 'dividend','buyback',
               ]}
-              metrics={m} colors={colors} navigation={navigation} ticker={ticker} />
+              metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} />
           </View>
 
           {/* Price chart card */}
@@ -553,7 +555,7 @@ export default function StockScreen({ route, navigation }) {
               <Text style={[s.noData, { color: colors.textDimmer }]}>
                 {t.no_signals || 'No headlines requiring special attention found in recent news.'}
               </Text>
-            ) : signals.map(function(item, i) { return <SignalItem key={i} item={item} colors={colors} t={t} />; })}
+            ) : signals.map(function(item, i) { return <SignalItem key={i} item={item} colors={colors} t={t} lang={lang} navigation={navigation} />; })}
           </View>
 
           {/* Munger checklist card */}
@@ -586,31 +588,31 @@ export default function StockScreen({ route, navigation }) {
               <Text style={[s.cardTitle, { color: colors.text }]}>{'🧮 ' + (t.valuation_section || 'Additional Valuation Multiples')}</Text>
               <View style={s.metricsGrid}>
                 {ve.forward_pe ? (
-                  <ValTile label="Forward P/E" value={String(ve.forward_pe)}
+                  <ValTile label={t.metric_names?.forward_pe || 'Forward P/E'} value={String(ve.forward_pe)}
                     note={t.forward_pe_note || 'P/E multiple based on future projections'}
                     valColor={ve.trailing_pe && ve.forward_pe < ve.trailing_pe ? colors.green : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: 'Forward P/E', tileNote: t.forward_pe_note || 'P/E multiple based on future projections', tileScore: null, tileValue: ve.forward_pe ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: t.metric_names?.forward_pe || 'Forward P/E', tileNote: t.forward_pe_note || 'P/E multiple based on future projections', tileScore: null, tileValue: ve.forward_pe ?? null }); }} />
                 ) : null}
                 {ve.price_to_book ? (
-                  <ValTile label="P/B" value={String(ve.price_to_book)}
+                  <ValTile label={t.metric_names?.price_to_book || 'P/B'} value={String(ve.price_to_book)}
                     note={t.pb_note || 'Price relative to net asset value'}
                     valColor={ve.price_to_book < 1 ? colors.green : ve.price_to_book > 5 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: 'P/B', tileNote: t.pb_note || 'Price relative to net asset value', tileScore: null, tileValue: ve.price_to_book ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: t.metric_names?.price_to_book || 'P/B', tileNote: t.pb_note || 'Price relative to net asset value', tileScore: null, tileValue: ve.price_to_book ?? null }); }} />
                 ) : null}
                 {ve.price_to_sales ? (
-                  <ValTile label="P/S" value={String(ve.price_to_sales)}
+                  <ValTile label={t.metric_names?.price_to_sales || 'P/S'} value={String(ve.price_to_sales)}
                     note={t.ps_note || 'Price relative to revenue'}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: 'P/S', tileNote: t.ps_note || 'Price relative to revenue', tileScore: null, tileValue: ve.price_to_sales ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: t.metric_names?.price_to_sales || 'P/S', tileNote: t.ps_note || 'Price relative to revenue', tileScore: null, tileValue: ve.price_to_sales ?? null }); }} />
                 ) : null}
                 {ve.ev_to_ebitda ? (
-                  <ValTile label="EV/EBITDA" value={String(ve.ev_to_ebitda)}
+                  <ValTile label={t.metric_names?.ev_to_ebitda || 'EV/EBITDA'} value={String(ve.ev_to_ebitda)}
                     note={t.ev_ebitda_note || 'Enterprise multiple'}
                     valColor={ve.ev_to_ebitda < 10 ? colors.green : ve.ev_to_ebitda > 25 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: 'EV/EBITDA', tileNote: t.ev_ebitda_note || 'Enterprise multiple', tileScore: null, tileValue: ve.ev_to_ebitda ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: t.metric_names?.ev_to_ebitda || 'EV/EBITDA', tileNote: t.ev_ebitda_note || 'Enterprise multiple', tileScore: null, tileValue: ve.ev_to_ebitda ?? null }); }} />
                 ) : null}
               </View>
               <Text style={[s.noteSmall, { color: colors.textDimmer }]}>
@@ -629,7 +631,7 @@ export default function StockScreen({ route, navigation }) {
           <FinancialsCard ticker={ticker} colors={colors} t={t} />
 
           {/* Recent news card */}
-          <NewsCard ticker={ticker} colors={colors} t={t} lang={lang} />
+          <NewsCard ticker={ticker} colors={colors} t={t} lang={lang} navigation={navigation} />
 
           {/* source-note */}
           <Text style={[s.sourceNote, { color: colors.textDimmer }]}>
