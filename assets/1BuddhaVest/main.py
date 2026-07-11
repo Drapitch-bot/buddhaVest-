@@ -162,9 +162,13 @@ app.router.default_response_class = SanitizedJSONResponse
 # ─── Article domain blocklist ────────────────────────────────────────────────
 # Sites that block or paywall WebView content — remove from news feed entirely
 _NO_SHOW_DOMAINS = ['nytimes.com', 'nyti.ms']
+_NO_SHOW_PUBLISHERS = ['New York Times', 'The New York Times']
 
 def _filter_articles(articles: list) -> list:
-    return [a for a in articles if not any(d in (a.get('link') or '') for d in _NO_SHOW_DOMAINS)]
+    return [a for a in articles if not (
+        any(d in (a.get('link') or '') for d in _NO_SHOW_DOMAINS) or
+        any(p in (a.get('publisher') or '') for p in _NO_SHOW_PUBLISHERS)
+    )]
 
 # ─── Cache pre-warming ────────────────────────────────────────────────────────
 # כשהשרת מתעורר (cold start ב-Render) – מאחסן חדשות לכל השפות ברקע,
@@ -1529,7 +1533,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 url,
                 impersonate="chrome124",
                 headers={"Accept-Language": "en-US,en;q=0.9"},
-                timeout=20,
+                timeout=8,
                 allow_redirects=True,
             )
             return r.text
@@ -1539,7 +1543,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
 
     if not raw_html:
         try:
-            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
                 resp = await client.get(url, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                     "Accept-Language": "en-US,en;q=0.9",
@@ -1589,7 +1593,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 text = bs_tag.get_text(separator=" ", strip=True)
                 if len(text) > 40:
                     items.append((bs_tag.name, text))
-                if len(items) >= 40:
+                if len(items) >= 20:
                     break
 
         if not items:
