@@ -14,4 +14,5 @@ export const ENDPOINTS = {
   priceHistory: (ticker) => `${API_BASE}/price-history/${ticker}`,
   exchangeRate: (currency = 'ILS') => `${API_BASE}/exchange-rate?currency=${currency}`,
   status: () => `${API_BASE}/status`,
+  translateArticle: (url, lang) => `${API_BASE}/translate-article?url=${encodeURIComponent(url)}&lang=${lang}`,
 };

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ActivityIndicator, StatusBar, Linking,
@@ -6,84 +6,60 @@ import {
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
-import { translateText } from '../utils/translate';
+import { API_BASE } from '../constants/api';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
-
-// Injected BEFORE page JS runs — installs a MutationObserver that fires as soon
-// as enough paragraph text appears. Works for both SSR and dynamic SPA sites
-// (Yahoo Finance, NYT, etc.) because it watches the DOM evolve rather than
-// sampling it at a fixed time. Max wait is 10 seconds.
-const PREINJECT = [
-  '(function(){',
-  '  if(window._bvDone)return;',
-  '  window._bvDone=false;',
-  '  function collect(){',
-  '    if(window._bvDone)return;',
-  '    var items=[],tags=document.querySelectorAll("h1,h2,h3,p,li");',
-  '    for(var i=0;i<tags.length&&items.length<30;i++){',
-  '      var el=tags[i],txt=(el.innerText||el.textContent||"").trim();',
-  '      if(txt.length>40){el.setAttribute("data-bv",items.length);items.push(txt);}',
-  '    }',
-  '    if(items.length>=2){',
-  '      window._bvDone=true;',
-  '      try{window.ReactNativeWebView.postMessage(JSON.stringify({type:"TX_REQ",items:items}));}catch(e){}',
-  '    }',
-  '  }',
-  '  var obs=new MutationObserver(function(){',
-  '    if(document.querySelectorAll("p").length>=2){obs.disconnect();setTimeout(collect,400);}',
-  '  });',
-  '  function start(){',
-  '    obs.observe(document.body||document.documentElement,{childList:true,subtree:true});',
-  '    setTimeout(function(){obs.disconnect();collect();},10000);',  // 10s hard cap
-  '  }',
-  '  if(document.body){start();}',
-  '  else{document.addEventListener("DOMContentLoaded",start);}',
-  '})(); true;',
-].join('\n');
+const TRANSLATE_TIMEOUT_MS = 28000;
 
 export default function ArticleScreen({ route, navigation }) {
   const { url, lang } = route.params || {};
   const { colors, t, translateArticles } = useApp();
   const insets = useSafeAreaInsets();
   const [error, setError] = useState(false);
-  const webRef = useRef(null);
-  const translatedRef = useRef(false);
+  const [translatedHtml, setTranslatedHtml] = useState(null);
+  const [translating, setTranslating] = useState(false);
+  const abortRef = useRef(null);
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
+  useEffect(function() {
+    if (!needsTranslation || !url) return;
+
+    // Cancel any in-flight request from a previous URL
+    if (abortRef.current) abortRef.current.abort();
+    var controller = new AbortController();
+    abortRef.current = controller;
+
+    setTranslating(true);
+    setTranslatedHtml(null);
+    setError(false);
+
+    var timer = setTimeout(function() { controller.abort(); }, TRANSLATE_TIMEOUT_MS);
+
+    fetch(API_BASE + '/translate-article?url=' + encodeURIComponent(url) + '&lang=' + lang, {
+      signal: controller.signal,
+    })
+      .then(function(r) {
+        if (!r.ok) throw new Error('err');
+        return r.text();
+      })
+      .then(function(html) {
+        clearTimeout(timer);
+        setTranslatedHtml(html);
+        setTranslating(false);
+      })
+      .catch(function() {
+        clearTimeout(timer);
+        // Fall back silently — WebView will show the original URL
+        setTranslating(false);
+      });
+
+    return function() {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [url, lang, needsTranslation]);
+
   const handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
-
-  // Reset translated flag on each new page load
-  const handleLoadStart = useCallback(function() {
-    translatedRef.current = false;
-  }, []);
-
-  // Translate collected texts and inject them back into the page.
-  const handleMessage = useCallback(async function(event) {
-    try {
-      var msg = JSON.parse(event.nativeEvent.data);
-      if (msg.type !== 'TX_REQ' || !msg.items || !msg.items.length) return;
-      if (translatedRef.current) return;
-      translatedRef.current = true;
-      var translated = await Promise.all(
-        msg.items.map(function(txt) { return translateText(txt, lang); })
-      );
-      var json = JSON.stringify(translated);
-      var inject = [
-        '(function(){',
-        '  var t=' + json + ';',
-        '  for(var i=0;i<t.length;i++){',
-        '    try{',
-        '      var q="[data-bv=\\""+i+"\\"]";',
-        '      var e=document.querySelector(q);',
-        '      if(e&&t[i])e.innerText=t[i];',
-        '    }catch(x){}',
-        '  }',
-        '})(); true;',
-      ].join('\n');
-      if (webRef.current) webRef.current.injectJavaScript(inject);
-    } catch (e) {}
-  }, [lang]);
 
   return (
     <View style={[s.container, { backgroundColor: colors.bg }]}>
@@ -98,9 +74,11 @@ export default function ArticleScreen({ route, navigation }) {
             {'✕  ' + (t.back || 'Back')}
           </Text>
         </TouchableOpacity>
-        {needsTranslation && (
+        {translatedHtml ? (
           <View style={s.badge}><Text style={s.badgeText}>{'מתורגם'}</Text></View>
-        )}
+        ) : translating ? (
+          <ActivityIndicator size="small" color={colors.primary || '#f59e0b'} />
+        ) : null}
         <TouchableOpacity onPress={function() { if (url) Linking.openURL(url); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={{ color: colors.textDim || '#6b7280', fontSize: 20 }}>{'⧉'}</Text>
         </TouchableOpacity>
@@ -117,15 +95,13 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          ref={webRef}
-          source={{ uri: url }}
+          source={translatedHtml ? { html: translatedHtml } : { uri: url }}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}
           allowsInlineMediaPlayback={true}
           userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
-          injectedJavaScriptBeforeContentLoaded={needsTranslation ? PREINJECT : undefined}
           renderLoading={function() {
             return (
               <View style={[s.loadWrap, { backgroundColor: colors.bg }]}>
@@ -133,8 +109,6 @@ export default function ArticleScreen({ route, navigation }) {
               </View>
             );
           }}
-          onLoadStart={handleLoadStart}
-          onMessage={needsTranslation ? handleMessage : undefined}
           onError={function() { setError(true); }}
           onHttpError={function(e) { if (e.nativeEvent.statusCode >= 500) setError(true); }}
         />
