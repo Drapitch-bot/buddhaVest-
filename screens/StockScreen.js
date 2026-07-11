@@ -206,27 +206,27 @@ export default function StockScreen({ route, navigation }) {
 
   async function loadStock() {
     setLoading(true); setError(null); setWakingUp(false); setSignals(null); setBizExpanded(false);
-    const tryFetch = function() {
+    const tryFetch = function(ms) {
       return Promise.race([
         fetch(ENDPOINTS.analyze(ticker, lang)).then(function(r) {
           if (!r.ok) throw new Error('Server error');
           return r.json();
         }),
-        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 20000); })
+        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); })
       ]);
     };
     try {
-      const json = await tryFetch();
+      const json = await tryFetch(20000);
       setData(json);
       fetchSignals(json.ticker || ticker);
       fetchExchangeRate();
       setLoading(false);
     } catch(e) {
-      // First attempt failed — show waking_up and retry once after 8s
+      // First attempt failed — show waking_up and retry once after 8s with longer timeout
       setWakingUp(true);
       await new Promise(function(r) { setTimeout(r, 8000); });
       try {
-        const json = await tryFetch();
+        const json = await tryFetch(40000);
         setData(json);
         fetchSignals(json.ticker || ticker);
         fetchExchangeRate();

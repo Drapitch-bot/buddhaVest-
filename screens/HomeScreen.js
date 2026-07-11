@@ -156,13 +156,13 @@ export default function HomeScreen({ navigation }) {
   }
 
   async function loadMarket() {
-    const tryFetch = function() {
+    const tryFetch = function(ms) {
       return Promise.race([
         fetch(ENDPOINTS.marketOverview()).then(function(r) {
           if (!r.ok) throw new Error('err');
           return r.json();
         }),
-        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 8000); }),
+        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); }),
       ]);
     };
     const applyData = function(data) {
@@ -181,16 +181,12 @@ export default function HomeScreen({ navigation }) {
       setMovers(top4);
     };
     try {
-      applyData(await tryFetch());
+      applyData(await tryFetch(20000));
     } catch(e) {
       setWakingUp(true);
       await new Promise(function(r) { setTimeout(r, 3000); });
       try {
-        const retryData = await Promise.race([
-          fetch(ENDPOINTS.marketOverview()).then(function(r) { if (!r.ok) throw new Error('err'); return r.json(); }),
-          new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 30000); }),
-        ]);
-        applyData(retryData);
+        applyData(await tryFetch(50000));
       } catch(e) {}
       setWakingUp(false);
     }
