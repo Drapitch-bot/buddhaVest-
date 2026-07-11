@@ -194,6 +194,7 @@ export default function StockScreen({ route, navigation }) {
   const [data,        setData]        = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState(null);
+  const [wakingUp,    setWakingUp]    = useState(false);
   const [refreshing,  setRefreshing]  = useState(false);
   const [signals,     setSignals]     = useState(null);
   const [bizExpanded, setBizExpanded] = useState(false);
@@ -204,18 +205,38 @@ export default function StockScreen({ route, navigation }) {
   useEffect(function() { loadStock(); }, [ticker]);
 
   async function loadStock() {
-    setLoading(true); setError(null); setSignals(null); setBizExpanded(false);
+    setLoading(true); setError(null); setWakingUp(false); setSignals(null); setBizExpanded(false);
+    const tryFetch = function() {
+      return Promise.race([
+        fetch(ENDPOINTS.analyze(ticker, lang)).then(function(r) {
+          if (!r.ok) throw new Error('Server error');
+          return r.json();
+        }),
+        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 20000); })
+      ]);
+    };
     try {
-      const res  = await fetch(ENDPOINTS.analyze(ticker, lang));
-      if (!res.ok) throw new Error('Server error');
-      const json = await res.json();
+      const json = await tryFetch();
       setData(json);
       fetchSignals(json.ticker || ticker);
       fetchExchangeRate();
+      setLoading(false);
     } catch {
-      setError('connection_error');
+      // First attempt failed — show waking_up and retry once after 8s
+      setWakingUp(true);
+      await new Promise(function(r) { setTimeout(r, 8000); });
+      try {
+        const json = await tryFetch();
+        setData(json);
+        fetchSignals(json.ticker || ticker);
+        fetchExchangeRate();
+        setWakingUp(false);
+      } catch {
+        setError('connection_error');
+        setWakingUp(false);
+      }
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   async function fetchSignals(tk) {
