@@ -18,7 +18,7 @@ Endpoints:
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 import math
 import os
 import time
@@ -1492,6 +1492,108 @@ def ticker_news(ticker: str, lang: str = "en"):
                 a["title"] = translated[i]
 
     return {"ticker": ticker.upper(), "articles": all_articles}
+
+
+@app.get("/translate-article")
+async def translate_article_endpoint(url: str, lang: str = "he"):
+    """
+    Fetches an article URL server-side, extracts text, translates it, and returns
+    clean RTL HTML. Used by the mobile app's in-app reader to avoid WebView proxy issues.
+    """
+    from bs4 import BeautifulSoup
+
+    # Cache: same URL + lang for 1 hour
+    cache_key = f"tarticle_{lang}_{url}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return HTMLResponse(content=cached)
+
+    # 1. Fetch the article
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            resp = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            })
+            raw_html = resp.text
+    except Exception as e:
+        err = f"<html><body style='font-family:Arial;padding:20px'><p>Could not load article: {e}</p></body></html>"
+        return HTMLResponse(content=err)
+
+    # 2. Extract text
+    try:
+        soup = BeautifulSoup(raw_html, "html.parser")
+        for tag in soup(["script", "style", "nav", "header", "footer", "aside", "form", "iframe", "noscript"]):
+            tag.decompose()
+
+        # Try article body first, fall back to whole body
+        body = soup.find("article") or soup.find(attrs={"itemprop": "articleBody"}) or soup.body
+        tags = body.find_all(["h1", "h2", "h3", "p"]) if body else []
+
+        items = []  # list of (tag_name, text)
+        for tag in tags:
+            text = tag.get_text(separator=" ", strip=True)
+            if len(text) > 40:
+                items.append((tag.name, text))
+            if len(items) >= 40:
+                break
+
+        if not items:
+            raise ValueError("no content")
+    except Exception as e:
+        err = f"<html><body style='font-family:Arial;padding:20px'><p>Parse error: {e}</p></body></html>"
+        return HTMLResponse(content=err)
+
+    # 3. Translate in small batches (≤ 3000 chars each)
+    def _batch_translate(texts):
+        if lang == "en":
+            return texts
+        results = []
+        i = 0
+        while i < len(texts):
+            chunk, total = [], 0
+            while i < len(texts) and total + len(texts[i]) < 3000:
+                chunk.append(texts[i])
+                total += len(texts[i])
+                i += 1
+            if not chunk:   # single paragraph > 3000 chars
+                chunk = [texts[i][:3000]]
+                i += 1
+            try:
+                translated = _translate_batch(chunk, lang)
+                results.extend(translated)
+            except Exception:
+                results.extend(chunk)
+        return results
+
+    raw_texts = [t for _, t in items]
+    translated = _batch_translate(raw_texts)
+
+    # 4. Build output HTML
+    is_rtl = lang in {"he"}
+    dir_attr = "rtl" if is_rtl else "ltr"
+    html_parts = [f"""<!DOCTYPE html><html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  body{{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;line-height:1.75;
+        color:#111;background:#fff;direction:{dir_attr};max-width:800px;margin:0 auto}}
+  h1{{font-size:22px;margin:0 0 16px}}h2{{font-size:18px;margin:20px 0 8px}}
+  h3{{font-size:16px;margin:16px 0 6px}}p{{font-size:16px;margin:0 0 14px}}
+</style></head><body>"""]
+
+    for i, (tag_name, _) in enumerate(items):
+        text = translated[i].strip() if i < len(translated) else ""
+        if text:
+            html_parts.append(f"<{tag_name}>{text}</{tag_name}>")
+
+    html_parts.append("</body></html>")
+    html_content = "".join(html_parts)
+
+    _cache_set(cache_key, html_content, 3600)
+    return HTMLResponse(content=html_content)
 
 
 @app.get("/signals/{ticker}")

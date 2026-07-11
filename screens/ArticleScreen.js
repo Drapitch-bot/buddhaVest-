@@ -6,49 +6,9 @@ import {
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
+import { API_BASE } from '../constants/api';
 
-const TRANSLATE_LANG = { he: 'iw', ru: 'ru', es: 'es' };
-
-function makeTranslateScript(tl) {
-  if (!tl) return '';
-  return `
-(function() {
-  try {
-    window.googleTranslateElementInit = function() {
-      try {
-        new google.translate.TranslateElement({
-          pageLanguage: 'auto',
-          includedLanguages: '${tl}',
-          autoDisplay: false,
-        }, '__gt_hidden');
-        var _attempts = 0;
-        var _poll = setInterval(function() {
-          _attempts++;
-          var sel = document.querySelector('.goog-te-combo');
-          if (sel) {
-            clearInterval(_poll);
-            sel.value = '${tl}';
-            var ev = document.createEvent('HTMLEvents');
-            ev.initEvent('change', true, true);
-            sel.dispatchEvent(ev);
-          } else if (_attempts >= 12) {
-            clearInterval(_poll);
-          }
-        }, 500);
-      } catch(e) {}
-    };
-    var hidden = document.createElement('div');
-    hidden.id = '__gt_hidden';
-    hidden.style.display = 'none';
-    document.body.appendChild(hidden);
-    var s = document.createElement('script');
-    s.src = 'https://translate.googleapis.com/translate_a/element.js?cb=googleTranslateElementInit';
-    document.head.appendChild(s);
-  } catch(e) {}
-})();
-true;
-`;
-}
+const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
 
 export default function ArticleScreen({ route, navigation }) {
   const { url, lang } = route.params || {};
@@ -56,7 +16,13 @@ export default function ArticleScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState(false);
-  const tl = translateArticles ? TRANSLATE_LANG[lang] : null;
+  const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
+
+  // Backend fetches the article, translates it server-side, returns clean HTML.
+  // No Google Translate proxy/iframe issues.
+  const displayUrl = needsTranslation && url
+    ? `${API_BASE}/translate-article?url=${encodeURIComponent(url)}&lang=${lang}`
+    : url;
 
   const handleClose = () => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -75,6 +41,11 @@ export default function ArticleScreen({ route, navigation }) {
         <TouchableOpacity onPress={handleClose} style={s.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={[s.closeText, { color: colors.primary || '#f59e0b' }]}>✕  {t.back || 'Back'}</Text>
         </TouchableOpacity>
+        {needsTranslation && (
+          <View style={s.badge}>
+            <Text style={s.badgeText}>מתורגם</Text>
+          </View>
+        )}
         <TouchableOpacity onPress={() => url && Linking.openURL(url)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={{ color: colors.textDim || '#6b7280', fontSize: 20 }}>⧉</Text>
         </TouchableOpacity>
@@ -91,9 +62,8 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          source={{ uri: url }}
+          source={{ uri: displayUrl }}
           style={{ flex: 1 }}
-          injectedJavaScript={makeTranslateScript(tl)}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}

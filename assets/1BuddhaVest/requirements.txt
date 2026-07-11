@@ -3,3 +3,4 @@ fastapi
 uvicorn[standard]
 httpx
 deep-translator
+beautifulsoup4
