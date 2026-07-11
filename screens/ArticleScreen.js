@@ -9,7 +9,7 @@ import { useApp } from '../constants/AppContext';
 import { API_BASE } from '../constants/api';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
-const TRANSLATE_TIMEOUT_MS = 28000;
+const TRANSLATE_TIMEOUT_MS = 12000; // 12s — if server doesn't respond, Google Translate is already loading
 
 export default function ArticleScreen({ route, navigation }) {
   const { url, lang } = route.params || {};
@@ -22,16 +22,20 @@ export default function ArticleScreen({ route, navigation }) {
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
   useEffect(function() {
-    if (!needsTranslation || !url) return;
+    if (!url) return;
+    setTranslatedHtml(null);
+    setError(false);
 
-    // Cancel any in-flight request from a previous URL
+    if (!needsTranslation) return;
+
+    // Try server-side translation in background (12s timeout).
+    // Meanwhile the WebView already loads Google Translate version below.
+    // If server succeeds -> replace with clean server HTML.
     if (abortRef.current) abortRef.current.abort();
     var controller = new AbortController();
     abortRef.current = controller;
 
     setTranslating(true);
-    setTranslatedHtml(null);
-    setError(false);
 
     var timer = setTimeout(function() { controller.abort(); }, TRANSLATE_TIMEOUT_MS);
 
@@ -49,7 +53,7 @@ export default function ArticleScreen({ route, navigation }) {
       })
       .catch(function() {
         clearTimeout(timer);
-        // Fall back silently — WebView will show the original URL
+        // Server failed - WebView already shows Google Translate version
         setTranslating(false);
       });
 
@@ -60,6 +64,15 @@ export default function ArticleScreen({ route, navigation }) {
   }, [url, lang, needsTranslation]);
 
   const handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
+
+  // WebView source: prefer clean server-translated HTML.
+  // Fallback: Google Translate web version (always works, shows Hebrew UI).
+  var gtUrl = 'https://translate.google.com/translate?tl=' + (lang || 'he') + '&sl=auto&u=' + encodeURIComponent(url || '');
+  var webviewSrc = translatedHtml
+    ? { html: translatedHtml }
+    : (needsTranslation && lang !== 'en')
+      ? { uri: gtUrl }
+      : { uri: url };
 
   return (
     <View style={[s.container, { backgroundColor: colors.bg }]}>
@@ -95,7 +108,7 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          source={translatedHtml ? { html: translatedHtml } : { uri: url }}
+          source={webviewSrc}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
