@@ -37,7 +37,7 @@ export default function NewsScreen({ navigation }) {
       if (h < 1)  return t.time_less_hour || 'less than an hour ago';
       if (h < 24) return (t.time_hours || '{n}h ago').replace('{n}', h);
       return (t.time_days || '{n}d ago').replace('{n}', Math.floor(h / 24));
-    } catch { return ''; }
+    } catch(e) { return ''; }
   }
 
   const s = makeStyles(colors);

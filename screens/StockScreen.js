@@ -76,7 +76,7 @@ function timeAgo(published, t) {
     if (h < 1)  return t.time_less_hour || 'less than an hour ago';
     if (h < 24) return (t.time_hours || '{n}h ago').replace('{n}', h);
     return (t.time_days || '{n}d ago').replace('{n}', Math.floor(h / 24));
-  } catch { return ''; }
+  } catch(e) { return ''; }
 }
 
 // ── MetricsGrid ───────────────────────────────────────────────────────────────
@@ -221,7 +221,7 @@ export default function StockScreen({ route, navigation }) {
       fetchSignals(json.ticker || ticker);
       fetchExchangeRate();
       setLoading(false);
-    } catch {
+    } catch(e) {
       // First attempt failed — show waking_up and retry once after 8s
       setWakingUp(true);
       await new Promise(function(r) { setTimeout(r, 8000); });
@@ -231,7 +231,7 @@ export default function StockScreen({ route, navigation }) {
         fetchSignals(json.ticker || ticker);
         fetchExchangeRate();
         setWakingUp(false);
-      } catch {
+      } catch(e) {
         setError('connection_error');
         setWakingUp(false);
       }
@@ -244,7 +244,7 @@ export default function StockScreen({ route, navigation }) {
       const res  = await fetch(ENDPOINTS.signals(tk, lang));
       const json = await res.json();
       setSignals(json.flagged || json.signals || []);
-    } catch { setSignals([]); }
+    } catch(e) { setSignals([]); }
   }
 
   async function fetchExchangeRate() {
@@ -256,7 +256,7 @@ export default function StockScreen({ route, navigation }) {
       const res  = await fetch(ENDPOINTS.exchangeRate(cfg.code));
       const json = await res.json();
       setSecondaryCurrency(json.rate ? { rate: json.rate, symbol: cfg.symbol } : null);
-    } catch { setSecondaryCurrency(null); }
+    } catch(e) { setSecondaryCurrency(null); }
   }
 
   const onRefresh = useCallback(async function() {

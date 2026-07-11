@@ -3,6 +3,7 @@ import * as Updates from 'expo-updates';
 import {
   View, Text, Image, Animated, StyleSheet, Dimensions,
 } from 'react-native';
+import { API_BASE } from '../constants/api';
 
 const { width: W, height: H } = Dimensions.get('window');
 
@@ -14,6 +15,9 @@ export default function SplashScreen({ onDone }) {
   const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
+    // Pre-warm Render backend — fire and forget so HomeScreen finds it awake
+    fetch(API_BASE + '/status').catch(function() {});
+
     // Check for OTA update while splash is showing — silent, no extra delay
     if (!__DEV__) {
       Updates.checkForUpdateAsync()
@@ -116,6 +120,7 @@ const s = StyleSheet.create({
   quoteWrap: {
     flex: 1,
     alignItems: 'flex-end',
+  
     paddingRight: 4,
   },
   quoteText: {

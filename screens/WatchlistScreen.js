@@ -98,7 +98,7 @@ export default function WatchlistScreen({ navigation }) {
         const exRes  = await fetch(ENDPOINTS.exchangeRate(cfg.code));
         const exData = await exRes.json();
         setSecondaryCurrency(exData.rate ? { rate: exData.rate, symbol: cfg.symbol } : null);
-      } catch { setSecondaryCurrency(null); }
+      } catch(e) { setSecondaryCurrency(null); }
     } else {
       setSecondaryCurrency(null);
     }
@@ -116,7 +116,7 @@ export default function WatchlistScreen({ navigation }) {
           recommendation_color: data.recommendation_color,
           company_name:        data.company_name,
         };
-      } catch {}
+      } catch(e) {}
     }));
     setPrices(newPrices);
     setLastUpdated(new Date());

@@ -17,7 +17,7 @@ export default function EventsCard({ ticker, colors, t }) {
       const res  = await fetch(ENDPOINTS.events(ticker));
       const data = await res.json();
       setEvents(data.events || []);
-    } catch { setEvents([]); }
+    } catch(e) { setEvents([]); }
     setLoading(false);
   }
 

@@ -33,7 +33,7 @@ export default function NewsCard({ ticker, colors, t, lang = 'en', navigation })
       if (diffH < 1) return t.time_less_hour || 'less than an hour ago';
       if (diffH < 24) return (t.time_hours || '{n}h ago').replace('{n}', diffH);
       return (t.time_days || '{n}d ago').replace('{n}', Math.floor(diffH / 24));
-    } catch { return ''; }
+    } catch(e) { return ''; }
   }
 
   return (

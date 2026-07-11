@@ -79,7 +79,7 @@ async function fetchYahooPrices(ticker) {
         }))
         .filter(p => p.value != null);
       if (series.length > 1) return series;
-    } catch { /* try next */ }
+    } catch(e) { /* try next */ }
   }
   return null;
 }
@@ -106,7 +106,7 @@ async function fetchStooqPrices(ticker) {
       .filter(Boolean)
       .reverse(); // Stooq returns newest-first; chart wants oldest-first
     return series.length > 1 ? series : null;
-  } catch { return null; }
+  } catch(e) { return null; }
 }
 
 // Yahoo Finance v7 downloadable CSV — different endpoint, often less blocked
@@ -131,7 +131,7 @@ async function fetchYahooV7Prices(ticker) {
       })
       .filter(Boolean);
     return series.length > 1 ? series : null;
-  } catch { return null; }
+  } catch(e) { return null; }
 }
 
 // Race 3 client-side sources — used ONLY during backend cold start (first ~50s).
@@ -250,7 +250,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
         }
         // If no metric data, the fallback (already in flight) will populate yahooPrices.
       }
-    } catch {
+    } catch(e) {
       clearTimeout(timeout);
       clearTimeout(slowTimer.current);
       setSlowLoad(false);

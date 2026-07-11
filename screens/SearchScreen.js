@@ -25,7 +25,7 @@ export default function SearchScreen({ navigation }) {
       const res = await fetch(ENDPOINTS.search(q));
       const data = await res.json();
       setResults(data.results || []);
-    } catch { setResults([]); }
+    } catch(e) { setResults([]); }
     setLoading(false);
   }
 

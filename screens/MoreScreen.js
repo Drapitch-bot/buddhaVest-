@@ -169,7 +169,7 @@ function JournalScreen({ colors, t, lang, insets, onBack, initialTicker }) {
     try {
       const raw = await AsyncStorage.getItem(JOURNAL_KEY);
       setEntries(raw ? JSON.parse(raw) : []);
-    } catch {}
+    } catch(e) {}
   }
 
   async function saveEntry() {
@@ -193,7 +193,7 @@ function JournalScreen({ colors, t, lang, insets, onBack, initialTicker }) {
       const d = new Date(iso);
       const locale = lang === 'he' ? 'he-IL' : lang === 'ru' ? 'ru-RU' : lang === 'es' ? 'es-ES' : 'en-US';
       return d.toLocaleDateString(locale) + ' ' + d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
-    } catch { return ''; }
+    } catch(e) { return ''; }
   }
 
   return (

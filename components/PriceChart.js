@@ -99,7 +99,7 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
       const dt = new Date(s);
       if (isNaN(dt.getTime())) return s;
       return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    } catch { return s; }
+    } catch(e) { return s; }
   }
 
   // fmtDateShort for x-axis — handles ISO dates "2024-03-31" → "Mar'24"
@@ -115,7 +115,7 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
       const mon = dt.toLocaleDateString('en-US', { month: 'short' });
       const yr  = String(dt.getFullYear()).slice(2);
       return `${mon}'${yr}`;
-    } catch { return s; }
+    } catch(e) { return s; }
   }
 
   return (

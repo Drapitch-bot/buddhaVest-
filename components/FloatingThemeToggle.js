@@ -31,7 +31,7 @@ export default function FloatingThemeToggle() {
         const x = Math.max(0, Math.min(W - BTN, pos.x));
         const y = Math.max(0, Math.min(H - BTN, pos.y));
         pan.setValue({ x, y });
-      } catch {}
+      } catch(e) {}
     });
   }, []);
 
