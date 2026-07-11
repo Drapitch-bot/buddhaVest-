@@ -1522,36 +1522,74 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
         return HTMLResponse(content=cached)
 
     # 1. Fetch the article
-    # curl_cffi impersonates Chrome TLS fingerprint — bypasses datacenter IP blocks
-    # (same reason yfinance needs it for Yahoo Finance data)
+    # Strategy A: curl_cffi Chrome TLS impersonation (bypasses IP-based blocking)
+    #   — wrapped in asyncio.wait_for so it ALWAYS exits within 8s regardless of C-level hangs
+    # Strategy B: httpx plain HTTPS fallback (native async, respects timeout)
+    # Strategy C: try canonical URL from <link rel=canonical> if original URL is blocked
     raw_html = None
-    try:
-        from curl_cffi import requests as _cffi
-        loop = _asyncio.get_event_loop()
-        def _cffi_get():
-            r = _cffi.get(
-                url,
-                impersonate="chrome124",
-                headers={"Accept-Language": "en-US,en;q=0.9"},
-                timeout=8,
-                allow_redirects=True,
-            )
-            return r.text
-        raw_html = await loop.run_in_executor(None, _cffi_get)
-    except Exception:
-        pass
 
-    if not raw_html:
+    async def _fetch_url(fetch_url: str) -> str | None:
+        """Try curl_cffi then httpx for a given URL. Returns HTML or None."""
+        html = None
+        # curl_cffi — hard 8s ceiling via asyncio.wait_for
+        try:
+            from curl_cffi import requests as _cffi
+            loop = _asyncio.get_event_loop()
+            def _cffi_get():
+                r = _cffi.get(fetch_url, impersonate="chrome124",
+                              headers={"Accept-Language": "en-US,en;q=0.9"},
+                              timeout=8, allow_redirects=True)
+                return r.text
+            html = await _asyncio.wait_for(
+                loop.run_in_executor(None, _cffi_get), timeout=8
+            )
+        except Exception:
+            pass
+        if html:
+            return html
+        # httpx fallback — native async, 8s timeout
         try:
             async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
-                resp = await client.get(url, headers={
+                resp = await client.get(fetch_url, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                     "Accept-Language": "en-US,en;q=0.9",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 })
-                raw_html = resp.text
-        except Exception as e:
-            return HTMLResponse(content="error", status_code=500)
+                html = resp.text
+        except Exception:
+            pass
+        return html
+
+    # Try original URL
+    raw_html = await _fetch_url(url)
+
+    # Strategy C: if original URL failed, try canonical URL via httpx only (fast, 4s)
+    # Worst case total: 8+8+6+4 = 26s < 28s app timeout
+    if not raw_html:
+        try:
+            async with httpx.AsyncClient(timeout=6, follow_redirects=True) as client:
+                head_resp = await client.get(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                })
+                head_html = head_resp.text[:4000]
+                from bs4 import BeautifulSoup as _BS
+                head_soup = _BS(head_html, "html.parser")
+                canonical_tag = head_soup.find("link", rel="canonical")
+                if canonical_tag:
+                    canonical_url = canonical_tag.get("href", "")
+                    if canonical_url and canonical_url != url:
+                        # httpx only for canonical — keeps worst-case under 28s
+                        async with httpx.AsyncClient(timeout=4, follow_redirects=True) as c2:
+                            cr = await c2.get(canonical_url, headers={
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "Accept-Language": "en-US,en;q=0.9",
+                            })
+                            raw_html = cr.text
+        except Exception:
+            pass
+
+    if not raw_html:
+        return HTMLResponse(content="error", status_code=500)
 
     # 2. Extract text
     # Strategy A: JSON-LD articleBody (always present in SSR, even on React SPAs)
