@@ -9,7 +9,35 @@ import { useApp } from '../constants/AppContext';
 import { API_BASE } from '../constants/api';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
-const TRANSLATE_TIMEOUT_MS = 12000; // 12s — if server doesn't respond, Google Translate is already loading
+const TRANSLATE_TIMEOUT_MS = 12000;
+
+// Injected into the WebView DOM to add Google Translate widget.
+// Works regardless of X-Frame-Options because we inject INTO the page, not iframe it.
+function makeGtScript(lang) {
+  return `
+(function() {
+  try {
+    if (window.__gtDone) return;
+    window.__gtDone = true;
+    var div = document.createElement('div');
+    div.id = 'google_translate_element';
+    document.body.insertBefore(div, document.body.firstChild);
+    window.googleTranslateElementInit = function() {
+      new google.translate.TranslateElement({
+        pageLanguage: 'en',
+        includedLanguages: '${lang}',
+        autoDisplay: true,
+        multilanguagePage: false
+      }, 'google_translate_element');
+    };
+    var s = document.createElement('script');
+    s.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
+    document.head.appendChild(s);
+  } catch(e) {}
+})();
+true;
+`;
+}
 
 export default function ArticleScreen({ route, navigation }) {
   const { url, lang } = route.params || {};
@@ -28,15 +56,14 @@ export default function ArticleScreen({ route, navigation }) {
 
     if (!needsTranslation) return;
 
-    // Try server-side translation in background (12s timeout).
-    // Meanwhile the WebView already loads Google Translate version below.
-    // If server succeeds -> replace with clean server HTML.
+    // Try server-side clean translation in background.
+    // WebView already loads the page with Google Translate widget injected.
+    // If server succeeds -> replace WebView with clean translated HTML.
     if (abortRef.current) abortRef.current.abort();
     var controller = new AbortController();
     abortRef.current = controller;
 
     setTranslating(true);
-
     var timer = setTimeout(function() { controller.abort(); }, TRANSLATE_TIMEOUT_MS);
 
     fetch(API_BASE + '/translate-article?url=' + encodeURIComponent(url) + '&lang=' + lang, {
@@ -53,7 +80,6 @@ export default function ArticleScreen({ route, navigation }) {
       })
       .catch(function() {
         clearTimeout(timer);
-        // Server failed - WebView already shows Google Translate version
         setTranslating(false);
       });
 
@@ -63,16 +89,8 @@ export default function ArticleScreen({ route, navigation }) {
     };
   }, [url, lang, needsTranslation]);
 
-  const handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
-
-  // WebView source: prefer clean server-translated HTML.
-  // Fallback: Google Translate web version (always works, shows Hebrew UI).
-  var gtUrl = 'https://translate.google.com/translate?tl=' + (lang || 'he') + '&sl=auto&u=' + encodeURIComponent(url || '');
-  var webviewSrc = translatedHtml
-    ? { html: translatedHtml }
-    : (needsTranslation && lang !== 'en')
-      ? { uri: gtUrl }
-      : { uri: url };
+  var handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
+  var gtScript = needsTranslation && lang && !translatedHtml ? makeGtScript(lang) : undefined;
 
   return (
     <View style={[s.container, { backgroundColor: colors.bg }]}>
@@ -108,12 +126,13 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          source={webviewSrc}
+          source={translatedHtml ? { html: translatedHtml } : { uri: url }}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}
           allowsInlineMediaPlayback={true}
+          injectedJavaScript={gtScript}
           userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
           renderLoading={function() {
             return (
