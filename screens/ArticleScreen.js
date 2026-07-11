@@ -14,28 +14,6 @@ function makeTranslateScript(tl) {
   return `
 (function() {
   try {
-    var bar = document.createElement('div');
-    bar.id = '__gt_bar';
-    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#fff;' +
-      'border-bottom:1px solid #ddd;padding:6px 10px;font-family:sans-serif;font-size:13px;' +
-      'display:flex;align-items:center;gap:8px;';
-    bar.innerHTML = '<span style="color:#4285f4;font-weight:600;">G</span>' +
-      '<span id="__gt_status" style="color:#444;">Translating…</span>';
-    document.body.insertBefore(bar, document.body.firstChild);
-    document.body.style.marginTop = '36px';
-
-    var _done = false;
-    function setStatus(msg) {
-      if (_done) return;
-      var el = document.getElementById('__gt_status');
-      if (el) el.textContent = msg;
-    }
-
-    // Global fallback: if nothing happens in 8s, give up gracefully
-    var _fallback = setTimeout(function() {
-      if (!_done) setStatus('Translation unavailable');
-    }, 8000);
-
     window.googleTranslateElementInit = function() {
       try {
         new google.translate.TranslateElement({
@@ -43,50 +21,33 @@ function makeTranslateScript(tl) {
           includedLanguages: '${tl}',
           autoDisplay: false,
         }, '__gt_hidden');
-
-        // Poll every 500ms (up to 12 attempts = 6s) for the combo dropdown
         var _attempts = 0;
         var _poll = setInterval(function() {
           _attempts++;
           var sel = document.querySelector('.goog-te-combo');
           if (sel) {
             clearInterval(_poll);
-            clearTimeout(_fallback);
-            _done = true;
             sel.value = '${tl}';
             var ev = document.createEvent('HTMLEvents');
             ev.initEvent('change', true, true);
             sel.dispatchEvent(ev);
-            setTimeout(function() { setStatus('Translated ✓'); }, 600);
           } else if (_attempts >= 12) {
             clearInterval(_poll);
-            clearTimeout(_fallback);
-            setStatus('Translation unavailable');
           }
         }, 500);
-      } catch(e) {
-        clearTimeout(_fallback);
-        setStatus('Translation unavailable');
-      }
+      } catch(e) {}
     };
-
     var hidden = document.createElement('div');
     hidden.id = '__gt_hidden';
     hidden.style.display = 'none';
     document.body.appendChild(hidden);
-
     var s = document.createElement('script');
-    // If script fails to load (CSP block, network error) → clear fallback + show message
-    s.onerror = function() {
-      clearTimeout(_fallback);
-      setStatus('Translation unavailable');
-    };
     s.src = 'https://translate.googleapis.com/translate_a/element.js?cb=googleTranslateElementInit';
     document.head.appendChild(s);
   } catch(e) {}
 })();
 true;
-`;
+\`;
 }
 
 export default function ArticleScreen({ route, navigation }) {
@@ -96,10 +57,6 @@ export default function ArticleScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState(false);
   const tl = translateArticles ? TRANSLATE_LANG[lang] : null;
-  // Use Google Translate proxy — works on all sites regardless of CSP
-  const displayUrl = tl && url
-    ? `https://translate.google.com/translate?sl=auto&tl=${tl}&u=${encodeURIComponent(url)}`
-    : url;
 
   const handleClose = () => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -136,8 +93,9 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          source={{ uri: displayUrl }}
+          source={{ uri: url }}
           style={{ flex: 1 }}
+          injectedJavaScript={makeTranslateScript(tl)}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}
@@ -167,6 +125,4 @@ const s = StyleSheet.create({
   loadWrap:   { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                 justifyContent: 'center', alignItems: 'center' },
   errorWrap:  { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
-  errorText:  { fontSize: 15 },
-  retryBtn:   { paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1, borderRadius: 8 },
-});
+  errorText:  { fontSize
