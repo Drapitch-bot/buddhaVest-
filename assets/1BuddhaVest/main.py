@@ -170,6 +170,50 @@ def _filter_articles(articles: list) -> list:
         any(p in (a.get('publisher') or '') for p in _NO_SHOW_PUBLISHERS)
     )]
 
+
+def _resolve_gnews_link(url: str) -> str:
+    """Follow Google News RSS redirect to get the real article URL."""
+    if not url or 'news.google.com/rss/articles' not in url:
+        return url
+    try:
+        resp = httpx.head(url, follow_redirects=True, timeout=4,
+                          headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+        final = str(resp.url)
+        if final and 'news.google.com' not in final and final.startswith('http'):
+            return final
+    except Exception:
+        pass
+    try:
+        with httpx.stream("GET", url, follow_redirects=True, timeout=4,
+                          headers={"User-Agent": "Mozilla/5.0"}) as r:
+            final = str(r.url)
+            if final and 'news.google.com' not in final and final.startswith('http'):
+                return final
+    except Exception:
+        pass
+    return url
+
+
+def _resolve_gnews_articles(articles: list) -> list:
+    """Resolve Google News redirect links in parallel (max 6s total)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    gnews = [(i, a) for i, a in enumerate(articles)
+             if 'news.google.com/rss/articles' in (a.get('link') or '')]
+    if not gnews:
+        return articles
+    result = list(articles)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {ex.submit(_resolve_gnews_link, a['link']): (i, a) for i, a in gnews}
+        for fut in as_completed(futures, timeout=6):
+            i, a = futures[fut]
+            try:
+                real_url = fut.result()
+                if real_url != a['link']:
+                    result[i] = dict(a, link=real_url)
+            except Exception:
+                pass
+    return result
+
 # ─── Cache pre-warming ────────────────────────────────────────────────────────
 # כשהשרת מתעורר (cold start ב-Render) – מאחסן חדשות לכל השפות ברקע,
 # כדי שהמשתמש הראשון יקבל תשובה מהירה מה-cache ולא יחכה לתרגום.
@@ -1453,6 +1497,7 @@ def general_news(lang: str = "en"):
         return item.get("published") or ""
 
     all_news.sort(key=sort_key, reverse=True)
+    all_news = _resolve_gnews_articles(all_news)
     articles = _filter_articles(all_news)[:15]
 
     # תרגום כותרות אם השפה אינה אנגלית
@@ -1502,6 +1547,7 @@ def ticker_news(ticker: str, lang: str = "en"):
             if translated[i]:
                 a["title"] = translated[i]
 
+    all_articles = _resolve_gnews_articles(all_articles)
     return {"ticker": ticker.upper(), "articles": _filter_articles(all_articles)}
 
 
