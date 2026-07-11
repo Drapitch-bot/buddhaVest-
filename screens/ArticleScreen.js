@@ -9,7 +9,7 @@ import { useApp } from '../constants/AppContext';
 import { API_BASE } from '../constants/api';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
-const TRANSLATE_TIMEOUT_MS = 12000;
+const TRANSLATE_TIMEOUT_MS = 30000;
 
 // Google Translate widget uses legacy language codes (Hebrew = 'iw', not 'he')
 const GT_LANG_MAP = { he: 'iw', ru: 'ru', es: 'es' };

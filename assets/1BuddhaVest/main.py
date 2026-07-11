@@ -1691,11 +1691,13 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     except Exception as e:
         return HTMLResponse(content="error", status_code=500)
 
-    # 3. Translate in small batches (<= 3000 chars each)
-    def _batch_translate(texts):
+    # 3. Translate in small batches (<= 3000 chars each), chunks run in PARALLEL
+    #    (sequential chunks were taking 15-25s on long articles -> app timeout)
+    def _batch_translate_parallel(texts):
         if lang == "en":
             return texts
-        results = []
+        # Split into chunks
+        chunks = []
         i = 0
         while i < len(texts):
             chunk, total = [], 0
@@ -1706,15 +1708,27 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
             if not chunk:
                 chunk = [texts[i][:3000]]
                 i += 1
+            chunks.append(chunk)
+
+        def _do(chunk):
             try:
-                translated = _translate_batch(chunk, lang)
-                results.extend(translated)
+                return _translate_batch(chunk, lang)
             except Exception:
-                results.extend(chunk)
+                return chunk
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(4, len(chunks)) or 1) as ex:
+            translated_chunks = list(ex.map(_do, chunks))
+        results = []
+        for tc in translated_chunks:
+            results.extend(tc)
         return results
 
     raw_texts = [t for _, t in items]
-    translated = _batch_translate(raw_texts)
+    # Run in a thread so the (blocking) translation doesn't stall the event loop
+    translated = await _asyncio.get_event_loop().run_in_executor(
+        None, _batch_translate_parallel, raw_texts
+    )
 
     # 4. Build output HTML
     is_rtl = lang in {"he"}
