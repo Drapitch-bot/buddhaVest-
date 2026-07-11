@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  ActivityIndicator, StatusBar,
+  ActivityIndicator, StatusBar, Linking,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -75,11 +75,9 @@ export default function ArticleScreen({ route, navigation }) {
         <TouchableOpacity onPress={handleClose} style={s.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={[s.closeText, { color: colors.primary || '#f59e0b' }]}>✕  {t.back || 'Back'}</Text>
         </TouchableOpacity>
-        {tl && (
-          <View style={s.badge}>
-            <Text style={s.badgeText}>G Translate</Text>
-          </View>
-        )}
+        <TouchableOpacity onPress={() => url && Linking.openURL(url)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={{ color: colors.textDim || '#6b7280', fontSize: 20 }}>⧉</Text>
+        </TouchableOpacity>
       </View>
 
       {error ? (
