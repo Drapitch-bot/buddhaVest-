@@ -9,6 +9,40 @@ import { useApp } from '../constants/AppContext';
 import { translateText } from '../utils/translate';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
+// NYT has a hard paywall — most users see no content to translate
+const NO_TRANSLATE_DOMAINS = ['nytimes.com', 'nyti.ms'];
+
+// Injected BEFORE page JS runs — installs a MutationObserver that fires as soon
+// as enough paragraph text appears. Works for both SSR and dynamic SPA sites
+// (Yahoo Finance, NYT, etc.) because it watches the DOM evolve rather than
+// sampling it at a fixed time. Max wait is 10 seconds.
+const PREINJECT = [
+  '(function(){',
+  '  if(window._bvDone)return;',
+  '  window._bvDone=false;',
+  '  function collect(){',
+  '    if(window._bvDone)return;',
+  '    var items=[],tags=document.querySelectorAll("h1,h2,h3,p,li");',
+  '    for(var i=0;i<tags.length&&items.length<30;i++){',
+  '      var el=tags[i],txt=(el.innerText||el.textContent||"").trim();',
+  '      if(txt.length>40){el.setAttribute("data-bv",items.length);items.push(txt);}',
+  '    }',
+  '    if(items.length>=2){',
+  '      window._bvDone=true;',
+  '      try{window.ReactNativeWebView.postMessage(JSON.stringify({type:"TX_REQ",items:items}));}catch(e){}',
+  '    }',
+  '  }',
+  '  var obs=new MutationObserver(function(){',
+  '    if(document.querySelectorAll("p").length>=2){obs.disconnect();setTimeout(collect,400);}',
+  '  });',
+  '  function start(){',
+  '    obs.observe(document.body||document.documentElement,{childList:true,subtree:true});',
+  '    setTimeout(function(){obs.disconnect();collect();},10000);',  // 10s hard cap
+  '  }',
+  '  if(document.body){start();}',
+  '  else{document.addEventListener("DOMContentLoaded",start);}',
+  '})(); true;',
+].join('\n');
 
 export default function ArticleScreen({ route, navigation }) {
   const { url, lang } = route.params || {};
@@ -16,51 +50,23 @@ export default function ArticleScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const [error, setError] = useState(false);
   const webRef = useRef(null);
-  const translatedRef = useRef(false); // prevent duplicate translations
-  const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
+  const translatedRef = useRef(false);
+  const isBlockedDomain = url && NO_TRANSLATE_DOMAINS.some(function(d) { return url.includes(d); });
+  const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang) && !isBlockedDomain;
 
   const handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
 
-  // Build the collector script — queries DOM for text elements and posts them to RN
-  function buildCollector() {
-    return [
-      '(function(){',
-      '  try{',
-      '    var items=[],tags=document.querySelectorAll("h1,h2,h3,p,li,article");',
-      '    for(var i=0;i<tags.length&&items.length<30;i++){',
-      '      var el=tags[i],txt=(el.innerText||el.textContent||"").trim();',
-      '      if(txt.length>40){el.setAttribute("data-bv",items.length);items.push(txt);}',
-      '    }',
-      '    if(items.length>0)window.ReactNativeWebView.postMessage(JSON.stringify({type:"TX_REQ",items:items}));',
-      '  }catch(e){}',
-      '})(); true;',
-    ].join('\n');
-  }
-
-  // After article loads: inject collector immediately, then retry at 2s and 5s.
-  // Yahoo Finance / NYT render content dynamically — the DOM is empty at onLoadEnd
-  // and only populated 1-3 seconds later by their own JavaScript.
-  const handleLoadEnd = useCallback(function() {
-    if (!needsTranslation || !webRef.current) return;
+  // Reset translated flag on each new page load
+  const handleLoadStart = useCallback(function() {
     translatedRef.current = false;
-
-    var tryInject = function() {
-      if (!webRef.current || translatedRef.current) return;
-      webRef.current.injectJavaScript(buildCollector());
-    };
-
-    tryInject();                              // immediate — works for most sites
-    setTimeout(tryInject, 2000);             // 2s — Yahoo Finance, medium-SPA sites
-    setTimeout(tryInject, 5000);             // 5s — NYT and other heavy sites
-  }, [needsTranslation]);
+  }, []);
 
   // Translate collected texts and inject them back into the page.
-  // translatedRef prevents re-running if the delayed retries fire after success.
   const handleMessage = useCallback(async function(event) {
     try {
       var msg = JSON.parse(event.nativeEvent.data);
       if (msg.type !== 'TX_REQ' || !msg.items || !msg.items.length) return;
-      if (translatedRef.current) return; // already translated — ignore duplicate
+      if (translatedRef.current) return;
       translatedRef.current = true;
       var translated = await Promise.all(
         msg.items.map(function(txt) { return translateText(txt, lang); })
@@ -121,6 +127,8 @@ export default function ArticleScreen({ route, navigation }) {
           domStorageEnabled={true}
           startInLoadingState={true}
           allowsInlineMediaPlayback={true}
+          userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
+          injectedJavaScriptBeforeContentLoaded={needsTranslation ? PREINJECT : undefined}
           renderLoading={function() {
             return (
               <View style={[s.loadWrap, { backgroundColor: colors.bg }]}>
@@ -128,8 +136,8 @@ export default function ArticleScreen({ route, navigation }) {
               </View>
             );
           }}
-          onLoadEnd={handleLoadEnd}
-          onMessage={handleMessage}
+          onLoadStart={handleLoadStart}
+          onMessage={needsTranslation ? handleMessage : undefined}
           onError={function() { setError(true); }}
           onHttpError={function(e) { if (e.nativeEvent.statusCode >= 500) setError(true); }}
         />
