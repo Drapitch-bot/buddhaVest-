@@ -47,7 +47,7 @@ function makeTranslateScript(tl) {
   } catch(e) {}
 })();
 true;
-\`;
+`;
 }
 
 export default function ArticleScreen({ route, navigation }) {
