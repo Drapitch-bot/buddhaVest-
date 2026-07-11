@@ -1,23 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  ActivityIndicator, Linking, RefreshControl,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
+import { openArticle } from '../utils/linkUtils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import { translateNewsItems } from '../utils/translate';
 import BrandHeader from '../components/BrandHeader';
 
-const _TRANSLATE_LANG = { he: 'iw', ru: 'ru', es: 'es' };
-function openArticle(url, lang) {
-  if (!url) return;
-  if (lang === 'en') { Linking.openURL(url); return; }
-  const tl = _TRANSLATE_LANG[lang] || lang;
-  Linking.openURL(`https://translate.google.com/translate?hl=${tl}&sl=auto&u=${encodeURIComponent(url)}`);
-}
-
-export default function NewsScreen() {
+export default function NewsScreen({ navigation }) {
   const { colors, t, lang, langReady } = useApp();
   const insets = useSafeAreaInsets();
   const [news, setNews] = useState([]);
@@ -81,7 +74,7 @@ export default function NewsScreen() {
           renderItem={({ item }) => (
             <TouchableOpacity
               style={[s.card, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
-              onPress={() => openArticle(item.link, lang)}
+              onPress={() => openArticle(item.link, lang, navigation)}
               activeOpacity={0.75}>
               <Text style={[s.newsTitle, { color: colors.text }]} numberOfLines={3}>{item.title}</Text>
               <Text style={[s.newsMeta, { color: colors.textDimmer }]}>

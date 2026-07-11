@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, RefreshControl,
-  ActivityIndicator, Linking,
+  ActivityIndicator,
 } from 'react-native';
+import { openArticle } from '../utils/linkUtils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../constants/AppContext';
@@ -418,7 +419,7 @@ export default function HomeScreen({ navigation }) {
                   <TouchableOpacity
                     key={i}
                     style={[s.newsCard, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
-                    onPress={function() { if (item.link) Linking.openURL(item.link); }}>
+                    onPress={function() { openArticle(item.link, lang, navigation); }}>
                     <Text style={[s.nTitle, { color: colors.text }]} numberOfLines={3}>{item.title}</Text>
                     <Text style={[s.nMeta, { color: colors.textDimmer }]}>
                       {[item.publisher, fmtDate(item.published), fmtAge(item.published, t)].filter(Boolean).join(' · ')}
