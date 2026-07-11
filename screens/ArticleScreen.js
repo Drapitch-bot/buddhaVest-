@@ -16,37 +16,55 @@ export default function ArticleScreen({ route, navigation }) {
   const insets = useSafeAreaInsets();
   const [error, setError] = useState(false);
   const webRef = useRef(null);
+  const translatedRef = useRef(false); // prevent duplicate translations
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
   const handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
 
-  // After article loads: inject collector that marks elements + posts text to RN
-  const handleLoadEnd = useCallback(function() {
-    if (!needsTranslation || !webRef.current) return;
-    var script = [
+  // Build the collector script — queries DOM for text elements and posts them to RN
+  function buildCollector() {
+    return [
       '(function(){',
       '  try{',
-      '    var items=[],tags=document.querySelectorAll("h1,h2,h3,p,li");',
+      '    var items=[],tags=document.querySelectorAll("h1,h2,h3,p,li,article");',
       '    for(var i=0;i<tags.length&&items.length<30;i++){',
-      '      var el=tags[i],txt=(el.innerText||"").trim();',
+      '      var el=tags[i],txt=(el.innerText||el.textContent||"").trim();',
       '      if(txt.length>40){el.setAttribute("data-bv",items.length);items.push(txt);}',
       '    }',
       '    if(items.length>0)window.ReactNativeWebView.postMessage(JSON.stringify({type:"TX_REQ",items:items}));',
       '  }catch(e){}',
       '})(); true;',
     ].join('\n');
-    webRef.current.injectJavaScript(script);
+  }
+
+  // After article loads: inject collector immediately, then retry at 2s and 5s.
+  // Yahoo Finance / NYT render content dynamically — the DOM is empty at onLoadEnd
+  // and only populated 1-3 seconds later by their own JavaScript.
+  const handleLoadEnd = useCallback(function() {
+    if (!needsTranslation || !webRef.current) return;
+    translatedRef.current = false;
+
+    var tryInject = function() {
+      if (!webRef.current || translatedRef.current) return;
+      webRef.current.injectJavaScript(buildCollector());
+    };
+
+    tryInject();                              // immediate — works for most sites
+    setTimeout(tryInject, 2000);             // 2s — Yahoo Finance, medium-SPA sites
+    setTimeout(tryInject, 5000);             // 5s — NYT and other heavy sites
   }, [needsTranslation]);
 
-  // Translate collected texts and inject them back into the page
+  // Translate collected texts and inject them back into the page.
+  // translatedRef prevents re-running if the delayed retries fire after success.
   const handleMessage = useCallback(async function(event) {
     try {
       var msg = JSON.parse(event.nativeEvent.data);
       if (msg.type !== 'TX_REQ' || !msg.items || !msg.items.length) return;
+      if (translatedRef.current) return; // already translated — ignore duplicate
+      translatedRef.current = true;
       var translated = await Promise.all(
         msg.items.map(function(txt) { return translateText(txt, lang); })
       );
-      // Embed translated array as JSON then replace each marked element
       var json = JSON.stringify(translated);
       var inject = [
         '(function(){',
