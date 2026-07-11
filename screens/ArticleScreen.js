@@ -9,8 +9,6 @@ import { useApp } from '../constants/AppContext';
 import { translateText } from '../utils/translate';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
-// NYT has a hard paywall — most users see no content to translate
-const NO_TRANSLATE_DOMAINS = ['nytimes.com', 'nyti.ms'];
 
 // Injected BEFORE page JS runs — installs a MutationObserver that fires as soon
 // as enough paragraph text appears. Works for both SSR and dynamic SPA sites
@@ -51,8 +49,7 @@ export default function ArticleScreen({ route, navigation }) {
   const [error, setError] = useState(false);
   const webRef = useRef(null);
   const translatedRef = useRef(false);
-  const isBlockedDomain = url && NO_TRANSLATE_DOMAINS.some(function(d) { return url.includes(d); });
-  const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang) && !isBlockedDomain;
+  const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
   const handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
 

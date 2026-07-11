@@ -159,6 +159,13 @@ class SanitizedJSONResponse(JSONResponse):
 app.router.default_response_class = SanitizedJSONResponse
 
 
+# ─── Article domain blocklist ────────────────────────────────────────────────
+# Sites that block or paywall WebView content — remove from news feed entirely
+_NO_SHOW_DOMAINS = ['nytimes.com', 'nyti.ms']
+
+def _filter_articles(articles: list) -> list:
+    return [a for a in articles if not any(d in (a.get('link') or '') for d in _NO_SHOW_DOMAINS)]
+
 # ─── Cache pre-warming ────────────────────────────────────────────────────────
 # כשהשרת מתעורר (cold start ב-Render) – מאחסן חדשות לכל השפות ברקע,
 # כדי שהמשתמש הראשון יקבל תשובה מהירה מה-cache ולא יחכה לתרגום.
@@ -1442,7 +1449,7 @@ def general_news(lang: str = "en"):
         return item.get("published") or ""
 
     all_news.sort(key=sort_key, reverse=True)
-    articles = all_news[:15]
+    articles = _filter_articles(all_news)[:15]
 
     # תרגום כותרות אם השפה אינה אנגלית
     if lang != "en" and articles:
@@ -1491,7 +1498,7 @@ def ticker_news(ticker: str, lang: str = "en"):
             if translated[i]:
                 a["title"] = translated[i]
 
-    return {"ticker": ticker.upper(), "articles": all_articles}
+    return {"ticker": ticker.upper(), "articles": _filter_articles(all_articles)}
 
 
 @app.get("/translate-article")
