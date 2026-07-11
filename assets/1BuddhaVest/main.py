@@ -1547,8 +1547,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 })
                 raw_html = resp.text
         except Exception as e:
-            err = f"<html><body style='font-family:Arial;padding:20px'><p>Could not load article: {e}</p></body></html>"
-            return HTMLResponse(content=err)
+            return HTMLResponse(content="error", status_code=500)
 
     # 2. Extract text
     # Strategy A: JSON-LD articleBody (always present in SSR, even on React SPAs)
@@ -1596,8 +1595,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
         if not items:
             raise ValueError("no content")
     except Exception as e:
-        err = f"<html><body style='font-family:Arial;padding:20px'><p>Parse error: {e}</p></body></html>"
-        return HTMLResponse(content=err)
+        return HTMLResponse(content="error", status_code=500)
 
     # 3. Translate in small batches (<= 3000 chars each)
     def _batch_translate(texts):
