@@ -125,4 +125,6 @@ const s = StyleSheet.create({
   loadWrap:   { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                 justifyContent: 'center', alignItems: 'center' },
   errorWrap:  { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 },
-  errorText:  { fontSize
+  errorText:  { fontSize: 15 },
+  retryBtn:   { paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1, borderRadius: 8 },
+});
