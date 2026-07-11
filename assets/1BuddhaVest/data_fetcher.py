@@ -18,6 +18,39 @@ import urllib.error
 import xml.etree.ElementTree as ET
 
 
+def _enrich_with_fast_info(stock, info: dict) -> dict:
+    """
+    Yahoo Finance periodically breaks stock.info (cookie/API changes).
+    When price fields are missing, fill them from fast_info which uses
+    a different, more stable endpoint.
+    """
+    if info.get("currentPrice") or info.get("regularMarketPrice"):
+        return info  # already have price — nothing to do
+    try:
+        fi = stock.fast_info
+        price = getattr(fi, "last_price", None)
+        prev = getattr(fi, "regular_market_previous_close", None) or getattr(fi, "previous_close", None)
+        if price is not None:
+            info = dict(info)
+            info["currentPrice"] = float(price)
+            info["regularMarketPrice"] = float(price)
+            if prev is not None:
+                info["previousClose"] = float(prev)
+                info["regularMarketPreviousClose"] = float(prev)
+                if prev != 0:
+                    info["regularMarketChangePercent"] = (float(price) - float(prev)) / float(prev) * 100
+            mc = getattr(fi, "market_cap", None)
+            if mc is not None:
+                info.setdefault("marketCap", float(mc))
+            vol = getattr(fi, "volume", None)
+            if vol is not None:
+                info.setdefault("volume", int(vol))
+                info.setdefault("regularMarketVolume", int(vol))
+    except Exception:
+        pass
+    return info
+
+
 def get_quote(ticker: str) -> dict:
     """
     גרסה קלה ומהירה של get_stock_data - מביאה רק את ה-info (מחיר, שווי שוק, נפח וכו'),
@@ -26,7 +59,12 @@ def get_quote(ticker: str) -> dict:
     ולכן לא צריכות את כל הקריאות הכבדות שיש ב-get_stock_data.
     """
     stock = yf.Ticker(ticker)
-    return {"ticker": ticker.upper(), "info": stock.info}
+    try:
+        info = stock.info or {}
+    except Exception:
+        info = {}
+    info = _enrich_with_fast_info(stock, info)
+    return {"ticker": ticker.upper(), "info": info}
 
 
 def get_stock_data(ticker: str) -> dict:
@@ -50,9 +88,15 @@ def get_stock_data(ticker: str) -> dict:
         except Exception:
             pass
 
+    try:
+        info = stock.info or {}
+    except Exception:
+        info = {}
+    info = _enrich_with_fast_info(stock, info)
+
     return {
         "ticker": ticker.upper(),
-        "info": stock.info,
+        "info": info,
         "income": stock.financials,
         "balance": stock.balance_sheet,
         "cashflow": stock.cashflow,
