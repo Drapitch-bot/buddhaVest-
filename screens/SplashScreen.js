@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import * as Updates from 'expo-updates';
 import {
   View, Text, Image, Animated, StyleSheet, Dimensions,
 } from 'react-native';
@@ -13,6 +14,14 @@ export default function SplashScreen({ onDone }) {
   const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
+    // Check for OTA update while splash is showing — silent, no extra delay
+    if (!__DEV__) {
+      Updates.checkForUpdateAsync()
+        .then(function(r) { if (r.isAvailable) return Updates.fetchUpdateAsync(); })
+        .then(function(r) { if (r && r.isNew) Updates.reloadAsync(); })
+        .catch(function() {});
+    }
+
     Animated.parallel([
       Animated.timing(fadeAnim,  { toValue: 1, duration: 800, useNativeDriver: true }),
       Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
