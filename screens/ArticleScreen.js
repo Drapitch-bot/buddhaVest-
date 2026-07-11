@@ -96,6 +96,10 @@ export default function ArticleScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError]   = useState(false);
   const tl = translateArticles ? TRANSLATE_LANG[lang] : null;
+  // Use Google Translate proxy — works on all sites regardless of CSP
+  const displayUrl = tl && url
+    ? `https://translate.google.com/translate?sl=auto&tl=${tl}&u=${encodeURIComponent(url)}`
+    : url;
 
   const handleClose = () => {
     if (navigation.canGoBack()) navigation.goBack();
@@ -132,10 +136,8 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          source={{ uri: url }}
+          source={{ uri: displayUrl }}
           style={{ flex: 1 }}
-          injectedJavaScript={makeTranslateScript(tl)}
-          injectedJavaScriptBeforeContentLoaded={''}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}
