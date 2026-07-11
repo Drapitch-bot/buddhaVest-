@@ -1636,6 +1636,12 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
 
         if not items:
             raise ValueError("no content")
+
+        # Quality check: if too little content, site blocked us (e.g. "enable JS" page)
+        total_chars = sum(len(t) for _, t in items)
+        if len(items) < 3 or total_chars < 300:
+            return HTMLResponse(content="error", status_code=500)
+
     except Exception as e:
         return HTMLResponse(content="error", status_code=500)
 
