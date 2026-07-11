@@ -1511,10 +1511,20 @@ def ticker_signals(ticker: str, lang: str = "he"):
     result = analyze_signals(articles)
     result["ticker"] = ticker.upper()
 
+    # Translate category labels
     if lang != "he":
         for item in result["flagged"]:
             for cat in item["categories"]:
                 cat["label"] = translate_signal_category(cat["key"], lang)
+
+    # Translate article titles for all non-English languages
+    flagged = result.get("flagged", [])
+    if lang != "en" and flagged:
+        titles = [item.get("title", "") for item in flagged]
+        translated = _translate_batch(titles, lang)
+        for i, item in enumerate(flagged):
+            if translated[i]:
+                item["title"] = translated[i]
 
     return result
 
