@@ -45,7 +45,7 @@ async function fetchFXRate(symbol) {
     const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
     const json = await res.json();
     return json?.chart?.result?.[0]?.meta?.regularMarketPrice || null;
-  } catch { return null; }
+  } catch(e) { return null; }
 }
 
 function fmtAge(pub, t) {
@@ -55,7 +55,7 @@ function fmtAge(pub, t) {
     if (h < 1)  return t.time_less_hour || 'just now';
     if (h < 24) return (t.time_hours || '{n}h ago').replace('{n}', h);
     return (t.time_days || '{n}d ago').replace('{n}', Math.floor(h / 24));
-  } catch { return ''; }
+  } catch(e) { return ''; }
 }
 
 // fmtDate — short date string (DD/MM/YYYY) for news meta
@@ -67,7 +67,7 @@ function fmtDate(iso) {
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const yyyy = d.getFullYear();
     return dd + '/' + mm + '/' + yyyy;
-  } catch { return ''; }
+  } catch(e) { return ''; }
 }
 
 function TickerAvatar({ ticker, idx, size = 32 }) {
@@ -152,7 +152,7 @@ export default function HomeScreen({ navigation }) {
       if (RUB) rates.RUB = RUB;
       if (EUR) rates.EUR = EUR;
       if (Object.keys(rates).length) setFxRates(rates);
-    } catch {}
+    } catch(e) {}
   }
 
   async function loadMarket() {
@@ -162,7 +162,7 @@ export default function HomeScreen({ navigation }) {
           if (!r.ok) throw new Error('err');
           return r.json();
         }),
-        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 20000); }),
+        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 8000); }),
       ]);
     };
     const applyData = function(data) {
@@ -182,10 +182,16 @@ export default function HomeScreen({ navigation }) {
     };
     try {
       applyData(await tryFetch());
-    } catch {
+    } catch(e) {
       setWakingUp(true);
-      await new Promise(function(r) { setTimeout(r, 5000); });
-      try { applyData(await tryFetch()); } catch {}
+      await new Promise(function(r) { setTimeout(r, 3000); });
+      try {
+        const retryData = await Promise.race([
+          fetch(ENDPOINTS.marketOverview()).then(function(r) { if (!r.ok) throw new Error('err'); return r.json(); }),
+          new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 30000); }),
+        ]);
+        applyData(retryData);
+      } catch(e) {}
       setWakingUp(false);
     }
   }
@@ -195,7 +201,7 @@ export default function HomeScreen({ navigation }) {
       const res  = await fetch(ENDPOINTS.news(lang));
       const data = await res.json();
       setNews((data.articles || []).slice(0, 3));
-    } catch {}
+    } catch(e) {}
   }
 
   const onRefresh = useCallback(async function() {
