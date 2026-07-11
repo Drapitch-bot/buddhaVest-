@@ -11,24 +11,61 @@ import { API_BASE } from '../constants/api';
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
 const TRANSLATE_TIMEOUT_MS = 12000;
 
+// Google Translate widget uses legacy language codes (Hebrew = 'iw', not 'he')
+const GT_LANG_MAP = { he: 'iw', ru: 'ru', es: 'es' };
+
 // Injected into the WebView DOM to add Google Translate widget.
 // Works regardless of X-Frame-Options because we inject INTO the page, not iframe it.
+// Sets the googtrans cookie so translation starts automatically (no manual pick needed).
 function makeGtScript(lang) {
+  var gt = GT_LANG_MAP[lang] || lang;
   return `
 (function() {
   try {
     if (window.__gtDone) return;
     window.__gtDone = true;
+    var target = '${gt}';
+
+    // Pre-set googtrans cookie -> widget auto-translates on init
+    function setCookie(domain) {
+      var c = 'googtrans=/auto/' + target + '; path=/';
+      if (domain) c += '; domain=' + domain;
+      document.cookie = c;
+    }
+    setCookie();
+    setCookie(location.hostname);
+    var parts = location.hostname.split('.');
+    if (parts.length > 2) setCookie('.' + parts.slice(-2).join('.'));
+
     var div = document.createElement('div');
     div.id = 'google_translate_element';
+    div.style.cssText = 'height:0;overflow:hidden;';
     document.body.insertBefore(div, document.body.firstChild);
+
     window.googleTranslateElementInit = function() {
       new google.translate.TranslateElement({
         pageLanguage: 'en',
-        includedLanguages: '${lang}',
+        includedLanguages: target,
         autoDisplay: true,
         multilanguagePage: false
       }, 'google_translate_element');
+
+      // Fallback: force-select the language in the (hidden) combo
+      var tries = 0;
+      var iv = setInterval(function() {
+        tries++;
+        if (document.documentElement.classList.contains('translated-rtl') ||
+            document.documentElement.classList.contains('translated-ltr')) {
+          clearInterval(iv);
+          return;
+        }
+        var combo = document.querySelector('.goog-te-combo');
+        if (combo && combo.options.length > 1) {
+          combo.value = target;
+          combo.dispatchEvent(new Event('change'));
+        }
+        if (tries > 20) clearInterval(iv);
+      }, 500);
     };
     var s = document.createElement('script');
     s.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
