@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { View, Image, I18nManager } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Updates from 'expo-updates';
 import { AppProvider, useApp } from './constants/AppContext';
 import FloatingThemeToggle from './components/FloatingThemeToggle';
 import SplashScreen from './screens/SplashScreen';
@@ -142,19 +141,6 @@ function MainTabs() {
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
-
-  useEffect(() => {
-    if (__DEV__) return;
-    (async () => {
-      try {
-        const update = await Updates.checkForUpdateAsync();
-        if (update.isAvailable) {
-          await Updates.fetchUpdateAsync();
-          await Updates.reloadAsync();
-        }
-      } catch {}
-    })();
-  }, []);
 
   if (showSplash) {
     return (

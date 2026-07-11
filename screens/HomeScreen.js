@@ -102,6 +102,7 @@ export default function HomeScreen({ navigation }) {
   const [sortKey,     setSortKey]     = useState('market_cap');
   const [sortDir,     setSortDir]     = useState(-1);
   const [lastUpdated, setLastUpdated] = useState(null); // Date of last successful refresh
+  const [wakingUp,    setWakingUp]    = useState(false);
 
   // Use a ref so the interval always calls the latest loadAll closure
   const loadAllRef = useRef(null);
@@ -155,9 +156,16 @@ export default function HomeScreen({ navigation }) {
   }
 
   async function loadMarket() {
-    try {
-      const res  = await fetch(ENDPOINTS.marketOverview());
-      const data = await res.json();
+    const tryFetch = function() {
+      return Promise.race([
+        fetch(ENDPOINTS.marketOverview()).then(function(r) {
+          if (!r.ok) throw new Error('err');
+          return r.json();
+        }),
+        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, 20000); }),
+      ]);
+    };
+    const applyData = function(data) {
       const idxArr = [];
       if (data['S&P 500']) idxArr.push({ key: 'sp500',  label: 'S&P 500', value: data['S&P 500'].value, change_pct: data['S&P 500'].change_pct });
       if (data['Nasdaq'])  idxArr.push({ key: 'nasdaq', label: 'Nasdaq',  value: data['Nasdaq'].value,  change_pct: data['Nasdaq'].change_pct });
@@ -171,7 +179,15 @@ export default function HomeScreen({ navigation }) {
         .sort(function(a, b) { return Math.abs(b.change_pct) - Math.abs(a.change_pct); })
         .slice(0, 4);
       setMovers(top4);
-    } catch {}
+    };
+    try {
+      applyData(await tryFetch());
+    } catch {
+      setWakingUp(true);
+      await new Promise(function(r) { setTimeout(r, 5000); });
+      try { applyData(await tryFetch()); } catch {}
+      setWakingUp(false);
+    }
   }
 
   async function loadNews() {
@@ -200,14 +216,31 @@ export default function HomeScreen({ navigation }) {
 
   function cc(v) { return v > 0 ? colors.green : v < 0 ? colors.red : colors.textDim; }
 
-  // Index label icons
-  const idxIcon = { sp500: '📈', nasdaq: '📊', vix: '😐', usdils: '₪' };
+  // Index label icons — VIX emoji is dynamic
+  const idxIcon = { sp500: '📈', nasdaq: '📊', usdils: '₪' };
+  function vixEmoji(v) {
+    if (v == null) return '😐';
+    if (v < 15) return '😊';
+    if (v < 20) return '😌';
+    if (v < 25) return '😐';
+    if (v < 30) return '😟';
+    return '😱';
+  }
 
   return (
     <View style={[s.root, { backgroundColor: colors.bg }]}>
 
       {/* ── Brand Header (logo always visible, greeting changes per screen like HTML) ── */}
       <BrandHeader onRefresh={loadAll} greeting={t.greeting_home || 'Markets · Live'} />
+
+      {/* ── Waking up banner ── */}
+      {wakingUp && (
+        <View style={{ backgroundColor: colors.cardAlt, padding: 10, alignItems: 'center', borderBottomWidth: 0.5, borderBottomColor: colors.cardBorder }}>
+          <Text style={{ color: colors.textDim, fontSize: 13 }}>
+            {t.waking_up || '⏳ Server waking up, please wait…'}
+          </Text>
+        </View>
+      )}
 
       {/* ── Search box (read-only → SearchTab) ── */}
       <TouchableOpacity
@@ -250,7 +283,7 @@ export default function HomeScreen({ navigation }) {
                     <View key={idx.key} style={[s.indexTile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
                       {/* .i-label { font-size:12px } */}
                       <Text style={[s.iLabel, { color: colors.textDim }]}>
-                        {(idxIcon[idx.key] || '') + ' ' + idx.label}
+                        {(idx.key === 'vix' ? vixEmoji(idx.value) : (idxIcon[idx.key] || '')) + ' ' + idx.label}
                       </Text>
                       {/* .i-value { font-size:16px; font-weight:600 } */}
                       <Text style={[s.iValue, { color: colors.text }]}>
