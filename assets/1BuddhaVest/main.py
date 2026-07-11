@@ -1507,6 +1507,8 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     Fetches an article URL server-side, extracts text, translates it, and returns
     clean RTL HTML. Used by the mobile app's in-app reader to avoid WebView proxy issues.
     """
+    import asyncio as _asyncio
+    import json as _json
     from bs4 import BeautifulSoup
 
     # Cache: same URL + lang for 1 hour
@@ -1516,35 +1518,80 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
         return HTMLResponse(content=cached)
 
     # 1. Fetch the article
+    # curl_cffi impersonates Chrome TLS fingerprint — bypasses datacenter IP blocks
+    # (same reason yfinance needs it for Yahoo Finance data)
+    raw_html = None
     try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-            resp = await client.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            })
-            raw_html = resp.text
-    except Exception as e:
-        err = f"<html><body style='font-family:Arial;padding:20px'><p>Could not load article: {e}</p></body></html>"
-        return HTMLResponse(content=err)
+        from curl_cffi import requests as _cffi
+        loop = _asyncio.get_event_loop()
+        def _cffi_get():
+            r = _cffi.get(
+                url,
+                impersonate="chrome124",
+                headers={"Accept-Language": "en-US,en;q=0.9"},
+                timeout=20,
+                allow_redirects=True,
+            )
+            return r.text
+        raw_html = await loop.run_in_executor(None, _cffi_get)
+    except Exception:
+        pass
+
+    if not raw_html:
+        try:
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                resp = await client.get(url, headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                })
+                raw_html = resp.text
+        except Exception as e:
+            err = f"<html><body style='font-family:Arial;padding:20px'><p>Could not load article: {e}</p></body></html>"
+            return HTMLResponse(content=err)
 
     # 2. Extract text
+    # Strategy A: JSON-LD articleBody (always present in SSR, even on React SPAs)
+    # Strategy B: <article> / itemprop=articleBody / body fallback via BeautifulSoup
     try:
         soup = BeautifulSoup(raw_html, "html.parser")
-        for tag in soup(["script", "style", "nav", "header", "footer", "aside", "form", "iframe", "noscript"]):
-            tag.decompose()
-
-        # Try article body first, fall back to whole body
-        body = soup.find("article") or soup.find(attrs={"itemprop": "articleBody"}) or soup.body
-        tags = body.find_all(["h1", "h2", "h3", "p"]) if body else []
 
         items = []  # list of (tag_name, text)
-        for tag in tags:
-            text = tag.get_text(separator=" ", strip=True)
-            if len(text) > 40:
-                items.append((tag.name, text))
-            if len(items) >= 40:
-                break
+
+        # Strategy A: JSON-LD
+        for script in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = _json.loads(script.string or "")
+                if isinstance(data, list):
+                    data = data[0] if data else {}
+                body_text = data.get("articleBody", "")
+                if len(body_text) > 200:
+                    # Split into ~500-char chunks to preserve paragraph structure
+                    sentences = body_text.replace(". ", ".\n").split("\n")
+                    para = ""
+                    for s in sentences:
+                        para += s + " "
+                        if len(para) > 300:
+                            items.append(("p", para.strip()))
+                            para = ""
+                    if para.strip():
+                        items.append(("p", para.strip()))
+                    break
+            except Exception:
+                pass
+
+        # Strategy B: HTML tags
+        if not items:
+            for bs_tag in soup(["script", "style", "nav", "header", "footer", "aside", "form", "iframe", "noscript"]):
+                bs_tag.decompose()
+            body = soup.find("article") or soup.find(attrs={"itemprop": "articleBody"}) or soup.body
+            bs_tags = body.find_all(["h1", "h2", "h3", "p"]) if body else []
+            for bs_tag in bs_tags:
+                text = bs_tag.get_text(separator=" ", strip=True)
+                if len(text) > 40:
+                    items.append((bs_tag.name, text))
+                if len(items) >= 40:
+                    break
 
         if not items:
             raise ValueError("no content")
@@ -1552,7 +1599,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
         err = f"<html><body style='font-family:Arial;padding:20px'><p>Parse error: {e}</p></body></html>"
         return HTMLResponse(content=err)
 
-    # 3. Translate in small batches (≤ 3000 chars each)
+    # 3. Translate in small batches (<= 3000 chars each)
     def _batch_translate(texts):
         if lang == "en":
             return texts
@@ -1564,7 +1611,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 chunk.append(texts[i])
                 total += len(texts[i])
                 i += 1
-            if not chunk:   # single paragraph > 3000 chars
+            if not chunk:
                 chunk = [texts[i][:3000]]
                 i += 1
             try:
@@ -1580,16 +1627,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     # 4. Build output HTML
     is_rtl = lang in {"he"}
     dir_attr = "rtl" if is_rtl else "ltr"
-    html_parts = [f"""<!DOCTYPE html><html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-  body{{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;line-height:1.75;
-        color:#111;background:#fff;direction:{dir_attr};max-width:800px;margin:0 auto}}
-  h1{{font-size:22px;margin:0 0 16px}}h2{{font-size:18px;margin:20px 0 8px}}
-  h3{{font-size:16px;margin:16px 0 6px}}p{{font-size:16px;margin:0 0 14px}}
-</style></head><body>"""]
+    html_parts = ["<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>body{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;line-height:1.75;color:#111;background:#fff;direction:" + dir_attr + ";max-width:800px;margin:0 auto}h1{font-size:22px;margin:0 0 16px}h2{font-size:18px;margin:20px 0 8px}h3{font-size:16px;margin:16px 0 6px}p{font-size:16px;margin:0 0 14px}</style></head><body>"]
 
     for i, (tag_name, _) in enumerate(items):
         text = translated[i].strip() if i < len(translated) else ""
@@ -1606,11 +1644,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
 @app.get("/signals/{ticker}")
 def ticker_signals(ticker: str, lang: str = "he"):
     """
-    'דברים שכדאי לעקוב אחריהם' - סינון כותרות חדשות לפי מילות מפתח
-    (שינויי הנהלה, רגולציה, מיזוגים, פעולות אנליסטים, אירועים מהותיים).
-
-    זה נפרד לחלוטין מהציון הפיננסי - מידע איכותני/ספקולטיבי בלבד,
-    מבוסס על כותרות בלבד (לא ניתוח תוכן מלא). lang שולט בשפת תוויות הקטגוריות.
+    'דברים שכדאי לעקוב אחריהם' - סינון כותרות חדשות לפי מילות מפתח.
     """
     try:
         articles = get_news(ticker, limit=15)
@@ -1620,20 +1654,18 @@ def ticker_signals(ticker: str, lang: str = "he"):
     result = analyze_signals(articles)
     result["ticker"] = ticker.upper()
 
-    # Translate category labels
     if lang != "he":
         for item in result["flagged"]:
             for cat in item["categories"]:
                 cat["label"] = translate_signal_category(cat["key"], lang)
 
-    # Translate article titles for all non-English languages
     flagged = result.get("flagged", [])
     if lang != "en" and flagged:
         titles = [item.get("title", "") for item in flagged]
-        translated = _translate_batch(titles, lang)
+        translated_titles = _translate_batch(titles, lang)
         for i, item in enumerate(flagged):
-            if translated[i]:
-                item["title"] = translated[i]
+            if translated_titles[i]:
+                item["title"] = translated_titles[i]
 
     return result
 
@@ -1660,15 +1692,10 @@ def market_overview():
             change_pct = None
             if price is not None and prev_close:
                 change_pct = round((price - prev_close) / prev_close * 100, 2)
-
-            overview[name] = {
-                "value": price,
-                "change_pct": change_pct,
-            }
+            overview[name] = {"value": price, "change_pct": change_pct}
         except Exception:
             overview[name] = {"value": None, "change_pct": None}
 
-    # שער דולר-שקל
     try:
         fx_data = get_quote("ILS=X")
         usd_ils = fx_data["info"].get("currentPrice") or fx_data["info"].get("regularMarketPrice")
@@ -1676,7 +1703,6 @@ def market_overview():
         usd_ils = None
     overview["usd_ils"] = usd_ils
 
-    # רשימת מניות לייב לטבלת השוק - מגוון סקטורים (טכנולוגיה, פיננסים, צרכנות, תקשורת)
     watchlist_symbols = [
         "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "TSLA", "META", "AMD",
         "JPM", "V", "JNJ", "WMT", "DIS", "NFLX", "KO",
@@ -1705,6 +1731,5 @@ def market_overview():
                             "volume": None, "avg_volume": None, "market_cap": None})
 
     overview["movers"] = movers
-
     _cache_set("market_overview", overview, CACHE_TTL["market"])
     return overview
