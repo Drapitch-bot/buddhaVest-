@@ -160,9 +160,22 @@ app.router.default_response_class = SanitizedJSONResponse
 
 
 # ─── Article domain blocklist ────────────────────────────────────────────────
-# Sites that block or paywall WebView content — remove from news feed entirely
-_NO_SHOW_DOMAINS = ['nytimes.com', 'nyti.ms']
-_NO_SHOW_PUBLISHERS = ['New York Times', 'The New York Times']
+# Sites that require login / paywall to read articles — remove from the news
+# feed entirely so users only see articles they can actually open and read.
+_NO_SHOW_DOMAINS = [
+    'nytimes.com', 'nyti.ms',
+    'wsj.com', 'barrons.com', 'bloomberg.com', 'ft.com',
+    'reuters.com', 'economist.com', 'washingtonpost.com',
+    'seekingalpha.com', 'investors.com', 'businessinsider.com',
+    'marketwatch.com', 'fortune.com', 'theinformation.com',
+]
+_NO_SHOW_PUBLISHERS = [
+    'New York Times', 'The New York Times',
+    'WSJ', 'Wall Street Journal', "Barron's", 'Barrons',
+    'Bloomberg', 'Financial Times', 'Reuters', 'The Economist',
+    'Washington Post', 'Seeking Alpha', "Investor's Business Daily",
+    'Business Insider', 'MarketWatch', 'Fortune', 'The Information',
+]
 
 def _filter_articles(articles: list) -> list:
     return [a for a in articles if not (
