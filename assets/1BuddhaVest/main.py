@@ -178,6 +178,10 @@ _NO_SHOW_DOMAINS = [
     'reuters.com', 'economist.com', 'washingtonpost.com',
     'seekingalpha.com', 'investors.com', 'businessinsider.com',
     'marketwatch.com', 'fortune.com', 'theinformation.com',
+    # Sites whose articles can't be translated (bot-walls / hard paywalls).
+    # NOTE: domain-only — Motley Fool articles syndicated on finance.yahoo.com
+    # are fine and stay in the feed.
+    'fool.com', 'theglobeandmail.com',
 ]
 _NO_SHOW_PUBLISHERS = [
     'New York Times', 'The New York Times',
