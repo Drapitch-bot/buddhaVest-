@@ -33,8 +33,9 @@ from i18n_data import render_explanation, translate_signal_category
 from ticker_search import search_tickers
 from stooq_fallback import get_stooq_quote, get_stooq_daily
 
-# Tiingo API — key lives here on the server, never in the mobile bundle
-TIINGO_TOKEN = os.environ.get("TIINGO_TOKEN", "a7a7fcb16721295ef8d1fe22fc0e5b797394f1a0")
+# Tiingo API — key comes ONLY from the environment (Render env var).
+# Never hardcode it: this file is in a public git repo.
+TIINGO_TOKEN = os.environ.get("TIINGO_TOKEN", "")
 
 # ─── Translation ──────────────────────────────────────────────────────────────
 # Maps app lang codes → Google Translate target codes

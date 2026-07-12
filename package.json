@@ -28,8 +28,5 @@
     "react-native-svg": "15.12.1",
     "react-native-webview": "13.15.0"
   },
-  "devDependencies": {
-    "babel-preset-expo": "~13.0.0"
-  },
   "private": true
 }

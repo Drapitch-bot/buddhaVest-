@@ -228,6 +228,15 @@ export default function HomeScreen({ navigation }) {
     if (v < 30) return '😟';
     return '😱';
   }
+  // Label tiers matching vixEmoji — all 5 keys exist in all 4 languages
+  function vixLabel(v) {
+    if (v == null) return '—';
+    if (v < 15) return t.vix_very_calm || 'Very calm market';
+    if (v < 20) return t.vix_calm || 'Calm market';
+    if (v < 25) return t.vix_elevated || 'Elevated fear';
+    if (v < 30) return t.vix_fear || 'High fear';
+    return t.vix_volatile || 'High volatility';
+  }
 
   return (
     <View style={[s.root, { backgroundColor: colors.bg }]}>
@@ -294,7 +303,7 @@ export default function HomeScreen({ navigation }) {
                       {/* .i-change { font-size:11px } */}
                       {idx.key === 'vix' ? (
                         <Text style={[s.iChange, { color: colors.textDimmer }]}>
-                          {idx.value != null ? (idx.value < 20 ? (t.vix_calm || 'Calm market') : (t.vix_volatile || 'High volatility')) : '—'}
+                          {vixLabel(idx.value)}
                         </Text>
                       ) : (idx.key === 'fx' || idx.key === 'usdils') ? (
                         <Text style={[s.iChange, { color: colors.textDimmer }]}>{t.live_rate || 'Live rate'}</Text>
