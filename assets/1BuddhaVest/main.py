@@ -361,7 +361,7 @@ def root():
     return {"status": "ok"}
 
 
-@app.get("/status")
+@app.api_route("/status", methods=["GET", "HEAD"])
 def status():
     """
     בדיקת סטטוס שה-frontend קורא לה לפני שטוען כל דבר אחר. אם קובץ MAINTENANCE.flag
