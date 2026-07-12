@@ -1691,43 +1691,25 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     except Exception as e:
         return HTMLResponse(content="error", status_code=500)
 
-    # 3. Translate in small batches (<= 3000 chars each), chunks run in PARALLEL
-    #    (sequential chunks were taking 15-25s on long articles -> app timeout)
-    def _batch_translate_parallel(texts):
+    # 3. Translate — every paragraph in PARALLEL.
+    #    deep_translator sends one HTTP request per text anyway, so sequential
+    #    translation took 15-25s per article; 10 parallel workers -> ~2-4s.
+    def _translate_all_parallel(texts):
         if lang == "en":
             return texts
-        # Split into chunks
-        chunks = []
-        i = 0
-        while i < len(texts):
-            chunk, total = [], 0
-            while i < len(texts) and total + len(texts[i]) < 3000:
-                chunk.append(texts[i])
-                total += len(texts[i])
-                i += 1
-            if not chunk:
-                chunk = [texts[i][:3000]]
-                i += 1
-            chunks.append(chunk)
-
-        def _do(chunk):
-            try:
-                return _translate_batch(chunk, lang)
-            except Exception:
-                return chunk
-
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=min(4, len(chunks)) or 1) as ex:
-            translated_chunks = list(ex.map(_do, chunks))
-        results = []
-        for tc in translated_chunks:
-            results.extend(tc)
-        return results
+        def _one(txt):
+            try:
+                return _translate_text(txt[:4500], lang)
+            except Exception:
+                return txt
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            return list(ex.map(_one, texts))
 
     raw_texts = [t for _, t in items]
     # Run in a thread so the (blocking) translation doesn't stall the event loop
     translated = await _asyncio.get_event_loop().run_in_executor(
-        None, _batch_translate_parallel, raw_texts
+        None, _translate_all_parallel, raw_texts
     )
 
     # 4. Build output HTML
