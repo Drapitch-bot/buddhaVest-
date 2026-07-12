@@ -31,7 +31,7 @@ from analyzer import calculate_score
 from news_signals import analyze_signals
 from i18n_data import render_explanation, translate_signal_category
 from ticker_search import search_tickers
-from stooq_fallback import get_stooq_quote
+from stooq_fallback import get_stooq_quote, get_stooq_daily
 
 # Tiingo API — key lives here on the server, never in the mobile bundle
 TIINGO_TOKEN = os.environ.get("TIINGO_TOKEN", "a7a7fcb16721295ef8d1fe22fc0e5b797394f1a0")
@@ -253,14 +253,17 @@ def _resolve_gnews_articles(articles: list) -> list:
     result = list(articles)
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(_resolve_gnews_link, a['link']): (i, a) for i, a in gnews}
-        for fut in as_completed(futures, timeout=15):
-            i, a = futures[fut]
-            try:
-                real_url = fut.result()
-                if real_url != a['link']:
-                    result[i] = dict(a, link=real_url)
-            except Exception:
-                pass
+        try:
+            for fut in as_completed(futures, timeout=15):
+                i, a = futures[fut]
+                try:
+                    real_url = fut.result()
+                    if real_url != a['link']:
+                        result[i] = dict(a, link=real_url)
+                except Exception:
+                    pass
+        except Exception:
+            pass  # timeout — keep whatever resolved so far
     return result
 
 
@@ -1588,7 +1591,11 @@ def general_news(lang: str = "en"):
                 a["title"] = translated[i]
 
     result = {"articles": articles}
-    _cache_set(cache_key, result, CACHE_TTL["news"])
+    # If some Google News links failed to resolve (rate-limit at startup),
+    # cache briefly so the next request retries instead of serving them for
+    # the full TTL.
+    unresolved = any('news.google.com' in (a.get("link") or "") for a in articles)
+    _cache_set(cache_key, result, 180 if unresolved else CACHE_TTL["news"])
     # Background: pre-translate top articles so opening them is instant
     _prewarm_articles([a.get("link") for a in articles[:6]], lang)
     return result
@@ -1912,5 +1919,49 @@ def market_overview():
                             "volume": None, "avg_volume": None, "market_cap": None})
 
     overview["movers"] = movers
-    _cache_set("market_overview", overview, CACHE_TTL["market"])
+
+    # ── Stooq fallback ──
+    # Yahoo's quote API periodically blocks cloud IPs (all prices come back
+    # null). Fill anything missing from Stooq so the table never shows empty.
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+
+    missing = [m for m in movers if m.get("price") is None]
+    if missing:
+        def _fill(m):
+            sq = get_stooq_daily(m["ticker"])
+            if sq and sq.get("price") is not None:
+                m["price"] = sq["price"]
+                if sq.get("prev_close"):
+                    m["change_pct"] = round(
+                        (sq["price"] - sq["prev_close"]) / sq["prev_close"] * 100, 2)
+                if m.get("volume") is None:
+                    m["volume"] = sq.get("volume")
+        with _TPE(max_workers=8) as ex:
+            list(ex.map(_fill, missing))
+
+    _STOOQ_INDEX = {"S&P 500": "^spx", "Nasdaq": "^ndq", "VIX": "^vix"}
+    idx_missing = [(n, s) for n, s in _STOOQ_INDEX.items()
+                   if (overview.get(n) or {}).get("value") is None]
+    if idx_missing:
+        def _fill_idx(pair):
+            name, sym = pair
+            sq = get_stooq_daily(name, stooq_symbol=sym)
+            if sq and sq.get("price") is not None:
+                change = None
+                if sq.get("prev_close"):
+                    change = round(
+                        (sq["price"] - sq["prev_close"]) / sq["prev_close"] * 100, 2)
+                overview[name] = {"value": sq["price"], "change_pct": change}
+        with _TPE(max_workers=3) as ex:
+            list(ex.map(_fill_idx, idx_missing))
+
+    if overview.get("usd_ils") is None:
+        sq = get_stooq_daily("usdils", stooq_symbol="usdils")
+        if sq and sq.get("price") is not None:
+            overview["usd_ils"] = sq["price"]
+
+    # Don't poison the cache with an all-null snapshot (Yahoo+Stooq both down)
+    has_data = any(m.get("price") is not None for m in movers)
+    if has_data:
+        _cache_set("market_overview", overview, CACHE_TTL["market"])
     return overview

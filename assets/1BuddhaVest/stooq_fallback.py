@@ -80,6 +80,46 @@ def get_stooq_quote(ticker: str) -> dict | None:
     return None
 
 
+def get_stooq_daily(ticker: str, stooq_symbol: str | None = None) -> dict | None:
+    """
+    ציטוט + מחיר סגירה קודם מתוך היסטוריה יומית של Stooq.
+    מאפשר לחשב אחוז שינוי יומי (מה ש-get_stooq_quote לא נותן).
+    מחזיר {price, prev_close, volume} או None.
+    """
+    from datetime import date, timedelta
+
+    end = date.today()
+    start = end - timedelta(days=12)
+    base = (stooq_symbol or ticker).strip().lower()
+    if not base:
+        return None
+
+    candidates = [base] if stooq_symbol else [
+        base if suffix == "" or base.endswith(suffix) else base + suffix
+        for suffix in ["", ".us"]
+    ]
+    for candidate in candidates:
+        url = (f"https://stooq.com/q/d/l/?s={candidate}"
+               f"&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d")
+        try:
+            with urllib.request.urlopen(url, timeout=_TIMEOUT_SECONDS) as resp:
+                raw = resp.read().decode("utf-8", errors="ignore")
+        except (urllib.error.URLError, TimeoutError, OSError):
+            continue
+        rows = [r for r in csv.DictReader(io.StringIO(raw))
+                if r.get("Close") not in (None, "", "N/D")]
+        if rows:
+            try:
+                price = float(rows[-1]["Close"])
+                prev = float(rows[-2]["Close"]) if len(rows) >= 2 else None
+                vol_raw = rows[-1].get("Volume")
+                volume = int(float(vol_raw)) if vol_raw not in (None, "", "N/D") else None
+                return {"price": price, "prev_close": prev, "volume": volume}
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
 if __name__ == "__main__":
     # בדיקה ידנית - דורשת רשת פתוחה ל-stooq.com (לא זמין בסביבת הבדיקה הזו)
     for t in ["AAPL", "totally_fake_ticker_xyz"]:
