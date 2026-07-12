@@ -30,6 +30,13 @@ function toProxyUrl(url, lang) {
     '_x_tr_sl=auto&_x_tr_tl=' + gt + '&_x_tr_hl=' + gt;
 }
 
+// Google News RSS links redirect via JavaScript (not HTTP), so the server
+// can't resolve them. The WebView runs the JS redirect for us — we just catch
+// the real article URL it lands on.
+function isGnewsUrl(u) {
+  return /news\.google\.com\/rss\/articles/.test(u || '');
+}
+
 export default function ArticleScreen({ route, navigation }) {
   const { url, lang } = route.params || {};
   const { colors, t, translateArticles } = useApp();
@@ -38,11 +45,18 @@ export default function ArticleScreen({ route, navigation }) {
   const [translatedHtml, setTranslatedHtml] = useState(null);
   const [translating, setTranslating] = useState(false);
   const [proxyFailed, setProxyFailed] = useState(false);
+  // Real article URL: known immediately for direct links, resolved by the
+  // WebView's navigation for Google News links.
+  const [resolvedUrl, setResolvedUrl] = useState(isGnewsUrl(url) ? null : url);
   const abortRef = useRef(null);
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
   useEffect(function() {
-    if (!url) return;
+    setResolvedUrl(isGnewsUrl(url) ? null : url);
+  }, [url]);
+
+  useEffect(function() {
+    if (!resolvedUrl) return;
     setTranslatedHtml(null);
     setError(false);
     setProxyFailed(false);
@@ -50,8 +64,8 @@ export default function ArticleScreen({ route, navigation }) {
     if (!needsTranslation) return;
 
     // Try server-side clean translation in background.
-    // WebView already loads the page with Google Translate widget injected.
-    // If server succeeds -> replace WebView with clean translated HTML.
+    // Meanwhile the WebView shows the article via the translate.goog proxy.
+    // If the server succeeds -> replace WebView with clean translated HTML.
     if (abortRef.current) abortRef.current.abort();
     var controller = new AbortController();
     abortRef.current = controller;
@@ -59,7 +73,7 @@ export default function ArticleScreen({ route, navigation }) {
     setTranslating(true);
     var timer = setTimeout(function() { controller.abort(); }, TRANSLATE_TIMEOUT_MS);
 
-    fetch(API_BASE + '/translate-article?url=' + encodeURIComponent(url) + '&lang=' + lang, {
+    fetch(API_BASE + '/translate-article?url=' + encodeURIComponent(resolvedUrl) + '&lang=' + lang, {
       signal: controller.signal,
     })
       .then(function(r) {
@@ -80,14 +94,23 @@ export default function ArticleScreen({ route, navigation }) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [url, lang, needsTranslation]);
+  }, [resolvedUrl, lang, needsTranslation]);
 
   var handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
   // While waiting for the clean server translation, show the article through
   // Google's translate.goog proxy (already translated). If the proxy fails,
-  // fall back to the original page.
-  var viaProxy = needsTranslation && !proxyFailed && !translatedHtml;
-  var webUri = viaProxy ? toProxyUrl(url, lang) : url;
+  // fall back to the original page. Google News links first load as-is so the
+  // WebView can run their JS redirect and reveal the real article URL.
+  var viaProxy = needsTranslation && !proxyFailed && !translatedHtml && !!resolvedUrl;
+  var webUri = viaProxy ? toProxyUrl(resolvedUrl, lang) : url;
+
+  var handleNavChange = function(nav) {
+    if (resolvedUrl || !nav || !nav.url) return;
+    var u = nav.url;
+    if (/^https?:\/\//.test(u) && u.indexOf('google.com') === -1 && u.indexOf('translate.goog') === -1) {
+      setResolvedUrl(u);
+    }
+  };
 
   return (
     <View style={[s.container, { backgroundColor: colors.bg }]}>
@@ -125,6 +148,7 @@ export default function ArticleScreen({ route, navigation }) {
         <WebView
           key={translatedHtml ? 'clean' : viaProxy ? 'proxy' : 'orig'}
           source={translatedHtml ? { html: translatedHtml } : { uri: webUri }}
+          onNavigationStateChange={handleNavChange}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
