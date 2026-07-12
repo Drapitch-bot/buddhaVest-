@@ -11,69 +11,23 @@ import { API_BASE } from '../constants/api';
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
 const TRANSLATE_TIMEOUT_MS = 30000;
 
-// Google Translate widget uses legacy language codes (Hebrew = 'iw', not 'he')
+// Google Translate uses legacy language codes (Hebrew = 'iw', not 'he')
 const GT_LANG_MAP = { he: 'iw', ru: 'ru', es: 'es' };
 
-// Injected into the WebView DOM to add Google Translate widget.
-// Works regardless of X-Frame-Options because we inject INTO the page, not iframe it.
-// Sets the googtrans cookie so translation starts automatically (no manual pick needed).
-function makeGtScript(lang) {
+// Google Translate site proxy (translate.goog) — loads the article ALREADY
+// translated as a full-page navigation. Not blocked by the site's CSP or
+// X-Frame-Options (unlike widget injection / iframes).
+// finance.yahoo.com -> finance-yahoo-com.translate.goog
+function toProxyUrl(url, lang) {
   var gt = GT_LANG_MAP[lang] || lang;
-  return `
-(function() {
-  try {
-    if (window.__gtDone) return;
-    window.__gtDone = true;
-    var target = '${gt}';
-
-    // Pre-set googtrans cookie -> widget auto-translates on init
-    function setCookie(domain) {
-      var c = 'googtrans=/auto/' + target + '; path=/';
-      if (domain) c += '; domain=' + domain;
-      document.cookie = c;
-    }
-    setCookie();
-    setCookie(location.hostname);
-    var parts = location.hostname.split('.');
-    if (parts.length > 2) setCookie('.' + parts.slice(-2).join('.'));
-
-    var div = document.createElement('div');
-    div.id = 'google_translate_element';
-    div.style.cssText = 'height:0;overflow:hidden;';
-    document.body.insertBefore(div, document.body.firstChild);
-
-    window.googleTranslateElementInit = function() {
-      new google.translate.TranslateElement({
-        pageLanguage: 'en',
-        includedLanguages: target,
-        autoDisplay: true,
-        multilanguagePage: false
-      }, 'google_translate_element');
-
-      // Fallback: force-select the language in the (hidden) combo
-      var tries = 0;
-      var iv = setInterval(function() {
-        tries++;
-        if (document.documentElement.classList.contains('translated-rtl') ||
-            document.documentElement.classList.contains('translated-ltr')) {
-          clearInterval(iv);
-          return;
-        }
-        var combo = document.querySelector('.goog-te-combo');
-        if (combo && combo.options.length > 1) {
-          combo.value = target;
-          combo.dispatchEvent(new Event('change'));
-        }
-        if (tries > 20) clearInterval(iv);
-      }, 500);
-    };
-    var s = document.createElement('script');
-    s.src = 'https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit';
-    document.head.appendChild(s);
-  } catch(e) {}
-})();
-true;
-`;
+  var m = (url || '').match(/^https?:\/\/([^\/?#]+)([^?#]*)(\?[^#]*)?/);
+  if (!m) return url;
+  var host = m[1].replace(/-/g, '--').replace(/\./g, '-');
+  var path = m[2] || '/';
+  var search = m[3] || '';
+  var sep = search ? '&' : '?';
+  return 'https://' + host + '.translate.goog' + path + search + sep +
+    '_x_tr_sl=auto&_x_tr_tl=' + gt + '&_x_tr_hl=' + gt;
 }
 
 export default function ArticleScreen({ route, navigation }) {
@@ -83,6 +37,7 @@ export default function ArticleScreen({ route, navigation }) {
   const [error, setError] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState(null);
   const [translating, setTranslating] = useState(false);
+  const [proxyFailed, setProxyFailed] = useState(false);
   const abortRef = useRef(null);
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
@@ -90,6 +45,7 @@ export default function ArticleScreen({ route, navigation }) {
     if (!url) return;
     setTranslatedHtml(null);
     setError(false);
+    setProxyFailed(false);
 
     if (!needsTranslation) return;
 
@@ -127,7 +83,11 @@ export default function ArticleScreen({ route, navigation }) {
   }, [url, lang, needsTranslation]);
 
   var handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
-  var gtScript = needsTranslation && lang && !translatedHtml ? makeGtScript(lang) : undefined;
+  // While waiting for the clean server translation, show the article through
+  // Google's translate.goog proxy (already translated). If the proxy fails,
+  // fall back to the original page.
+  var viaProxy = needsTranslation && !proxyFailed && !translatedHtml;
+  var webUri = viaProxy ? toProxyUrl(url, lang) : url;
 
   return (
     <View style={[s.container, { backgroundColor: colors.bg }]}>
@@ -163,13 +123,13 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          source={translatedHtml ? { html: translatedHtml } : { uri: url }}
+          key={translatedHtml ? 'clean' : viaProxy ? 'proxy' : 'orig'}
+          source={translatedHtml ? { html: translatedHtml } : { uri: webUri }}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}
           allowsInlineMediaPlayback={true}
-          injectedJavaScript={gtScript}
           userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
           renderLoading={function() {
             return (
@@ -178,8 +138,15 @@ export default function ArticleScreen({ route, navigation }) {
               </View>
             );
           }}
-          onError={function() { setError(true); }}
-          onHttpError={function(e) { if (e.nativeEvent.statusCode >= 500) setError(true); }}
+          onError={function() {
+            if (viaProxy) setProxyFailed(true);
+            else setError(true);
+          }}
+          onHttpError={function(e) {
+            var code = e.nativeEvent.statusCode;
+            if (viaProxy && code >= 400) setProxyFailed(true);
+            else if (code >= 500) setError(true);
+          }}
         />
       )}
     </View>
