@@ -16,7 +16,7 @@ Endpoints:
   GET /market-overview    -> תמונת מצב שוק כללית (מדדים מרכזיים)
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 import math
@@ -1788,6 +1788,20 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
         if len(items) < 3 or total_chars < 300:
             return HTMLResponse(content="error", status_code=500)
 
+        # Bot-wall check: don't translate an anti-bot / captcha page as if it
+        # were the article (Reuters, WSJ etc. serve these to server IPs)
+        joined = " ".join(t.lower() for _, t in items)[:3000]
+        _BLOCK_MARKERS = (
+            "access to this page has been denied", "are you a robot",
+            "verify you are a human", "verify that you are not a robot",
+            "unusual traffic", "enable javascript and cookies",
+            "automation tools to browse", "please enable cookies",
+            "checking your browser", "press and hold", "captcha",
+            "reference id", "incident id",
+        )
+        if any(mk in joined for mk in _BLOCK_MARKERS):
+            return HTMLResponse(content="error", status_code=500)
+
     except Exception as e:
         return HTMLResponse(content="error", status_code=500)
 
@@ -1827,6 +1841,40 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
 
     _cache_set(cache_key, html_content, 3600)
     return HTMLResponse(content=html_content)
+
+
+@app.post("/translate-batch")
+async def translate_batch_endpoint(request: Request):
+    """
+    Translates a list of raw text strings (extracted client-side from the
+    article WebView). Used when the server itself can't fetch the article
+    (bot-walls) but the phone's browser can.
+    Body: {"texts": [...], "lang": "he"} -> {"texts": [...]}
+    """
+    import asyncio as _asyncio
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+
+    texts = payload.get("texts") or []
+    lang = (payload.get("lang") or "he").strip()
+    if not isinstance(texts, list) or not texts:
+        return {"texts": []}
+    texts = [str(t)[:4500] for t in texts[:30]]
+
+    def _run():
+        from concurrent.futures import ThreadPoolExecutor
+        def _one(txt):
+            try:
+                return _translate_text(txt, lang)
+            except Exception:
+                return txt
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            return list(ex.map(_one, texts))
+
+    translated = await _asyncio.get_event_loop().run_in_executor(None, _run)
+    return {"texts": translated}
 
 
 @app.get("/signals/{ticker}")

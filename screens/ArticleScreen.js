@@ -11,30 +11,57 @@ import { API_BASE } from '../constants/api';
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
 const TRANSLATE_TIMEOUT_MS = 30000;
 
-// Google Translate uses legacy language codes (Hebrew = 'iw', not 'he')
-const GT_LANG_MAP = { he: 'iw', ru: 'ru', es: 'es' };
-
-// Google Translate site proxy (translate.goog) — loads the article ALREADY
-// translated as a full-page navigation. Not blocked by the site's CSP or
-// X-Frame-Options (unlike widget injection / iframes).
-// finance.yahoo.com -> finance-yahoo-com.translate.goog
-function toProxyUrl(url, lang) {
-  var gt = GT_LANG_MAP[lang] || lang;
-  var m = (url || '').match(/^https?:\/\/([^\/?#]+)([^?#]*)(\?[^#]*)?/);
-  if (!m) return url;
-  var host = m[1].replace(/-/g, '--').replace(/\./g, '-');
-  var path = m[2] || '/';
-  var search = m[3] || '';
-  var sep = search ? '&' : '?';
-  return 'https://' + host + '.translate.goog' + path + search + sep +
-    '_x_tr_sl=auto&_x_tr_tl=' + gt + '&_x_tr_hl=' + gt;
-}
-
 // Google News RSS links redirect via JavaScript (not HTTP), so the server
 // can't resolve them. The WebView runs the JS redirect for us — we just catch
 // the real article URL it lands on.
 function isGnewsUrl(u) {
   return /news\.google\.com\/rss\/articles/.test(u || '');
+}
+
+// Injected into the loaded article page: extracts title + paragraphs from the
+// RENDERED DOM and posts them to the app. This works even on sites that block
+// server-side fetching (Reuters, WSJ...) because the phone's browser is a
+// real browser that the site already served the article to.
+const EXTRACT_JS = `
+(function() {
+  try {
+    if (window.__bvExtracted) return;
+    if (location.hostname.indexOf('google') !== -1) return;
+    window.__bvExtracted = true;
+    function grab() {
+      var out = [];
+      var h1 = document.querySelector('h1');
+      var title = ((h1 && h1.innerText) || document.title || '').trim();
+      var scope = document.querySelector('article') || document.body;
+      if (!scope) return { title: title, items: out };
+      var nodes = scope.querySelectorAll('p, h2, h3');
+      for (var i = 0; i < nodes.length && out.length < 25; i++) {
+        var tag = nodes[i].tagName.toLowerCase();
+        var t = (nodes[i].innerText || '').replace(/\\s+/g, ' ').trim();
+        if ((tag === 'p' && t.length > 60) || (tag !== 'p' && t.length > 15 && t.length < 200)) {
+          out.push({ tag: tag, text: t.slice(0, 3000) });
+        }
+      }
+      return { title: title, items: out };
+    }
+    var attempt = 0;
+    var timer = setInterval(function() {
+      attempt++;
+      var d = grab();
+      if ((d.items.length >= 3 && d.title) || attempt > 8) {
+        clearInterval(timer);
+        if (d.items.length >= 3 && window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(d));
+        }
+      }
+    }, 900);
+  } catch (e) {}
+})();
+true;
+`;
+
+function escapeHtml(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 export default function ArticleScreen({ route, navigation }) {
@@ -44,22 +71,22 @@ export default function ArticleScreen({ route, navigation }) {
   const [error, setError] = useState(false);
   const [translatedHtml, setTranslatedHtml] = useState(null);
   const [translating, setTranslating] = useState(false);
-  const [proxyFailed, setProxyFailed] = useState(false);
   // Real article URL: known immediately for direct links, resolved by the
   // WebView's navigation for Google News links.
   const [resolvedUrl, setResolvedUrl] = useState(isGnewsUrl(url) ? null : url);
   const abortRef = useRef(null);
+  const domSentRef = useRef(false);
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
   useEffect(function() {
     setResolvedUrl(isGnewsUrl(url) ? null : url);
-  }, [url]);
+    setTranslatedHtml(null);
+    setError(false);
+    domSentRef.current = false;
+  }, [url, lang]);
 
   useEffect(function() {
     if (!resolvedUrl) return;
-    setTranslatedHtml(null);
-    setError(false);
-    setProxyFailed(false);
 
     if (!needsTranslation) return;
 
@@ -82,7 +109,7 @@ export default function ArticleScreen({ route, navigation }) {
       })
       .then(function(html) {
         clearTimeout(timer);
-        setTranslatedHtml(html);
+        setTranslatedHtml(function(prev) { return prev || html; });
         setTranslating(false);
       })
       .catch(function() {
@@ -97,19 +124,55 @@ export default function ArticleScreen({ route, navigation }) {
   }, [resolvedUrl, lang, needsTranslation]);
 
   var handleClose = function() { if (navigation.canGoBack()) navigation.goBack(); };
-  // While waiting for the clean server translation, show the article through
-  // Google's translate.goog proxy (already translated). If the proxy fails,
-  // fall back to the original page. Google News links first load as-is so the
-  // WebView can run their JS redirect and reveal the real article URL.
-  var viaProxy = needsTranslation && !proxyFailed && !translatedHtml && !!resolvedUrl;
-  var webUri = viaProxy ? toProxyUrl(resolvedUrl, lang) : url;
 
   var handleNavChange = function(nav) {
     if (resolvedUrl || !nav || !nav.url) return;
     var u = nav.url;
-    if (/^https?:\/\//.test(u) && u.indexOf('google.com') === -1 && u.indexOf('translate.goog') === -1) {
+    if (/^https?:\/\//.test(u) && u.indexOf('google.com') === -1) {
       setResolvedUrl(u);
     }
+  };
+
+  // DOM extraction arrived from the WebView -> translate the raw texts and
+  // build a clean reader page. Runs in parallel with the server fast path;
+  // whichever finishes first wins (the other is ignored).
+  var handleMessage = function(e) {
+    if (!needsTranslation || translatedHtml || domSentRef.current) return;
+    var data;
+    try { data = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
+    if (!data || !data.items || data.items.length < 3) return;
+    domSentRef.current = true;
+
+    var texts = [data.title || ''].concat(data.items.map(function(it) { return it.text; }));
+    fetch(API_BASE + '/translate-batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: texts, lang: lang }),
+    })
+      .then(function(r) { if (!r.ok) throw new Error('err'); return r.json(); })
+      .then(function(res) {
+        var tr = res.texts || [];
+        if (tr.length < 4) return;
+        var isRtl = lang === 'he';
+        var body = '';
+        if (tr[0]) body += '<h1>' + escapeHtml(tr[0]) + '</h1>';
+        for (var i = 0; i < data.items.length; i++) {
+          var t = tr[i + 1] || '';
+          if (t) {
+            var tag = data.items[i].tag === 'p' ? 'p' : data.items[i].tag;
+            body += '<' + tag + '>' + escapeHtml(t) + '</' + tag + '>';
+          }
+        }
+        var html = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+          '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+          '<style>body{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;' +
+          'line-height:1.75;color:#111;background:#fff;direction:' + (isRtl ? 'rtl' : 'ltr') + ';' +
+          'max-width:800px;margin:0 auto}h1{font-size:22px;margin:0 0 16px}' +
+          'h2{font-size:18px;margin:20px 0 8px}h3{font-size:16px;margin:16px 0 6px}' +
+          'p{font-size:16px;margin:0 0 14px}</style></head><body>' + body + '</body></html>';
+        setTranslatedHtml(function(prev) { return prev || html; });
+      })
+      .catch(function() { domSentRef.current = false; });
   };
 
   return (
@@ -146,9 +209,11 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          key={translatedHtml ? 'clean' : viaProxy ? 'proxy' : 'orig'}
-          source={translatedHtml ? { html: translatedHtml } : { uri: webUri }}
+          key={translatedHtml ? 'clean' : 'orig'}
+          source={translatedHtml ? { html: translatedHtml } : { uri: url }}
           onNavigationStateChange={handleNavChange}
+          onMessage={handleMessage}
+          injectedJavaScript={needsTranslation && !translatedHtml ? EXTRACT_JS : undefined}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
@@ -162,15 +227,8 @@ export default function ArticleScreen({ route, navigation }) {
               </View>
             );
           }}
-          onError={function() {
-            if (viaProxy) setProxyFailed(true);
-            else setError(true);
-          }}
-          onHttpError={function(e) {
-            var code = e.nativeEvent.statusCode;
-            if (viaProxy && code >= 400) setProxyFailed(true);
-            else if (code >= 500) setError(true);
-          }}
+          onError={function() { setError(true); }}
+          onHttpError={function(e) { if (e.nativeEvent.statusCode >= 500) setError(true); }}
         />
       )}
     </View>
