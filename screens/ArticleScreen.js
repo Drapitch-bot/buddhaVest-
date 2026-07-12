@@ -11,6 +11,10 @@ import { API_BASE } from '../constants/api';
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
 const TRANSLATE_TIMEOUT_MS = 30000;
 
+// UI strings in the USER'S language (not the phone's system language)
+const BADGE_TEXT = { he: 'מתורגם', ru: 'Переведено', es: 'Traducido', en: 'Translated' };
+const TRANSLATING_TEXT = { he: 'מתרגם...', ru: 'Перевод...', es: 'Traduciendo...', en: 'Translating...' };
+
 // Google News RSS links redirect via JavaScript (not HTTP), so the server
 // can't resolve them. The WebView runs the JS redirect for us — we just catch
 // the real article URL it lands on.
@@ -142,6 +146,7 @@ export default function ArticleScreen({ route, navigation }) {
     try { data = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
     if (!data || !data.items || data.items.length < 2) return;
     domSentRef.current = true;
+    setTranslating(true);
 
     var texts = [data.title || ''].concat(data.items.map(function(it) { return it.text; }));
     fetch(API_BASE + '/translate-batch', {
@@ -171,8 +176,12 @@ export default function ArticleScreen({ route, navigation }) {
           'h2{font-size:18px;margin:20px 0 8px}h3{font-size:16px;margin:16px 0 6px}' +
           'p{font-size:16px;margin:0 0 14px}</style></head><body>' + body + '</body></html>';
         setTranslatedHtml(function(prev) { return prev || html; });
+        setTranslating(false);
       })
-      .catch(function() { domSentRef.current = false; });
+      .catch(function() {
+        domSentRef.current = false;
+        setTranslating(false);
+      });
   };
 
   return (
@@ -189,9 +198,14 @@ export default function ArticleScreen({ route, navigation }) {
           </Text>
         </TouchableOpacity>
         {translatedHtml ? (
-          <View style={s.badge}><Text style={s.badgeText}>{'מתורגם'}</Text></View>
+          <View style={s.badge}><Text style={s.badgeText}>{BADGE_TEXT[lang] || BADGE_TEXT.en}</Text></View>
         ) : translating ? (
-          <ActivityIndicator size="small" color={colors.primary || '#f59e0b'} />
+          <View style={s.translatingWrap}>
+            <ActivityIndicator size="small" color={colors.primary || '#f59e0b'} />
+            <Text style={[s.translatingText, { color: colors.textDim || '#6b7280' }]}>
+              {TRANSLATING_TEXT[lang] || TRANSLATING_TEXT.en}
+            </Text>
+          </View>
         ) : null}
         <TouchableOpacity onPress={function() { if (url) Linking.openURL(url); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={{ color: colors.textDim || '#6b7280', fontSize: 20 }}>{'⧉'}</Text>
@@ -243,6 +257,8 @@ const s = StyleSheet.create({
   closeText:  { fontSize: 15, fontWeight: '600' },
   badge:      { backgroundColor: '#4285f4', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   badgeText:  { color: '#fff', fontSize: 11, fontWeight: '600' },
+  translatingWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  translatingText: { fontSize: 12 },
   webview:    { flex: 1 },
   loadWrap:   { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                 justifyContent: 'center', alignItems: 'center' },

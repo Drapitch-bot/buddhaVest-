@@ -63,13 +63,23 @@ try:
             return text
 
     def _translate_batch(texts: list, lang: str) -> list:
-        """Translate a list of strings. Returns originals on error."""
+        """
+        Translate a list of strings IN PARALLEL (deep_translator sends one
+        HTTP request per string, so sequential batches were very slow —
+        15 news titles took 10-15s; in parallel it's ~1-2s).
+        Returns originals on error.
+        """
         if not texts or lang == "en":
             return texts
-        target = _TRANSLATE_LANG.get(lang, lang)
+        from concurrent.futures import ThreadPoolExecutor
+        def _one(txt):
+            try:
+                return _translate_text(txt, lang)
+            except Exception:
+                return txt
         try:
-            translated = _GT(source="auto", target=target).translate_batch(texts)
-            return [_rtl_wrap(t or orig, lang) for t, orig in zip(translated, texts)]
+            with ThreadPoolExecutor(max_workers=10) as ex:
+                return list(ex.map(_one, texts))
         except Exception:
             return texts
 except ImportError:

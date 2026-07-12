@@ -348,9 +348,9 @@ export default function HomeScreen({ navigation }) {
                       <Text style={[s.moverPrice, { color: colors.text }]}>
                         {m.price != null ? '$' + m.price.toFixed(2) : '—'}
                       </Text>
-                      {m.price != null && usdIls != null && lang === 'he' && (
+                      {m.price != null && FX_CONFIG[lang] && fxRates[FX_CONFIG[lang].key] != null && (
                         <Text style={[s.moverIls, { color: colors.textDimmer }]}>
-                          {'₪' + (m.price * usdIls).toFixed(2)}
+                          {FX_CONFIG[lang].fxPrefix + (m.price * fxRates[FX_CONFIG[lang].key]).toFixed(2)}
                         </Text>
                       )}
                       {m.change_pct != null && (
