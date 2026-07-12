@@ -171,24 +171,73 @@ def _filter_articles(articles: list) -> list:
     )]
 
 
+_GNEWS_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+
+def _decode_gnews_link(url: str) -> str:
+    """
+    Decode a Google News RSS article URL to the real article URL.
+    Google's redirect is JavaScript-based (not HTTP), so we use the same
+    internal batchexecute API their page calls to resolve the target URL.
+    """
+    import re as _re
+    import json as _json
+    from urllib.parse import quote as _quote
+
+    m = _re.search(r"news\.google\.com/rss/articles/([^?/&#]+)", url or "")
+    if not m:
+        return url
+    art_id = m.group(1)
+    hdrs = {"User-Agent": _GNEWS_UA}
+    try:
+        page = httpx.get(f"https://news.google.com/rss/articles/{art_id}",
+                         headers=hdrs, timeout=6, follow_redirects=True).text
+        sg = _re.search(r'data-n-a-sg="([^"]+)"', page)
+        ts = _re.search(r'data-n-a-ts="([^"]+)"', page)
+        if not sg or not ts:
+            return url
+        inner = _json.dumps([
+            "garturlreq",
+            [["X", "X", ["X", "X"], None, None, 1, 1, "US:en", None, 1,
+              None, None, None, None, None, 0, 1],
+             "X", "X", 1, [1, 1, 1], 1, 1, None, 0, 0, None, 0],
+            art_id, int(ts.group(1)), sg.group(1),
+        ])
+        freq = _json.dumps([[["Fbv4je", inner, None, "generic"]]])
+        resp = httpx.post(
+            "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+            content="f.req=" + _quote(freq),
+            headers={**hdrs,
+                     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"},
+            timeout=6,
+        )
+        m2 = (_re.search(r'\\"garturlres\\",\\"(https?://[^\\"]+)', resp.text)
+              or _re.search(r'"garturlres","(https?://[^"]+)', resp.text))
+        if m2:
+            real = m2.group(1).replace("\\u003d", "=").replace("\\u0026", "&")
+            if 'news.google.com' not in real:
+                return real
+    except Exception:
+        pass
+    return url
+
+
 def _resolve_gnews_link(url: str) -> str:
-    """Follow Google News RSS redirect to get the real article URL."""
+    """Resolve a Google News RSS link to the real article URL."""
     if not url or 'news.google.com/rss/articles' not in url:
         return url
+    # Primary: decode via Google's internal API (JS redirect can't be followed)
+    real = _decode_gnews_link(url)
+    if real != url:
+        return real
+    # Fallback: old-style HTTP redirect (works for some legacy links)
     try:
         resp = httpx.head(url, follow_redirects=True, timeout=4,
-                          headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+                          headers={"User-Agent": _GNEWS_UA})
         final = str(resp.url)
         if final and 'news.google.com' not in final and final.startswith('http'):
             return final
-    except Exception:
-        pass
-    try:
-        with httpx.stream("GET", url, follow_redirects=True, timeout=4,
-                          headers={"User-Agent": "Mozilla/5.0"}) as r:
-            final = str(r.url)
-            if final and 'news.google.com' not in final and final.startswith('http'):
-                return final
     except Exception:
         pass
     return url
@@ -204,7 +253,7 @@ def _resolve_gnews_articles(articles: list) -> list:
     result = list(articles)
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(_resolve_gnews_link, a['link']): (i, a) for i, a in gnews}
-        for fut in as_completed(futures, timeout=6):
+        for fut in as_completed(futures, timeout=15):
             i, a = futures[fut]
             try:
                 real_url = fut.result()
@@ -213,6 +262,36 @@ def _resolve_gnews_articles(articles: list) -> list:
             except Exception:
                 pass
     return result
+
+
+_PREWARM_BUSY = set()
+
+def _prewarm_articles(urls: list, lang: str):
+    """
+    Fire-and-forget: translate the top articles in the background so that
+    opening them in the app is an instant cache hit.
+    """
+    import threading
+    import os as _os
+    if lang == "en" or lang in _PREWARM_BUSY:
+        return
+    _PREWARM_BUSY.add(lang)
+    port = _os.environ.get("PORT", "8000")
+
+    def _run():
+        try:
+            for u in urls:
+                if not u or 'news.google.com' in u:
+                    continue
+                try:
+                    httpx.get(f"http://127.0.0.1:{port}/translate-article",
+                              params={"url": u, "lang": lang}, timeout=60)
+                except Exception:
+                    pass
+        finally:
+            _PREWARM_BUSY.discard(lang)
+
+    threading.Thread(target=_run, daemon=True).start()
 
 # ─── Cache pre-warming ────────────────────────────────────────────────────────
 # כשהשרת מתעורר (cold start ב-Render) – מאחסן חדשות לכל השפות ברקע,
@@ -1510,6 +1589,8 @@ def general_news(lang: str = "en"):
 
     result = {"articles": articles}
     _cache_set(cache_key, result, CACHE_TTL["news"])
+    # Background: pre-translate top articles so opening them is instant
+    _prewarm_articles([a.get("link") for a in articles[:6]], lang)
     return result
 
 
@@ -1566,6 +1647,18 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     cached = _cache_get(cache_key)
     if cached is not None:
         return HTMLResponse(content=cached)
+
+    # Google News links: decode to the real article URL first (JS redirect)
+    if 'news.google.com' in url:
+        url = await _asyncio.get_event_loop().run_in_executor(
+            None, _resolve_gnews_link, url
+        )
+        if 'news.google.com' in url:
+            return HTMLResponse(content="error", status_code=500)
+        cache_key = f"tarticle_{lang}_{url}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return HTMLResponse(content=cached)
 
     # 1. Fetch the article
     # Strategy A: curl_cffi Chrome TLS impersonation (bypasses IP-based blocking)
