@@ -1912,6 +1912,20 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     return HTMLResponse(content=html_content)
 
 
+@app.get("/translate-batch")
+async def translate_batch_get(q: str = "Hello world", lang: str = "he"):
+    """Debug/self-test variant of the POST endpoint — same translation path,
+    testable from a plain browser: /translate-batch?q=Some text&lang=he"""
+    import asyncio as _asyncio
+    def _run():
+        try:
+            return _translate_text(q[:4500], lang)
+        except Exception as e:
+            return f"ERROR: {e}"
+    out = await _asyncio.get_event_loop().run_in_executor(None, _run)
+    return {"texts": [out], "lang": lang}
+
+
 @app.post("/translate-batch")
 async def translate_batch_endpoint(request: Request):
     """
