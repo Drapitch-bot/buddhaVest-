@@ -31,14 +31,25 @@ COMMON_SUFFIXES = ["", ".us", ".uk", ".de", ".fr", ".pl", ".jp", ".hk"]
 
 _TIMEOUT_SECONDS = 4
 
+# Stooq blocks the default "Python-urllib" user agent — send a browser one
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+
+def _http_get(url: str) -> str | None:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=_TIMEOUT_SECONDS) as resp:
+            return resp.read().decode("utf-8", errors="ignore")
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+
 
 def _fetch_csv_row(symbol: str) -> dict | None:
     """מביא שורת CSV אחת מ-Stooq לסימול נתון. מחזיר None אם נכשל או "לא נמצא"."""
     url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcvn&h&e=csv"
-    try:
-        with urllib.request.urlopen(url, timeout=_TIMEOUT_SECONDS) as resp:
-            raw = resp.read().decode("utf-8", errors="ignore")
-    except (urllib.error.URLError, TimeoutError, OSError):
+    raw = _http_get(url)
+    if raw is None:
         return None
 
     reader = csv.DictReader(io.StringIO(raw))
@@ -101,10 +112,8 @@ def get_stooq_daily(ticker: str, stooq_symbol: str | None = None) -> dict | None
     for candidate in candidates:
         url = (f"https://stooq.com/q/d/l/?s={candidate}"
                f"&d1={start:%Y%m%d}&d2={end:%Y%m%d}&i=d")
-        try:
-            with urllib.request.urlopen(url, timeout=_TIMEOUT_SECONDS) as resp:
-                raw = resp.read().decode("utf-8", errors="ignore")
-        except (urllib.error.URLError, TimeoutError, OSError):
+        raw = _http_get(url)
+        if raw is None:
             continue
         rows = [r for r in csv.DictReader(io.StringIO(raw))
                 if r.get("Close") not in (None, "", "N/D")]

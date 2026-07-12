@@ -38,7 +38,7 @@ const EXTRACT_JS = `
       for (var i = 0; i < nodes.length && out.length < 25; i++) {
         var tag = nodes[i].tagName.toLowerCase();
         var t = (nodes[i].innerText || '').replace(/\\s+/g, ' ').trim();
-        if ((tag === 'p' && t.length > 60) || (tag !== 'p' && t.length > 15 && t.length < 200)) {
+        if ((tag === 'p' && t.length > 40) || (tag !== 'p' && t.length > 15 && t.length < 200)) {
           out.push({ tag: tag, text: t.slice(0, 3000) });
         }
       }
@@ -48,9 +48,9 @@ const EXTRACT_JS = `
     var timer = setInterval(function() {
       attempt++;
       var d = grab();
-      if ((d.items.length >= 3 && d.title) || attempt > 8) {
+      if ((d.items.length >= 3 && d.title) || attempt > 12) {
         clearInterval(timer);
-        if (d.items.length >= 3 && window.ReactNativeWebView) {
+        if (d.items.length >= 2 && window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify(d));
         }
       }
@@ -140,7 +140,7 @@ export default function ArticleScreen({ route, navigation }) {
     if (!needsTranslation || translatedHtml || domSentRef.current) return;
     var data;
     try { data = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
-    if (!data || !data.items || data.items.length < 3) return;
+    if (!data || !data.items || data.items.length < 2) return;
     domSentRef.current = true;
 
     var texts = [data.title || ''].concat(data.items.map(function(it) { return it.text; }));
@@ -152,7 +152,7 @@ export default function ArticleScreen({ route, navigation }) {
       .then(function(r) { if (!r.ok) throw new Error('err'); return r.json(); })
       .then(function(res) {
         var tr = res.texts || [];
-        if (tr.length < 4) return;
+        if (tr.length < 3) return;
         var isRtl = lang === 'he';
         var body = '';
         if (tr[0]) body += '<h1>' + escapeHtml(tr[0]) + '</h1>';
