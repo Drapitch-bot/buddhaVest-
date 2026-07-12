@@ -331,6 +331,24 @@ def _prewarm_news():
             pass
 
 threading.Thread(target=_prewarm_news, daemon=True).start()
+
+
+# ─── Keep-alive ───────────────────────────────────────────────────────────────
+# Render free tier spins the service down after ~15 min without inbound
+# traffic, and waking it back up takes 30-60s (that's the "slow first open").
+# Pinging our own public URL every 10 min counts as inbound traffic and keeps
+# the service warm around the clock — no external monitor needed.
+def _keepalive_loop():
+    url = os.environ.get("RENDER_EXTERNAL_URL", "https://buddhavest.onrender.com")
+    while True:
+        time.sleep(600)
+        try:
+            httpx.get(f"{url.rstrip('/')}/status", timeout=10)
+        except Exception:
+            pass
+
+if os.environ.get("RENDER"):  # only on Render, not when running locally
+    threading.Thread(target=_keepalive_loop, daemon=True).start()
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -1567,12 +1585,16 @@ def exchange_rate(currency: str = "ILS"):
         return {"currency": currency, "rate": None, "usd_ils": None}
 
 
-@app.get("/news")
-def general_news(lang: str = "en"):
-    cache_key = f"news_general_{lang}"
-    cached = _cache_get(cache_key)
+def _get_base_news() -> list:
+    """
+    Gathers + resolves + filters the general news list ONCE (language-
+    independent, cached). Language switches then only translate titles
+    (~1-2s) instead of re-fetching and re-resolving everything (~15s).
+    """
+    cached = _cache_get("news_base")
     if cached is not None:
         return cached
+
     sources = ["^GSPC", "AAPL", "MSFT", "NVDA"]
     all_news = []
     seen_titles = set()
@@ -1605,6 +1627,24 @@ def general_news(lang: str = "en"):
     all_news = _resolve_gnews_articles(all_news)
     articles = _filter_articles(all_news)[:15]
 
+    # If some Google News links failed to resolve (rate-limit at startup),
+    # cache briefly so the next request retries instead of serving them for
+    # the full TTL.
+    unresolved = any('news.google.com' in (a.get("link") or "") for a in articles)
+    _cache_set("news_base", articles, 180 if unresolved else CACHE_TTL["news"])
+    return articles
+
+
+@app.get("/news")
+def general_news(lang: str = "en"):
+    cache_key = f"news_general_{lang}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Copy the shared base items before mutating titles
+    articles = [dict(a) for a in _get_base_news()]
+
     # תרגום כותרות אם השפה אינה אנגלית
     if lang != "en" and articles:
         titles = [a.get("title", "") for a in articles]
@@ -1614,11 +1654,7 @@ def general_news(lang: str = "en"):
                 a["title"] = translated[i]
 
     result = {"articles": articles}
-    # If some Google News links failed to resolve (rate-limit at startup),
-    # cache briefly so the next request retries instead of serving them for
-    # the full TTL.
-    unresolved = any('news.google.com' in (a.get("link") or "") for a in articles)
-    _cache_set(cache_key, result, 180 if unresolved else CACHE_TTL["news"])
+    _cache_set(cache_key, result, CACHE_TTL["news"])
     # Background: pre-translate top articles so opening them is instant
     _prewarm_articles([a.get("link") for a in articles[:6]], lang)
     return result
@@ -1630,36 +1666,46 @@ def ticker_news(ticker: str, lang: str = "en"):
     חדשות עבור מנייה ספציפית - ממוזג מ-Yahoo וגם מ-Google News (חינמי, בלי מפתח API),
     כך שמניות עם כיסוי דליל ב-Yahoo (חברות קטנות, לא-אמריקאיות) עדיין יקבלו כתבות.
     """
-    seen_titles = set()
-    all_articles = []
+    # Per-ticker base (fetch + resolve + filter) — language-independent, cached
+    base_key = f"news_base_{ticker.upper()}"
+    base = _cache_get(base_key)
+    if base is None:
+        seen_titles = set()
+        all_articles = []
 
-    try:
-        for item in get_news(ticker, limit=8):
-            if item["title"] not in seen_titles:
-                seen_titles.add(item["title"])
-                all_articles.append(item)
-    except Exception:
-        # לא עוצרים כאן - אולי Google News עדיין ימצא משהו
-        pass
+        try:
+            for item in get_news(ticker, limit=8):
+                if item["title"] not in seen_titles:
+                    seen_titles.add(item["title"])
+                    all_articles.append(item)
+        except Exception:
+            # לא עוצרים כאן - אולי Google News עדיין ימצא משהו
+            pass
 
-    try:
-        for item in get_google_news(f"{ticker} stock", limit=6):
-            if item["title"] not in seen_titles:
-                seen_titles.add(item["title"])
-                all_articles.append(item)
-    except Exception:
-        pass
+        try:
+            for item in get_google_news(f"{ticker} stock", limit=6):
+                if item["title"] not in seen_titles:
+                    seen_titles.add(item["title"])
+                    all_articles.append(item)
+        except Exception:
+            pass
+
+        all_articles = _resolve_gnews_articles(all_articles)
+        base = _filter_articles(all_articles)
+        _cache_set(base_key, base, CACHE_TTL["news"])
+
+    # Copy shared items before mutating titles
+    articles = [dict(a) for a in base]
 
     # תרגום כותרות אם השפה אינה אנגלית
-    if lang != "en" and all_articles:
-        titles = [a.get("title", "") for a in all_articles]
+    if lang != "en" and articles:
+        titles = [a.get("title", "") for a in articles]
         translated = _translate_batch(titles, lang)
-        for i, a in enumerate(all_articles):
+        for i, a in enumerate(articles):
             if translated[i]:
                 a["title"] = translated[i]
 
-    all_articles = _resolve_gnews_articles(all_articles)
-    return {"ticker": ticker.upper(), "articles": _filter_articles(all_articles)}
+    return {"ticker": ticker.upper(), "articles": articles}
 
 
 @app.get("/translate-article")
