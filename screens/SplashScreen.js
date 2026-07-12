@@ -18,11 +18,17 @@ export default function SplashScreen({ onDone }) {
     // Pre-warm Render backend — fire and forget so HomeScreen finds it awake
     fetch(API_BASE + '/status').catch(function() {});
 
-    // Check for OTA update while splash is showing — silent, no extra delay
+    // Check for OTA update while splash is showing — silent, no extra delay.
+    // Only auto-reload if the download finished fast (still on/near splash);
+    // otherwise the update applies on the next open instead of restarting
+    // the app mid-use.
     if (!__DEV__) {
+      var otaStart = Date.now();
       Updates.checkForUpdateAsync()
         .then(function(r) { if (r.isAvailable) return Updates.fetchUpdateAsync(); })
-        .then(function(r) { if (r && r.isNew) Updates.reloadAsync(); })
+        .then(function(r) {
+          if (r && r.isNew && Date.now() - otaStart < 8000) Updates.reloadAsync();
+        })
         .catch(function() {});
     }
 

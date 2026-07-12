@@ -202,7 +202,9 @@ export default function StockScreen({ route, navigation }) {
 
   const inWatchlist = isInWatchlist(ticker);
 
-  useEffect(function() { loadStock(); }, [ticker]);
+  // Reload when the ticker OR the language changes (analysis text, signals
+  // and secondary currency are all language-dependent)
+  useEffect(function() { loadStock(); }, [ticker, lang]);
 
   async function loadStock() {
     setLoading(true); setError(null); setWakingUp(false); setSignals(null); setBizExpanded(false);
