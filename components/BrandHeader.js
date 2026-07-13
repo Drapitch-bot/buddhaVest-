@@ -33,6 +33,7 @@ export default function BrandHeader({ onRefresh, greeting }) {
   const [notifVisible, setNotifVisible] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
   const [movers, setMovers] = useState([]);
+  const sigRef = useRef('');
 
   useEffect(() => {
     AsyncStorage.getItem('notif_seen').then(val => {
@@ -40,7 +41,10 @@ export default function BrandHeader({ onRefresh, greeting }) {
     });
   }, []);
 
-  // REAL notifications: daily movers (>=2%) among the user's watchlist stocks
+  // REAL notifications: daily movers (>=2%) among the user's watchlist stocks.
+  // The unread dot lights up only for content the user hasn't seen yet:
+  // a signature (date + tickers + direction) is persisted when the panel is
+  // opened, so switching screens/tabs doesn't re-trigger the same alert.
   useEffect(() => {
     if (!watchlist || watchlist.length === 0) { setMovers([]); return; }
     const symbols = watchlist.map(w => w.ticker).join(',');
@@ -51,17 +55,22 @@ export default function BrandHeader({ onRefresh, greeting }) {
           .filter(q => q.change_pct != null && Math.abs(q.change_pct) >= 2)
           .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
         setMovers(found);
-        if (found.length > 0) setHasUnread(true);
+        if (found.length === 0) return;
+        const day = new Date().toISOString().slice(0, 10);
+        const sig = day + '#' + found.map(q => q.ticker + (q.change_pct >= 0 ? '+' : '-')).join('|');
+        sigRef.current = sig;
+        AsyncStorage.getItem('notif_seen_sig').then(prev => {
+          if (prev !== sig) setHasUnread(true);
+        });
       })
       .catch(() => {});
   }, [watchlist]);
 
   function openNotif() {
     setNotifVisible(true);
-    if (hasUnread) {
-      setHasUnread(false);
-      AsyncStorage.setItem('notif_seen', '1');
-    }
+    setHasUnread(false);
+    AsyncStorage.setItem('notif_seen', '1');
+    if (sigRef.current) AsyncStorage.setItem('notif_seen_sig', sigRef.current);
   }
 
   function handleRefresh() {
