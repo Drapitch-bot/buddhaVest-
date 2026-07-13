@@ -7,6 +7,13 @@ import { API_BASE } from '../constants/api';
 
 const { width: W, height: H } = Dimensions.get('window');
 
+// Cap layout on large screens so the splash doesn't balloon on tablets.
+// On phones (W < 600 / H drives these) the caps never bite → no change.
+const IS_TABLET   = W >= 700;
+const SPLASH_W    = Math.min(W, 600);
+const MONK_WIDTH  = IS_TABLET ? Math.min(W * 0.72, 380) : W * 0.72;
+const MONK_HEIGHT = IS_TABLET ? Math.min(H * 0.58, 520) : H * 0.58;
+
 const MONK      = require('../assets/opening_monk.png');
 const LOGO_TEXT = require('../assets/brand_light_text.png'); // text-only, no monk
 
@@ -91,7 +98,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   inner: {
-    width: W,
+    width: SPLASH_W,
     height: H,
     alignItems: 'center',
     justifyContent: 'center',
@@ -99,14 +106,14 @@ const s = StyleSheet.create({
 
   // Monk — centered, tall
   monk: {
-    width:  W * 0.72,
-    height: H * 0.58,
+    width:  MONK_WIDTH,
+    height: MONK_HEIGHT,
     marginBottom: 0,
   },
 
   // Bottom zone: logo left + quote right, aligned at monk waist level
   bottomZone: {
-    width: W,
+    width: SPLASH_W,
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingHorizontal: 24,

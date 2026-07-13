@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { View, Image, I18nManager } from 'react-native';
+import { View, Image, I18nManager, useWindowDimensions, Dimensions } from 'react-native';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from './constants/AppContext';
 import FloatingThemeToggle from './components/FloatingThemeToggle';
@@ -139,8 +140,39 @@ function MainTabs() {
   );
 }
 
+// On large screens (tablets, width >= 700dp) the phone-oriented layout would
+// stretch edge-to-edge and look sparse. This centers the whole UI in a
+// phone-width column and fills the sides with the theme background. On phones
+// (width < 700) it returns children untouched — a guaranteed no-op.
+function TabletFrame({ children }) {
+  const { colors } = useApp();
+  const { width } = useWindowDimensions();
+  if (width < 700) return children;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg, flexDirection: 'row', justifyContent: 'center' }}>
+      <View style={{ flex: 1, maxWidth: 600 }}>{children}</View>
+    </View>
+  );
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
+
+  // Tablets (shortest side >= 600dp, the Android sw600dp definition) may rotate
+  // freely; phones stay locked to portrait so their layout is never affected.
+  useEffect(function() {
+    var dim = Dimensions.get('window');
+    var isTablet = Math.min(dim.width, dim.height) >= 600;
+    (async function() {
+      try {
+        if (isTablet) {
+          await ScreenOrientation.unlockAsync();
+        } else {
+          await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+        }
+      } catch (e) {}
+    })();
+  }, []);
 
   if (showSplash) {
     return (
@@ -153,17 +185,19 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <View style={{ flex: 1 }}>
-          <NavigationContainer>
-            <MainTabs />
-          </NavigationContainer>
-          {/* LTR overlay: physical left coords for draggable button regardless of RTL locale */}
-          <View
-            style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, direction: 'ltr' }}
-            pointerEvents="box-none">
-            <FloatingThemeToggle />
+        <TabletFrame>
+          <View style={{ flex: 1 }}>
+            <NavigationContainer>
+              <MainTabs />
+            </NavigationContainer>
+            {/* LTR overlay: physical left coords for draggable button regardless of RTL locale */}
+            <View
+              style={{ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, direction: 'ltr' }}
+              pointerEvents="box-none">
+              <FloatingThemeToggle />
+            </View>
           </View>
-        </View>
+        </TabletFrame>
       </AppProvider>
     </SafeAreaProvider>
   );

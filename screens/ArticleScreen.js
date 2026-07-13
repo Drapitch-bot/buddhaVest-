@@ -22,6 +22,13 @@ function isGnewsUrl(u) {
   return /news\.google\.com\/rss\/articles/.test(u || '');
 }
 
+// Google's cookie-consent interstitial (shown before some articles). We must
+// never treat it as the article — skip translating it and keep waiting for the
+// real URL; the injected CONSENT_JS accepts the wall to move things forward.
+function isConsentUrl(u) {
+  return /consent\.google\.|guce\.google\.|\/\/consent\.|guce\./i.test(u || '');
+}
+
 // Injected into the loaded article page: extracts title + paragraphs from the
 // RENDERED DOM and posts them to the app. This works even on sites that block
 // server-side fetching (Reuters, WSJ...) because the phone's browser is a
@@ -124,6 +131,7 @@ export default function ArticleScreen({ route, navigation }) {
 
   useEffect(function() {
     if (!resolvedUrl) return;
+    if (isConsentUrl(resolvedUrl)) return; // never translate a consent page
 
     if (!needsTranslation) return;
 

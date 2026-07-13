@@ -1848,6 +1848,16 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     if not raw_html:
         return HTMLResponse(content="error", status_code=500)
 
+    # If we followed redirects into Google's cookie-consent interstitial
+    # (guce/consent.google.com) instead of the article, DON'T translate it —
+    # return 500 so the app falls back to the WebView, which auto-accepts the
+    # wall and then extracts + translates the real article from the DOM.
+    _low = raw_html[:6000].lower()
+    if ("consent.google.com" in _low or "guce.google" in _low
+            or "before you continue to google" in _low
+            or "בטרם תמשיך אל google" in _low or "לפני שתמשיך" in _low):
+        return HTMLResponse(content="consent", status_code=500)
+
     # 2. Extract text
     # Strategy A: JSON-LD articleBody (always present in SSR, even on React SPAs)
     # Strategy B: <article> / itemprop=articleBody / body fallback via BeautifulSoup
