@@ -50,14 +50,26 @@ export default function BrandHeader({ onRefresh, greeting }) {
     const symbols = watchlist.map(w => w.ticker).join(',');
     fetch(ENDPOINTS.quotes(symbols))
       .then(r => { if (!r.ok) throw new Error('err'); return r.json(); })
-      .then(json => {
+      .then(async json => {
         const found = (json.quotes || [])
           .filter(q => q.change_pct != null && Math.abs(q.change_pct) >= 2)
           .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
-        setMovers(found);
-        if (found.length === 0) return;
+        if (found.length === 0) { setMovers([]); return; }
+        // Track when each alert was FIRST seen so its timestamp is real
+        // ("now" → "an hour ago" → "3h ago") and survives screen switches.
         const day = new Date().toISOString().slice(0, 10);
-        const sig = day + '#' + found.map(q => q.ticker + (q.change_pct >= 0 ? '+' : '-')).join('|');
+        let seen = {};
+        try { seen = JSON.parse(await AsyncStorage.getItem('notif_first_seen')) || {}; } catch (e) {}
+        const pruned = {};
+        const nowTs = Date.now();
+        found.forEach(q => {
+          const key = day + '#' + q.ticker + (q.change_pct >= 0 ? '+' : '-');
+          pruned[key] = seen[key] || nowTs;
+          q.firstSeen = pruned[key];
+        });
+        AsyncStorage.setItem('notif_first_seen', JSON.stringify(pruned));
+        setMovers(found);
+        const sig = Object.keys(pruned).sort().join('|');
         sigRef.current = sig;
         AsyncStorage.getItem('notif_seen_sig').then(prev => {
           if (prev !== sig) setHasUnread(true);
@@ -86,8 +98,17 @@ export default function BrandHeader({ onRefresh, greeting }) {
   const TEXT_H = 20, TEXT_W = 109;
   const ICON_H = 28, ICON_W = 28;
 
+  function timeLabel(ts) {
+    if (!ts) return null;
+    const mins = Math.floor((Date.now() - ts) / 60000);
+    if (mins < 5) return t.notif_now || 'Now';
+    if (mins < 60) return t.time_less_hour || 'less than an hour ago';
+    return (t.time_hours || '{n}h ago').replace('{n}', String(Math.floor(mins / 60)));
+  }
+
   const moverItems = movers.map(q => ({
     icon: q.change_pct >= 0 ? '📈' : '📉',
+    time: timeLabel(q.firstSeen),
     text: (q.change_pct >= 0
       ? (t.notif_mover_up || '{ticker} is up {pct}% today')
       : (t.notif_mover_down || '{ticker} is down {pct}% today'))
@@ -197,9 +218,9 @@ export default function BrandHeader({ onRefresh, greeting }) {
                       )}
                       <View style={{ flex: 1 }}>
                         <Text style={[s.notifText, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
-                        <Text style={[s.notifTime, { color: colors.textDimmer }]}>
-                          {t.notif_now || 'Now'}
-                        </Text>
+                        {item.time ? (
+                          <Text style={[s.notifTime, { color: colors.textDimmer }]}>{item.time}</Text>
+                        ) : null}
                       </View>
                     </View>
                   ))}
