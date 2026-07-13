@@ -90,17 +90,23 @@ export default function WatchlistScreen({ navigation }) {
     return function() { clearInterval(iv); };
   }, [watchlist, lang]));
 
+  // Race guard: only the LATEST load may write state. A stale response (old
+  // language) that resolves later can't reset the secondary currency/prices.
+  const reqIdRef = useRef(0);
+
   async function loadPrices() {
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     const cfg = LANG_CURRENCY[lang];
     if (cfg) {
       try {
         const exRes  = await fetch(ENDPOINTS.exchangeRate(cfg.code));
         const exData = await exRes.json();
+        if (reqId !== reqIdRef.current) return; // stale — newer request took over
         setSecondaryCurrency(exData.rate ? { rate: exData.rate, symbol: cfg.symbol } : null);
-      } catch(e) { setSecondaryCurrency(null); }
+      } catch(e) { if (reqId === reqIdRef.current) setSecondaryCurrency(null); }
     } else {
-      setSecondaryCurrency(null);
+      if (reqId === reqIdRef.current) setSecondaryCurrency(null);
     }
 
     const newPrices = {};
@@ -118,6 +124,7 @@ export default function WatchlistScreen({ navigation }) {
         };
       } catch(e) {}
     }));
+    if (reqId !== reqIdRef.current) return; // stale — discard prices/timestamp
     setPrices(newPrices);
     setLastUpdated(new Date());
     setLoading(false);

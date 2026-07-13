@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl,
@@ -19,14 +19,21 @@ export default function NewsScreen({ navigation }) {
 
   useEffect(() => { if (langReady) loadNews(); }, [lang, langReady]);
 
+  // Guards against RACE CONDITIONS on fast language switches: only the LATEST
+  // request may write state. A stale response (e.g. the old language) that
+  // resolves later is discarded so it can't overwrite the current language.
+  const reqIdRef = useRef(0);
+
   async function loadNews() {
+    const reqId = ++reqIdRef.current;
     try {
       const res   = await fetch(ENDPOINTS.news(lang));
       const data  = await res.json();
       const raw   = data.articles || data.news || [];
       const items = await translateNewsItems(raw, lang);
+      if (reqId !== reqIdRef.current) return; // stale — a newer request took over
       setNews(items);
-    } catch (e) {}
+    } catch (e) { if (reqId !== reqIdRef.current) return; }
     setLoading(false);
   }
 

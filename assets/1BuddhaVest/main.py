@@ -53,15 +53,25 @@ def _rtl_wrap(text: str, lang: str) -> str:
 try:
     from deep_translator import GoogleTranslator as _GT
     def _translate_text(text: str, lang: str) -> str:
-        """Translate a single string. Returns original if lang is 'en' or on error."""
+        """
+        Translate a single string. Returns original if lang is 'en'.
+        Retries once on failure (Google occasionally rate-limits bursts) so a
+        momentary block doesn't silently serve English to he/ru/es users —
+        especially important because responses get cached.
+        """
         if not text or lang == "en":
             return text
         target = _TRANSLATE_LANG.get(lang, lang)
-        try:
-            result = _GT(source="auto", target=target).translate(text) or text
-            return _rtl_wrap(result, lang)
-        except Exception:
-            return text
+        for attempt in range(2):
+            try:
+                result = _GT(source="auto", target=target).translate(text)
+                if result:
+                    return _rtl_wrap(result, lang)
+            except Exception:
+                pass
+            if attempt == 0:
+                time.sleep(0.5)
+        return text
 
     def _translate_batch(texts: list, lang: str) -> list:
         """
@@ -1581,10 +1591,19 @@ def exchange_rate(currency: str = "ILS"):
     if cached is not None:
         return cached
     try:
-        data = get_quote(f"{currency}=X")
-        rate = data["info"].get("currentPrice") or data["info"].get("regularMarketPrice")
+        rate = None
+        try:
+            data = get_quote(f"{currency}=X")
+            rate = data["info"].get("currentPrice") or data["info"].get("regularMarketPrice")
+        except Exception:
+            pass
+        if rate is None:  # Stooq fallback when Yahoo blocks quote requests
+            sq = get_stooq_daily(f"usd{currency.lower()}", stooq_symbol=f"usd{currency.lower()}")
+            if sq and sq.get("price") is not None:
+                rate = sq["price"]
         result = {"currency": currency, "rate": rate, "usd_ils": rate if currency == "ILS" else None}
-        _cache_set(cache_key, result, CACHE_TTL["exchange"])
+        if rate is not None:  # don't poison the cache with a failed lookup
+            _cache_set(cache_key, result, CACHE_TTL["exchange"])
         return result
     except Exception:
         return {"currency": currency, "rate": None, "usd_ils": None}
@@ -2105,17 +2124,24 @@ def market_overview():
     # null). Fill anything missing from Stooq so the table never shows empty.
     from concurrent.futures import ThreadPoolExecutor as _TPE
 
-    missing = [m for m in movers if m.get("price") is None]
+    # Trigger the Stooq fallback when EITHER the price or the volume is missing.
+    # Yahoo often returns a live price but a null volume when throttling cloud
+    # IPs — previously that case skipped the fallback and the column showed "—".
+    missing = [m for m in movers if m.get("price") is None or m.get("volume") is None]
     if missing:
         def _fill(m):
             sq = get_stooq_daily(m["ticker"])
-            if sq and sq.get("price") is not None:
+            if not sq:
+                return
+            # Only backfill price if Yahoo gave us none — never overwrite a live price.
+            if m.get("price") is None and sq.get("price") is not None:
                 m["price"] = sq["price"]
                 if sq.get("prev_close"):
                     m["change_pct"] = round(
                         (sq["price"] - sq["prev_close"]) / sq["prev_close"] * 100, 2)
-                if m.get("volume") is None:
-                    m["volume"] = sq.get("volume")
+            # Backfill volume from Stooq when Yahoo omitted it.
+            if m.get("volume") is None and sq.get("volume") is not None:
+                m["volume"] = sq.get("volume")
         with _TPE(max_workers=8) as ex:
             list(ex.map(_fill, missing))
 
@@ -2139,6 +2165,23 @@ def market_overview():
         sq = get_stooq_daily("usdils", stooq_symbol="usdils")
         if sq and sq.get("price") is not None:
             overview["usd_ils"] = sq["price"]
+
+    # ── Last-known-good backfill ──
+    # Stooq has no *average* volume, and occasionally both sources omit a plain
+    # volume. Reuse the most recent non-null value we've seen for each ticker so
+    # the Volume / Avg Vol columns stay populated instead of flickering to "—".
+    lkg = _cache_get("mover_lkg") or {}
+    _LKG_FIELDS = ("volume", "avg_volume", "market_cap")
+    for m in movers:
+        prev = lkg.get(m["ticker"], {})
+        for f in _LKG_FIELDS:
+            if m.get(f) is None and prev.get(f) is not None:
+                m[f] = prev[f]
+        lkg[m["ticker"]] = {
+            f: (m.get(f) if m.get(f) is not None else prev.get(f))
+            for f in _LKG_FIELDS
+        }
+    _cache_set("mover_lkg", lkg, 86400)
 
     # Don't poison the cache with an all-null snapshot (Yahoo+Stooq both down)
     has_data = any(m.get("price") is not None for m in movers)

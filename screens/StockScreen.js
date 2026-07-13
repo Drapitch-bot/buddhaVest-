@@ -1,5 +1,5 @@
 // StockScreen.js — 1:1 copy of BuddhaVest HTML renderResult()
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Linking, Image,
@@ -206,7 +206,13 @@ export default function StockScreen({ route, navigation }) {
   // and secondary currency are all language-dependent)
   useEffect(function() { loadStock(); }, [ticker, lang]);
 
+  // Guards against RACE CONDITIONS on fast language/ticker switches:
+  // only the LATEST request is allowed to write state — a stale response
+  // (e.g. the old language) that resolves later is discarded.
+  const reqIdRef = useRef(0);
+
   async function loadStock() {
+    const reqId = ++reqIdRef.current;
     setLoading(true); setError(null); setWakingUp(false); setSignals(null); setBizExpanded(false);
     const tryFetch = function(ms) {
       return Promise.race([
@@ -219,21 +225,26 @@ export default function StockScreen({ route, navigation }) {
     };
     try {
       const json = await tryFetch(20000);
+      if (reqId !== reqIdRef.current) return; // stale — a newer request took over
       setData(json);
-      fetchSignals(json.ticker || ticker);
-      fetchExchangeRate();
+      fetchSignals(json.ticker || ticker, reqId);
+      fetchExchangeRate(reqId);
       setLoading(false);
     } catch(e) {
+      if (reqId !== reqIdRef.current) return;
       // First attempt failed — show waking_up and retry once after 8s with longer timeout
       setWakingUp(true);
       await new Promise(function(r) { setTimeout(r, 8000); });
+      if (reqId !== reqIdRef.current) return;
       try {
         const json = await tryFetch(40000);
+        if (reqId !== reqIdRef.current) return;
         setData(json);
-        fetchSignals(json.ticker || ticker);
-        fetchExchangeRate();
+        fetchSignals(json.ticker || ticker, reqId);
+        fetchExchangeRate(reqId);
         setWakingUp(false);
       } catch(e) {
+        if (reqId !== reqIdRef.current) return;
         setError('connection_error');
         setWakingUp(false);
       }
@@ -241,15 +252,16 @@ export default function StockScreen({ route, navigation }) {
     }
   }
 
-  async function fetchSignals(tk) {
+  async function fetchSignals(tk, reqId) {
     try {
       const res  = await fetch(ENDPOINTS.signals(tk, lang));
       const json = await res.json();
+      if (reqId !== reqIdRef.current) return;
       setSignals(json.flagged || json.signals || []);
-    } catch(e) { setSignals([]); }
+    } catch(e) { if (reqId === reqIdRef.current) setSignals([]); }
   }
 
-  async function fetchExchangeRate() {
+  async function fetchExchangeRate(reqId) {
     // HTML LANG_CURRENCY: he→ILS/₪, ru→RUB/₽, es→EUR/€, en→null
     const LANG_CURRENCY = { he: { code: 'ILS', symbol: '₪' }, ru: { code: 'RUB', symbol: '₽' }, es: { code: 'EUR', symbol: '€' } };
     const cfg = LANG_CURRENCY[lang];
@@ -257,8 +269,9 @@ export default function StockScreen({ route, navigation }) {
     try {
       const res  = await fetch(ENDPOINTS.exchangeRate(cfg.code));
       const json = await res.json();
+      if (reqId !== reqIdRef.current) return;
       setSecondaryCurrency(json.rate ? { rate: json.rate, symbol: cfg.symbol } : null);
-    } catch(e) { setSecondaryCurrency(null); }
+    } catch(e) { if (reqId === reqIdRef.current) setSecondaryCurrency(null); }
   }
 
   const onRefresh = useCallback(async function() {

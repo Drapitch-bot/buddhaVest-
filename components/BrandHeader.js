@@ -101,7 +101,7 @@ export default function BrandHeader({ onRefresh, greeting }) {
   function timeLabel(ts) {
     if (!ts) return null;
     const mins = Math.floor((Date.now() - ts) / 60000);
-    if (mins < 5) return t.notif_now || 'Now';
+    if (mins < 1) return t.notif_now || 'Now';
     if (mins < 60) return t.time_less_hour || 'less than an hour ago';
     return (t.time_hours || '{n}h ago').replace('{n}', String(Math.floor(mins / 60)));
   }

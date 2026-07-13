@@ -192,10 +192,16 @@ export default function HomeScreen({ navigation }) {
     }
   }
 
+  // Race guard: only the LATEST news request writes state, so a stale
+  // (old-language) response resolving later can't overwrite the current one.
+  const newsReqIdRef = useRef(0);
+
   async function loadNews() {
+    const reqId = ++newsReqIdRef.current;
     try {
       const res  = await fetch(ENDPOINTS.news(lang));
       const data = await res.json();
+      if (reqId !== newsReqIdRef.current) return; // stale — newer request took over
       setNews((data.articles || []).slice(0, 3));
     } catch(e) {}
   }

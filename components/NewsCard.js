@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
 import { openArticle } from '../utils/linkUtils';
@@ -14,16 +14,22 @@ export default function NewsCard({ ticker, colors, t, lang = 'en', navigation })
 
   useEffect(() => { loadNews(); }, [ticker, lang]);
 
+  // Race guard: only the LATEST request writes state, so a stale response
+  // (old ticker/language) resolving later can't overwrite the current one.
+  const reqIdRef = useRef(0);
+
   async function loadNews() {
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     try {
       const res   = await fetch(ENDPOINTS.stockNews(ticker, lang));
       const data  = await res.json();
       const raw   = data.articles || data.news || [];
       const items = await translateNewsItems(raw, lang);
+      if (reqId !== reqIdRef.current) return; // stale — newer request took over
       setNews(items);
-    } catch (e) { setNews([]); }
-    setLoading(false);
+    } catch (e) { if (reqId === reqIdRef.current) setNews([]); }
+    if (reqId === reqIdRef.current) setLoading(false);
   }
 
   function formatTime(published) {
