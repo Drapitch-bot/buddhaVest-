@@ -577,6 +577,24 @@ def analyze(ticker: str, lang: str = "he"):
         "business_summary": _translate_text((info.get("longBusinessSummary") or "")[:1500], lang) or None,
     }
 
+    # ── Last-known-good backfill (DISPLAY STATS ONLY — never the score/fundamentals) ──
+    # Yahoo sometimes returns a live price but null market cap / volume / 52-week
+    # range when throttling. Reuse the last non-null value per ticker so the header
+    # stats stay populated instead of flickering to "—", matching /market-overview.
+    _ov = result["overview"]
+    _ov_key = (result.get("ticker") or ticker).upper()
+    _ov_fields = ("market_cap", "week52_low", "week52_high", "volume", "avg_volume")
+    _ov_lkg = _cache_get("analyze_overview_lkg") or {}
+    _prev = _ov_lkg.get(_ov_key, {})
+    for _f in _ov_fields:
+        if _ov.get(_f) is None and _prev.get(_f) is not None:
+            _ov[_f] = _prev[_f]
+    _ov_lkg[_ov_key] = {
+        _f: (_ov.get(_f) if _ov.get(_f) is not None else _prev.get(_f))
+        for _f in _ov_fields
+    }
+    _cache_set("analyze_overview_lkg", _ov_lkg, 86400)
+
     # Forward P/E ו-Sector comparison
     try:
         info = data.get("info", {})
