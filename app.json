@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/opening_monk.png",
+      "image": "./assets/brand_light_text.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },

@@ -64,6 +64,39 @@ const EXTRACT_JS = `
 true;
 `;
 
+// Runs BEFORE each page's own scripts. When the WebView lands on Google's
+// cookie-consent wall (shown in the device language, e.g. Hebrew, the first
+// time an article routes through Google News / translate.goog), this sets the
+// consent cookies and auto-clicks "Accept all" so the user never sees it.
+const CONSENT_JS = `
+(function() {
+  try {
+    var h = location.hostname || '';
+    if (h.indexOf('google') === -1) return;
+    // Pre-seed consent cookies so future loads skip the wall entirely.
+    var exp = new Date(Date.now() + 3153600000000).toUTCString(); // ~100y
+    document.cookie = 'CONSENT=YES+; domain=.google.com; path=/; expires=' + exp;
+    document.cookie = 'SOCS=CAI; domain=.google.com; path=/; expires=' + exp;
+    // Auto-click the accept/agree button if a consent form is present.
+    var click = function() {
+      var els = document.querySelectorAll('button, [role="button"], input[type="submit"]');
+      for (var i = 0; i < els.length; i++) {
+        var tx = ((els[i].innerText || els[i].value || '') + '').toLowerCase();
+        if (tx.indexOf('accept all') !== -1 || tx.indexOf('agree') !== -1 ||
+            tx.indexOf('קבל') !== -1 || tx.indexOf('אישור') !== -1 || tx.indexOf('הסכמה') !== -1) {
+          els[i].click();
+          return true;
+        }
+      }
+      return false;
+    };
+    var n = 0;
+    var iv = setInterval(function() { if (click() || ++n > 10) clearInterval(iv); }, 300);
+  } catch (e) {}
+})();
+true;
+`;
+
 function escapeHtml(s) {
   return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
@@ -228,9 +261,12 @@ export default function ArticleScreen({ route, navigation }) {
           onNavigationStateChange={handleNavChange}
           onMessage={handleMessage}
           injectedJavaScript={needsTranslation && !translatedHtml ? EXTRACT_JS : undefined}
+          injectedJavaScriptBeforeContentLoaded={translatedHtml ? undefined : CONSENT_JS}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
+          thirdPartyCookiesEnabled={true}
+          sharedCookiesEnabled={true}
           startInLoadingState={true}
           allowsInlineMediaPlayback={true}
           userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
