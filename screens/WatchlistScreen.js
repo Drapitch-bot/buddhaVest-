@@ -128,7 +128,7 @@ export default function WatchlistScreen({ navigation }) {
     <View style={[styles.root, { backgroundColor: colors.bg }]}>
 
       {/* Brand Header — greeting per screen like HTML */}
-      <BrandHeader greeting={t.greeting_watchlist || 'My Watchlist'} />
+      <BrandHeader onRefresh={loadPrices} greeting={t.greeting_watchlist || 'My Watchlist'} />
 
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 14, paddingTop: 6, minHeight: 24 }}>
         {loading

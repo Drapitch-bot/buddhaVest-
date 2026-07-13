@@ -1994,6 +1994,50 @@ def ticker_signals(ticker: str, lang: str = "he"):
     return result
 
 
+@app.get("/quotes")
+def quotes_endpoint(symbols: str = ""):
+    """
+    מחיר + אחוז שינוי יומי לרשימת סימולים (מופרדים בפסיק).
+    משמש את פאנל ההתראות — תזוזות במניות רשימת המעקב.
+    """
+    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:20]
+    if not syms:
+        return {"quotes": []}
+
+    def _one(sym):
+        cache_key = f"quote_lite_{sym}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+        price, change = None, None
+        try:
+            info = get_quote(sym)["info"]
+            price = info.get("currentPrice") or info.get("regularMarketPrice")
+            prev = info.get("previousClose")
+            if price is not None and prev:
+                change = round((price - prev) / prev * 100, 2)
+        except Exception:
+            pass
+        if price is None:  # Stooq fallback (Yahoo blocked / unknown symbol)
+            try:
+                sq = get_stooq_daily(sym)
+                if sq and sq.get("price") is not None:
+                    price = sq["price"]
+                    if sq.get("prev_close"):
+                        change = round((sq["price"] - sq["prev_close"]) / sq["prev_close"] * 100, 2)
+            except Exception:
+                pass
+        result = {"ticker": sym, "price": price, "change_pct": change}
+        if price is not None:
+            _cache_set(cache_key, result, CACHE_TTL["quote"])
+        return result
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(_one, syms))
+    return {"quotes": results}
+
+
 @app.get("/market-overview")
 def market_overview():
     """תמונת מצב שוק - מדדים מרכזיים, שער דולר-שקל, ורשימת מניות לייב"""

@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
+import { ENDPOINTS } from '../constants/api';
 
 const MONK_DARK  = require('../assets/brand_dark_monk.png');
 const MONK_LIGHT = require('../assets/brand_light_monk.png');
@@ -25,18 +26,35 @@ const BELL_DARK  = require('../assets/bell_dark.png');   // cream bell — for d
 const BELL_LIGHT = require('../assets/bell_light.png');  // darker bell — for light mode
 
 export default function BrandHeader({ onRefresh, greeting }) {
-  const { colors, isDark, t } = useApp();
+  const { colors, isDark, t, watchlist } = useApp();
   const insets = useSafeAreaInsets();
   const spinAnim = useRef(new Animated.Value(0)).current;
   const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const [notifVisible, setNotifVisible] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
+  const [movers, setMovers] = useState([]);
 
   useEffect(() => {
     AsyncStorage.getItem('notif_seen').then(val => {
       if (!val) setHasUnread(true); // never opened before → show dot
     });
   }, []);
+
+  // REAL notifications: daily movers (>=2%) among the user's watchlist stocks
+  useEffect(() => {
+    if (!watchlist || watchlist.length === 0) { setMovers([]); return; }
+    const symbols = watchlist.map(w => w.ticker).join(',');
+    fetch(ENDPOINTS.quotes(symbols))
+      .then(r => { if (!r.ok) throw new Error('err'); return r.json(); })
+      .then(json => {
+        const found = (json.quotes || [])
+          .filter(q => q.change_pct != null && Math.abs(q.change_pct) >= 2)
+          .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
+        setMovers(found);
+        if (found.length > 0) setHasUnread(true);
+      })
+      .catch(() => {});
+  }, [watchlist]);
 
   function openNotif() {
     setNotifVisible(true);
@@ -59,7 +77,20 @@ export default function BrandHeader({ onRefresh, greeting }) {
   const TEXT_H = 20, TEXT_W = 109;
   const ICON_H = 28, ICON_W = 28;
 
+  const moverItems = movers.map(q => ({
+    icon: q.change_pct >= 0 ? '📈' : '📉',
+    text: (q.change_pct >= 0
+      ? (t.notif_mover_up || '{ticker} is up {pct}% today')
+      : (t.notif_mover_down || '{ticker} is down {pct}% today'))
+      .replace('{ticker}', q.ticker)
+      .replace('{pct}', Math.abs(q.change_pct).toFixed(1)),
+  }));
+
   const notifItems = [
+    ...moverItems,
+    ...(watchlist && watchlist.length > 0 && moverItems.length === 0
+      ? [{ icon: '😴', text: t.notif_quiet || 'No big moves in your watchlist right now.' }]
+      : []),
     { icon: '👋', text: t.notif_welcome },
     { icon: '💡', text: t.notif_tip },
     { icon: null, isLogo: true, text: t.notif_refresh },

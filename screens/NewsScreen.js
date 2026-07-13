@@ -45,7 +45,7 @@ export default function NewsScreen({ navigation }) {
   return (
     <View style={[s.container, { backgroundColor: colors.bg }]}>
       {/* Brand Header — greeting per screen like HTML */}
-      <BrandHeader greeting={t.greeting_news || 'Market News'} />
+      <BrandHeader onRefresh={loadNews} greeting={t.greeting_news || 'Market News'} />
 
       {loading ? (
         <ActivityIndicator size="large" color={colors.accent} style={{ margin: 30 }} />

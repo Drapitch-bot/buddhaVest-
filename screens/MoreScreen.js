@@ -117,7 +117,7 @@ function SettingsScreen({ colors, t, insets, isDark, toggleTheme, lang, changeLa
 
           <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
             <View style={{ flex: 1 }}>
-              <Text style={[ss.mTicker, { color: colors.text }]}>BuddhaVest v1.2</Text>
+              <Text style={[ss.mTicker, { color: colors.text }]}>BuddhaVest v1.0.0</Text>
               <Text style={[ss.mName, { color: colors.textDimmer, fontSize: 11 }]}>{t.settings_version_features}</Text>
             </View>
           </View>
