@@ -114,6 +114,8 @@ CACHE_TTL = {
     "exchange": 60,     # שער מטבע – כל דקה
 }
 
+_CACHE_MAX = 300  # hard cap on cached entries — bounds the memory footprint
+
 def _cache_get(key: str):
     with _cache_lock:
         entry = _cache.get(key)
@@ -124,6 +126,15 @@ def _cache_get(key: str):
 def _cache_set(key: str, data, ttl: int):
     with _cache_lock:
         _cache[key] = {"data": data, "expires": time.time() + ttl}
+        # Never let the cache grow without bound. Drop expired entries first,
+        # then the ones closest to expiry (oldest data) until under the cap.
+        if len(_cache) > _CACHE_MAX:
+            now = time.time()
+            for k in [k for k, v in _cache.items() if now >= v["expires"]]:
+                del _cache[k]
+            if len(_cache) > _CACHE_MAX:
+                for k in sorted(_cache, key=lambda k: _cache[k]["expires"])[: len(_cache) - _CACHE_MAX]:
+                    del _cache[k]
 
 def _cache_clear_expired():
     """מנקה entries פגי תוקף כדי לא לצבור זיכרון"""
@@ -133,11 +144,13 @@ def _cache_clear_expired():
         for k in expired:
             del _cache[k]
 
-# ניקוי cache כל 10 דקות ברקע
+# ניקוי cache + החזרת זיכרון פנוי ל-OS כל 5 דקות ברקע (thread נפרד, לא משפיע על בקשות)
 def _cleanup_loop():
+    import gc
     while True:
-        time.sleep(600)
+        time.sleep(300)
         _cache_clear_expired()
+        gc.collect()
 
 threading.Thread(target=_cleanup_loop, daemon=True).start()
 # ─────────────────────────────────────────────────────────────────────────────
