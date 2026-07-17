@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { View, Image, I18nManager, useWindowDimensions, Dimensions } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Image, I18nManager, useWindowDimensions, Dimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from './constants/AppContext';
@@ -155,6 +156,68 @@ function TabletFrame({ children }) {
   );
 }
 
+// First-launch explicit consent: "this is a research tool, not financial
+// advice". Shown once (flag in AsyncStorage), in the user's language, on top
+// of the app. Explicit agreement is stronger legal footing than the implied
+// consent in the ToS alone.
+function ConsentGate() {
+  const { colors, t, lang, langReady } = useApp();
+  const [accepted, setAccepted] = useState(null); // null = loading, true/false
+  const isRtl = lang === 'he';
+
+  useEffect(function() {
+    AsyncStorage.getItem('disclaimer_accepted')
+      .then(function(v) { setAccepted(v === '1'); })
+      .catch(function() { setAccepted(false); });
+  }, []);
+
+  // Wait for both the flag and the saved language (avoid flashing English)
+  if (accepted !== false || !langReady) return null;
+
+  function agree() {
+    setAccepted(true);
+    AsyncStorage.setItem('disclaimer_accepted', '1').catch(function() {});
+  }
+
+  return (
+    <View style={{
+      position: 'absolute', left: 0, top: 0, right: 0, bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: 22,
+    }}>
+      <View style={{
+        backgroundColor: colors.card, borderRadius: 16, padding: 20,
+        maxHeight: '82%', borderWidth: 0.5, borderColor: colors.cardBorder,
+      }}>
+        <Text style={{
+          color: colors.text, fontSize: 18, fontWeight: '700', marginBottom: 12,
+          textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr',
+        }}>
+          {t.consent_title || 'Before you start'}
+        </Text>
+        <ScrollView style={{ flexGrow: 0 }}>
+          <Text style={{
+            color: colors.text, fontSize: 14, lineHeight: 22,
+            textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr',
+          }}>
+            {t.consent_body || ''}
+          </Text>
+        </ScrollView>
+        <TouchableOpacity
+          onPress={agree}
+          activeOpacity={0.8}
+          style={{
+            marginTop: 16, backgroundColor: '#f59e0b', borderRadius: 10,
+            paddingVertical: 13, alignItems: 'center',
+          }}>
+          <Text style={{ color: '#1c1f26', fontSize: 15, fontWeight: '700' }}>
+            {t.consent_agree || 'I understand and agree'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
 
@@ -196,6 +259,7 @@ export default function App() {
               pointerEvents="box-none">
               <FloatingThemeToggle />
             </View>
+            <ConsentGate />
           </View>
         </TabletFrame>
       </AppProvider>
