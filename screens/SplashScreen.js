@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as Updates from 'expo-updates';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, Image, Animated, StyleSheet, Dimensions,
 } from 'react-native';
@@ -25,29 +26,62 @@ export default function SplashScreen({ onDone }) {
     // Pre-warm Render backend — fire and forget so HomeScreen finds it awake
     fetch(API_BASE + '/status').catch(function() {});
 
-    // Check for OTA update while splash is showing — silent, no extra delay.
-    // Only auto-reload if the download finished fast (still on/near splash);
-    // otherwise the update applies on the next open instead of restarting
-    // the app mid-use.
-    if (!__DEV__) {
-      var otaStart = Date.now();
-      Updates.checkForUpdateAsync()
-        .then(function(r) { if (r.isAvailable) return Updates.fetchUpdateAsync(); })
-        .then(function(r) {
-          if (r && r.isNew && Date.now() - otaStart < 8000) Updates.reloadAsync();
-        })
-        .catch(function() {});
-    }
+    var cancelled = false;
 
-    Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 800, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
-    ]).start(() => {
-      Animated.sequence([
-        Animated.delay(3200),
-        Animated.timing(fadeAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
-      ]).start(() => onDone?.());
+    // If we just restarted to apply an OTA update, DON'T play the full splash
+    // again — the user already sat through it once this launch. Quick fade
+    // straight into the app instead of a second monk+quote screen.
+    AsyncStorage.getItem('ota_reloaded').then(function(flag) {
+      if (cancelled) return;
+      if (flag === '1') {
+        AsyncStorage.removeItem('ota_reloaded').catch(function() {});
+        Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true })
+          .start(function() { onDone?.(); });
+        return;
+      }
+
+      // Check for OTA update while splash is showing — silent, no extra delay.
+      // Only auto-reload if the download finished fast (still on/near splash);
+      // otherwise the update applies on the next open instead of restarting
+      // the app mid-use. Mark the reload so the second launch skips the splash.
+      if (!__DEV__) {
+        var otaStart = Date.now();
+        Updates.checkForUpdateAsync()
+          .then(function(r) { if (r.isAvailable) return Updates.fetchUpdateAsync(); })
+          .then(function(r) {
+            if (r && r.isNew && Date.now() - otaStart < 8000) {
+              return AsyncStorage.setItem('ota_reloaded', '1')
+                .catch(function() {})
+                .then(function() { Updates.reloadAsync(); });
+            }
+          })
+          .catch(function() {});
+      }
+
+      Animated.parallel([
+        Animated.timing(fadeAnim,  { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
+      ]).start(() => {
+        Animated.sequence([
+          Animated.delay(3200),
+          Animated.timing(fadeAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
+        ]).start(() => onDone?.());
+      });
+    }).catch(function() {
+      // AsyncStorage failed — behave exactly as before (full splash, no OTA skip)
+      if (cancelled) return;
+      Animated.parallel([
+        Animated.timing(fadeAnim,  { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: 0, duration: 800, useNativeDriver: true }),
+      ]).start(() => {
+        Animated.sequence([
+          Animated.delay(3200),
+          Animated.timing(fadeAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
+        ]).start(() => onDone?.());
+      });
     });
+
+    return function() { cancelled = true; };
   }, []);
 
   return (
