@@ -39,7 +39,10 @@ function SettingsScreen({ colors, t, insets, isDark, toggleTheme, lang, changeLa
         {
           text: t.reset || 'Reset', style: 'destructive', onPress: async () => {
             await AsyncStorage.multiRemove(['watchlist', 'lang', JOURNAL_KEY,
-              'translateArticles', 'showLocalCurrency']);
+              'translateArticles', 'showLocalCurrency',
+              // notification memory + first-launch consent: a full reset should
+              // behave like a fresh install (consent shows again on next launch)
+              'notif_seen', 'notif_first_seen', 'notif_seen_sig', 'disclaimer_accepted']);
             resetSettingsState(); // reset state immediately, not just on next launch
           },
         },

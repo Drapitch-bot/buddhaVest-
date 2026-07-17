@@ -37,6 +37,7 @@ export const translations = {
     // news
     newsTitle: 'חדשות השוק', loadingNews: 'טוען כתבות...',
     noNews: 'אין כתבות להציג כרגע.',
+    could_not_load: 'לא ניתן לטעון את הכתבה',
     source_news: 'מקור הכתבות: Yahoo Finance ו-Google News',
     // errors
     errorLoad: 'לא ניתן לטעון', errorServer: 'לא ניתן להתחבר לשרת',
@@ -306,6 +307,7 @@ export const translations = {
     loading_watchlist: 'Loading latest data...',
     newsTitle: 'Market News', loadingNews: 'Loading articles...',
     noNews: 'No articles to show right now.',
+    could_not_load: 'Could not load article',
     source_news: 'Articles source: Yahoo Finance and Google News',
     errorLoad: 'Unable to load', errorServer: 'Cannot connect to server',
     cant_connect: "Couldn't connect to the server. Check your internet connection and try again.",
@@ -572,6 +574,7 @@ export const translations = {
     loading_watchlist: 'Загрузка последних данных...',
     newsTitle: 'Новости рынка', loadingNews: 'Загрузка статей...',
     noNews: 'Сейчас нет статей для отображения.',
+    could_not_load: 'Не удалось загрузить статью',
     source_news: 'Источник статей: Yahoo Finance и Google News',
     errorLoad: 'Не удалось загрузить', errorServer: 'Нет подключения к серверу',
     cant_connect: 'Не удалось подключиться к серверу. Проверьте подключение к интернету и попробуйте снова.',
@@ -835,6 +838,7 @@ export const translations = {
     loading_watchlist: 'Cargando datos recientes...',
     newsTitle: 'Noticias del mercado', loadingNews: 'Cargando artículos...',
     noNews: 'No hay artículos para mostrar ahora.',
+    could_not_load: 'No se pudo cargar el artículo',
     source_news: 'Fuente de artículos: Yahoo Finance y Google News',
     errorLoad: 'No se pudo cargar', errorServer: 'No se puede conectar al servidor',
     cant_connect: 'No se pudo conectar al servidor. Comprueba tu conexión a internet e inténtalo de nuevo.',

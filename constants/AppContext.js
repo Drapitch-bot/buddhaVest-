@@ -63,7 +63,9 @@ export function AppProvider({ children }) {
     setTranslateArticles(true);
     setShowLocalCurrency(true);
     setWatchlist([]);
-    setLang('he');
+    // 'en' matches the cold-start default (useState('en')) — previously 'he',
+    // which made the session Hebrew but the next launch English. Now consistent.
+    setLang('en');
   }
 
   async function toggleWatchlist(ticker, name) {

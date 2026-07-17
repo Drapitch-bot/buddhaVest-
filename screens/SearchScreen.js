@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, ActivityIndicator, ScrollView,
@@ -17,16 +17,22 @@ export default function SearchScreen({ navigation }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Race guard: typing fast fires overlapping requests; only the LATEST may
+  // write results, so a stale response can't overwrite the current query's.
+  const reqIdRef = useRef(0);
+
   async function doSearch(q) {
     setQuery(q);
+    const reqId = ++reqIdRef.current;
     if (q.length < 1) { setResults([]); return; }
     setLoading(true);
     try {
       const res = await fetch(ENDPOINTS.search(q));
       const data = await res.json();
+      if (reqId !== reqIdRef.current) return; // stale — newer keystroke took over
       setResults(data.results || []);
-    } catch(e) { setResults([]); }
-    setLoading(false);
+    } catch(e) { if (reqId === reqIdRef.current) setResults([]); }
+    if (reqId === reqIdRef.current) setLoading(false);
   }
 
   function openTicker(ticker) {
