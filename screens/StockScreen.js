@@ -664,7 +664,7 @@ export default function StockScreen({ route, navigation }) {
           <EventsCard ticker={ticker} colors={colors} t={t} />
 
           {/* Financials card */}
-          <FinancialsCard ticker={ticker} colors={colors} t={t} />
+          <FinancialsCard ticker={ticker} colors={colors} t={t} lang={lang} />
 
           {/* Recent news card */}
           <NewsCard ticker={ticker} colors={colors} t={t} lang={lang} navigation={navigation} />
