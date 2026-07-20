@@ -704,35 +704,44 @@ def calculate_score(data: dict) -> dict:
         recommendation = "insufficient"
         rec_color = "gray"
         rec_explanation = "לא נמצא מספיק מידע פיננסי כדי לנקד את החברה הזו."
+        rec_parts = [("rec_insufficient", {})]
         final_score = 0
     elif final_score >= 75:
         recommendation = "buy"
         rec_color = "green"
         rec_explanation = "פונדמנטלס חזקים ומחיר סביר - החברה הזו עומדת ברוב הקריטריונים."
+        rec_parts = [("rec_buy", {})]
     elif final_score >= 50:
         recommendation = "hold"
         rec_color = "amber"
         rec_explanation = "עסק לא רע, אבל התזמון או המחיר עדיין לא אידיאליים."
+        rec_parts = [("rec_hold", {})]
     else:
         recommendation = "avoid"
         rec_color = "red"
         rec_explanation = "כמה דגלים אדומים - זה לא עומד בסטנדרט כרגע."
+        rec_parts = [("rec_avoid", {})]
 
     # תוספת ייחודית: ציטוט הדיבידנד בסיכום ה"תאכלס" (כמו שביקשת)
     if metrics["dividend"]["pays_dividend"]:
         dividend_summary = f"מחלקת דיבידנד (תשואה של כ-{metrics['dividend']['value']}%)."
+        dividend_parts = [("div_pays", {"pct": metrics["dividend"]["value"]})]
     else:
         dividend_summary = "לא מחלקת דיבידנד."
+        dividend_parts = [("div_none", {})]
 
     # אותו עיקרון לרכישה חזרה של מניות (Buyback)
     if metrics["buyback"]["does_buyback"]:
         bb_value = metrics["buyback"]["value"]
         if metrics["buyback"]["value"] is not None and bb_value < 100:
             buyback_summary = f"רוכשת בחזרה מניות (כ-{bb_value}% משווי השוק בשנה האחרונה)."
+            buyback_parts = [("bb_with_pct", {"pct": bb_value})]
         else:
             buyback_summary = "רוכשת בחזרה מניות."
+            buyback_parts = [("bb_plain", {})]
     else:
         buyback_summary = "לא רוכשת בחזרה מניות."
+        buyback_parts = [("bb_none", {})]
 
     return {
         "ticker": data.get("ticker"),
@@ -746,8 +755,11 @@ def calculate_score(data: dict) -> dict:
         "recommendation": recommendation,
         "recommendation_color": rec_color,
         "recommendation_explanation": rec_explanation,
+        "recommendation_parts": rec_parts,
         "dividend_summary": dividend_summary,
+        "dividend_summary_parts": dividend_parts,
         "buyback_summary": buyback_summary,
+        "buyback_summary_parts": buyback_parts,
         "category_scores": {
             "quality": round(quality_score) if quality_score is not None else None,
             "valuation": round(valuation_score) if valuation_score is not None else None,

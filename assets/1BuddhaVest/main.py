@@ -547,6 +547,17 @@ def analyze(ticker: str, lang: str = "he"):
             parts = metric.get("explanation_parts")
             if parts:
                 metric["explanation"] = render_explanation(parts, lang)
+        # Also translate the top-level summaries (recommendation, dividend,
+        # buyback) — previously only metric explanations were translated and
+        # these three stayed Hebrew in non-Hebrew responses.
+        for field, parts_field in (
+            ("recommendation_explanation", "recommendation_parts"),
+            ("dividend_summary", "dividend_summary_parts"),
+            ("buyback_summary", "buyback_summary_parts"),
+        ):
+            _p = result.get(parts_field)
+            if _p:
+                result[field] = render_explanation(_p, lang)
 
     # הוספת היסטוריית מחיר לגרף (12 חודשים אחרונים, נקודה לשבוע כדי לא להעמיס)
     history = data.get("history")

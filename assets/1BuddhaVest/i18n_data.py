@@ -15,6 +15,61 @@ i18n_data.py
 """
 
 EXPLANATIONS = {
+    # ---------- המלצה + סיכומי דיבידנד/רכישה חוזרת (מתורגמים לפי lang) ----------
+    "rec_insufficient": {
+        "he": "לא נמצא מספיק מידע פיננסי כדי לנקד את החברה הזו.",
+        "en": "Not enough financial data was found to score this company.",
+        "ru": "Недостаточно финансовых данных для оценки этой компании.",
+        "es": "No se encontraron suficientes datos financieros para puntuar esta empresa.",
+    },
+    "rec_buy": {
+        "he": "פונדמנטלס חזקים ומחיר סביר - החברה הזו עומדת ברוב הקריטריונים.",
+        "en": "Strong fundamentals at a reasonable price - this company meets most of the criteria.",
+        "ru": "Сильные фундаментальные показатели по разумной цене - компания соответствует большинству критериев.",
+        "es": "Fundamentos sólidos a un precio razonable - esta empresa cumple la mayoría de los criterios.",
+    },
+    "rec_hold": {
+        "he": "עסק לא רע, אבל התזמון או המחיר עדיין לא אידיאליים.",
+        "en": "Not a bad business, but the timing or price isn't ideal yet.",
+        "ru": "Неплохой бизнес, но время или цена пока не идеальны.",
+        "es": "No es un mal negocio, pero el momento o el precio aún no son ideales.",
+    },
+    "rec_avoid": {
+        "he": "כמה דגלים אדומים - זה לא עומד בסטנדרט כרגע.",
+        "en": "Several red flags - it doesn't meet the standard right now.",
+        "ru": "Несколько тревожных сигналов - сейчас не соответствует стандарту.",
+        "es": "Varias señales de alerta - por ahora no cumple el estándar.",
+    },
+    "div_pays": {
+        "he": "מחלקת דיבידנד (תשואה של כ-{pct}%).",
+        "en": "Pays a dividend (yield of about {pct}%).",
+        "ru": "Выплачивает дивиденды (доходность около {pct}%).",
+        "es": "Reparte dividendo (rentabilidad de aproximadamente {pct}%).",
+    },
+    "div_none": {
+        "he": "לא מחלקת דיבידנד.",
+        "en": "Does not pay a dividend.",
+        "ru": "Не выплачивает дивиденды.",
+        "es": "No reparte dividendo.",
+    },
+    "bb_with_pct": {
+        "he": "רוכשת בחזרה מניות (כ-{pct}% משווי השוק בשנה האחרונה).",
+        "en": "Buys back shares (about {pct}% of market cap in the past year).",
+        "ru": "Выкупает акции (около {pct}% рыночной капитализации за последний год).",
+        "es": "Recompra acciones (alrededor del {pct}% de la capitalización en el último año).",
+    },
+    "bb_plain": {
+        "he": "רוכשת בחזרה מניות.",
+        "en": "Buys back shares.",
+        "ru": "Выкупает акции.",
+        "es": "Recompra acciones.",
+    },
+    "bb_none": {
+        "he": "לא רוכשת בחזרה מניות.",
+        "en": "Does not buy back shares.",
+        "ru": "Не выкупает акции.",
+        "es": "No recompra acciones.",
+    },
     # ---------- הודעות "אין מספיק מידע" משותפות ----------
     "metric_no_data": {
         "he": "אין מספיק נתונים.",

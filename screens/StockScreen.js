@@ -274,9 +274,12 @@ export default function StockScreen({ route, navigation }) {
     } catch(e) { if (reqId === reqIdRef.current) setSecondaryCurrency(null); }
   }
 
+  // deps MUST include lang: with [ticker] only, pull-to-refresh kept a stale
+  // closure of loadStock frozen at the mount-time language — refreshing after
+  // a language switch refetched in the OLD language and overwrote the UI.
   const onRefresh = useCallback(async function() {
     setRefreshing(true); await loadStock(); setRefreshing(false);
-  }, [ticker]);
+  }, [ticker, lang]);
 
   const m   = (data && data.metrics)         || {};
   const ov  = (data && data.overview)        || {};

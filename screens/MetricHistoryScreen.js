@@ -142,10 +142,14 @@ async function fetchFallbackPrices(ticker) {
     fetchStooqPrices(ticker).catch(function() { return null; }),
     fetchYahooV7Prices(ticker).catch(function() { return null; }),
   ]);
-  return (y   && y.length   > 1) ? y
-       : (s   && s.length   > 1) ? s
-       : (yv7 && yv7.length > 1) ? yv7
-       : null;
+  const series = (y   && y.length   > 1) ? y
+               : (s   && s.length   > 1) ? s
+               : (yv7 && yv7.length > 1) ? yv7
+               : null;
+  // Keep only the last 12 monthly points. Stooq returns FULL history (20+
+  // years) — a two-decade price chart as "reference" under a metric title is
+  // confusing and crowds the axis labels. 1Y matches the rest of the app.
+  return series ? series.slice(-12) : null;
 }
 
 // Same logic as MetricTile: score ≥70 → green, ≥40 → amber, <40 → red, null → purple
