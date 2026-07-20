@@ -19,6 +19,7 @@ Endpoints:
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+import json
 import math
 import os
 import time
@@ -143,6 +144,33 @@ def _cache_clear_expired():
         expired = [k for k, v in _cache.items() if now >= v["expires"]]
         for k in expired:
             del _cache[k]
+
+# ── Last-known-good persistence ──
+# The LKG dicts (volume/market-cap backfill) live in the in-memory cache, which
+# dies on every Render restart/deploy — exactly when Yahoo is coldest and the
+# backfill is needed most. Mirror them to disk (best-effort) so they survive.
+_LKG_FILE = "/tmp/buddhavest_lkg.json"
+_LKG_KEYS = ("mover_lkg", "analyze_overview_lkg")
+
+def _lkg_file_save():
+    try:
+        data = {k: (_cache_get(k) or {}) for k in _LKG_KEYS}
+        with open(_LKG_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
+
+def _lkg_file_load():
+    try:
+        with open(_LKG_FILE, "r") as f:
+            data = json.load(f)
+        for k in _LKG_KEYS:
+            if data.get(k):
+                _cache_set(k, data[k], 86400)
+    except Exception:
+        pass
+
+_lkg_file_load()  # seed from disk on boot (no-op on first ever run)
 
 # ניקוי cache + החזרת זיכרון פנוי ל-OS כל 5 דקות ברקע (thread נפרד, לא משפיע על בקשות)
 def _cleanup_loop():
@@ -618,6 +646,7 @@ def analyze(ticker: str, lang: str = "he"):
         for _f in _ov_fields
     }
     _cache_set("analyze_overview_lkg", _ov_lkg, 86400)
+    _lkg_file_save()  # persist across restarts/deploys
 
     # Forward P/E ו-Sector comparison
     try:
@@ -2234,6 +2263,7 @@ def market_overview():
             for f in _LKG_FIELDS
         }
     _cache_set("mover_lkg", lkg, 86400)
+    _lkg_file_save()  # persist across restarts/deploys
 
     # Don't poison the cache with an all-null snapshot (Yahoo+Stooq both down)
     has_data = any(m.get("price") is not None for m in movers)
