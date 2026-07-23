@@ -740,6 +740,35 @@ def analyze(ticker: str, lang: str = "he"):
     except Exception:
         result["inline_history"] = {}
 
+    # ── Israeli (TASE) listings ──
+    # Yahoo quotes Tel-Aviv stocks in agorot (1/100 ILS), while marketCap /
+    # revenue / net income stay in shekel. Convert the per-share PRICE fields to
+    # shekel and tag the currency so the app shows ₪ and skips the (wrong)
+    # USD→ILS conversion. Ratios (P/E etc.) are unit-free and already correct.
+    #
+    # Detection is by BOTH the ".TA" suffix (TASE equities are always quoted in
+    # agorot) AND the currency field ("ILA"/"ILS") — belt and suspenders, since
+    # Yahoo is inconsistent about which currency code it reports.
+    _ticker_up = (result.get("ticker") or ticker or "").upper()
+    _ccy = (info.get("currency") or "").upper()
+    _is_tase = _ticker_up.endswith(".TA") or _ccy in ("ILA", "ILS")
+    if _is_tase:
+        result["price_currency"] = "ILS"
+        # agorot → shekel. Skip only if Yahoo explicitly says the quote is
+        # already in shekel ("ILS"); every other TASE case is agorot.
+        if _ccy != "ILS":
+            if result.get("current_price") is not None:
+                result["current_price"] = round(result["current_price"] / 100.0, 2)
+            _ov = result.get("overview") or {}
+            for _k in ("week52_low", "week52_high"):
+                if _ov.get(_k) is not None:
+                    _ov[_k] = round(_ov[_k] / 100.0, 2)
+            _h = result.get("history")
+            if _h and _h.get("prices"):
+                _h["prices"] = [round(p / 100.0, 2) for p in _h["prices"]]
+    else:
+        result["price_currency"] = "USD"
+
     _cache_set(cache_key, result, CACHE_TTL["stock"])
     return result
 

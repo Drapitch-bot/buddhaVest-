@@ -121,6 +121,7 @@ export default function WatchlistScreen({ navigation }) {
           recommendation:      data.recommendation,
           recommendation_color: data.recommendation_color,
           company_name:        data.company_name,
+          price_currency:      data.price_currency,  // 'ILS' for TASE stocks
         };
       } catch(e) {}
     }));
@@ -177,9 +178,11 @@ export default function WatchlistScreen({ navigation }) {
 
               <View style={styles.right}>
                 {p.price != null && (
-                  <Text style={[styles.price, { color: colors.text }]}>{'$' + p.price.toFixed(2)}</Text>
+                  <Text style={[styles.price, { color: colors.text }]}>
+                    {(p.price_currency === 'ILS' ? '₪' : '$') + p.price.toFixed(2)}
+                  </Text>
                 )}
-                {p.price != null && secondaryCurrency != null && (
+                {p.price != null && p.price_currency !== 'ILS' && secondaryCurrency != null && (
                   <Text style={[styles.ils, { color: colors.textDimmer }]}>
                     {secondaryCurrency.symbol + (p.price * secondaryCurrency.rate).toFixed(2)}
                   </Text>

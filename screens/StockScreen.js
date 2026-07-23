@@ -292,6 +292,12 @@ export default function StockScreen({ route, navigation }) {
   const ve  = (data && data.valuation_extra) || {};
   const history = data && data.history;
 
+  // Israeli stocks are already priced in shekel (server tags price_currency
+  // 'ILS'): show ₪ as the primary symbol and skip the USD→ILS second line.
+  const priceIsILS  = data && data.price_currency === 'ILS';
+  const priceSymbol = priceIsILS ? '₪' : '$';
+  const showSecondaryCcy = !priceIsILS && secondaryCurrency != null;
+
   function incomeLabelFor() {
     const hasDiv = m.dividend && m.dividend.pays_dividend;
     const hasBB  = m.buyback  && m.buyback.does_buyback;
@@ -364,10 +370,10 @@ export default function StockScreen({ route, navigation }) {
           <Text style={[s.stockTicker, { color: colors.text, fontSize: 20, fontWeight: '700', marginBottom: 4 }]}>{data.ticker}</Text>
           {data.current_price != null && (
             <Text style={{ fontSize: 24, fontWeight: '700', color: colors.text, marginBottom: 4 }}>
-              {'$' + data.current_price.toFixed(2)}
+              {priceSymbol + data.current_price.toFixed(2)}
             </Text>
           )}
-          {data.current_price != null && secondaryCurrency != null && (
+          {data.current_price != null && showSecondaryCcy && (
             <Text style={{ fontSize: 14, color: colors.textDim, marginBottom: 14 }}>
               {secondaryCurrency.symbol + (data.current_price * secondaryCurrency.rate).toFixed(2)}
             </Text>
@@ -422,10 +428,10 @@ export default function StockScreen({ route, navigation }) {
             </View>
             <View style={{ alignItems: 'flex-end' }}>
               {data && data.current_price != null ? (
-                <Text style={[s.stockPrice, { color: colors.text }]}>{'$' + data.current_price.toFixed(2)}</Text>
+                <Text style={[s.stockPrice, { color: colors.text }]}>{priceSymbol + data.current_price.toFixed(2)}</Text>
               ) : null}
               {/* .price-ils { font-size:12px; color:text-dim } */}
-              {data && data.current_price != null && secondaryCurrency != null ? (
+              {data && data.current_price != null && showSecondaryCcy ? (
                 <Text style={[s.stockPriceIls, { color: colors.textDim }]}>
                   {secondaryCurrency.symbol + (data.current_price * secondaryCurrency.rate).toFixed(2)}
                 </Text>
