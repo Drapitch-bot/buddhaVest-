@@ -279,6 +279,13 @@ export default function MetricHistoryScreen({ route, navigation }) {
   const usingYahooFallback = series.length < 2 && yahooPrices && yahooPrices.length > 1;
   const effectiveSeries = usingYahooFallback ? yahooPrices : series;
 
+  // A stock-PRICE chart under a valuation RATIO (EV/EBITDA, Forward P/E, P/B…)
+  // is meaningless and confused users. When a ratio metric has no real series,
+  // suppress the price fallback entirely and fall through to the clean
+  // "value + explanation" view instead of a misleading price chart.
+  const isRatioMetric = RATIO_METRICS.has(metricKey);
+  const suppressPriceChart = isRatioMetric && (usePrice || usingYahooFallback);
+
   // Show BOTH: tile note (exact truncated text from tile) AND i18n full explanation
   const i18nExpl = t.metric_explanations?.[metricKey] || t.metric_explanations?.[apiKey] || null;
   // serverExpl: only if different from both above
@@ -288,7 +295,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
     ? effectiveSeries[effectiveSeries.length - 1]?.value
     : null;
 
-  const chartData = effectiveSeries.length > 1
+  const chartData = (effectiveSeries.length > 1 && !suppressPriceChart)
     ? { prices: effectiveSeries.map(p => p.value), dates: effectiveSeries.map(p => p.date) }
     : null;
 
@@ -405,8 +412,10 @@ export default function MetricHistoryScreen({ route, navigation }) {
             </View>
           ) : (
             <>
-              {/* Fallback notice */}
-              {(usePrice || usingYahooFallback) && (
+              {/* Fallback notice — only when an actual price chart is shown.
+                  For ratio metrics the chart is suppressed and the value+note
+                  view below carries its own (correct) explanation. */}
+              {(usePrice || usingYahooFallback) && !suppressPriceChart && (
                 <View style={[s.noDataBanner, {
                   backgroundColor: (colors.accent || '#6366f1') + '15',
                   borderColor: (colors.accent || '#6366f1') + '40',
