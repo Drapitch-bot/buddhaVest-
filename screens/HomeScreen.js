@@ -180,15 +180,19 @@ export default function HomeScreen({ navigation }) {
         .slice(0, 4);
       setMovers(top4);
     };
+    // Time-based, not failure-based: show the gentle "loading" note only if the
+    // load actually drags past 4s (a warm server returns well before that, so
+    // the note never even flashes). It clears the instant data arrives.
+    var slowTimer = setTimeout(function() { setWakingUp(true); }, 4000);
+    var finish = function() { clearTimeout(slowTimer); setWakingUp(false); };
     try {
       applyData(await tryFetch(20000));
+      finish();
     } catch(e) {
-      setWakingUp(true);
-      await new Promise(function(r) { setTimeout(r, 3000); });
       try {
         applyData(await tryFetch(50000));
-      } catch(e) {}
-      setWakingUp(false);
+      } catch(e2) {}
+      finish();
     }
   }
 
@@ -250,11 +254,11 @@ export default function HomeScreen({ navigation }) {
       {/* ── Brand Header (logo always visible, greeting changes per screen like HTML) ── */}
       <BrandHeader onRefresh={loadAll} greeting={t.greeting_home || 'Markets · Live'} />
 
-      {/* ── Waking up banner ── */}
+      {/* ── Gentle "loading fresh data" note (only when a load runs slow) ── */}
       {wakingUp && (
-        <View style={{ backgroundColor: colors.cardAlt, padding: 10, alignItems: 'center', borderBottomWidth: 0.5, borderBottomColor: colors.cardBorder }}>
-          <Text style={{ color: colors.textDim, fontSize: 13 }}>
-            {t.waking_up || '⏳ Server waking up, please wait…'}
+        <View style={{ backgroundColor: colors.cardAlt, paddingVertical: 6, paddingHorizontal: 10, alignItems: 'center' }}>
+          <Text style={{ color: colors.textDimmer || colors.textDim, fontSize: 12 }}>
+            {t.waking_up || 'Loading the latest data…'}
           </Text>
         </View>
       )}

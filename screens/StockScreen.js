@@ -223,31 +223,36 @@ export default function StockScreen({ route, navigation }) {
         new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); })
       ]);
     };
+    // Time-based gentle note: only if the load drags past 4s, and only for the
+    // current request. Clears the moment data arrives; a warm server never
+    // triggers it.
+    var slowTimer = setTimeout(function() {
+      if (reqId === reqIdRef.current) setWakingUp(true);
+    }, 4000);
     try {
       const json = await tryFetch(20000);
-      if (reqId !== reqIdRef.current) return; // stale — a newer request took over
+      if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; } // stale
       setData(json);
       fetchSignals(json.ticker || ticker, reqId);
       fetchExchangeRate(reqId);
+      clearTimeout(slowTimer); setWakingUp(false);
       setLoading(false);
     } catch(e) {
-      if (reqId !== reqIdRef.current) return;
-      // First attempt failed — show waking_up and retry once after 8s with longer timeout
-      setWakingUp(true);
+      if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; }
+      // First attempt failed — keep the gentle note and retry once, longer.
       await new Promise(function(r) { setTimeout(r, 8000); });
-      if (reqId !== reqIdRef.current) return;
+      if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; }
       try {
         const json = await tryFetch(40000);
-        if (reqId !== reqIdRef.current) return;
+        if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; }
         setData(json);
         fetchSignals(json.ticker || ticker, reqId);
         fetchExchangeRate(reqId);
-        setWakingUp(false);
       } catch(e) {
-        if (reqId !== reqIdRef.current) return;
+        if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; }
         setError('connection_error');
-        setWakingUp(false);
       }
+      clearTimeout(slowTimer); setWakingUp(false);
       setLoading(false);
     }
   }
