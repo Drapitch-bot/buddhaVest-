@@ -2,7 +2,7 @@
  * MoreScreen.js — 1:1 לפי HTML screen-more + sub-screens:
  *   עוד אפשרויות → חדשות | מעקב | יומן מחקר | הגדרות | תנאי שימוש | מי אני?
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   ScrollView, Switch, TextInput, FlatList, Image,
@@ -164,30 +164,60 @@ function JournalScreen({ colors, t, lang, insets, onBack, initialTicker }) {
   const [entries, setEntries] = useState([]);
   const [ticker, setTicker] = useState(initialTicker || '');
   const [text, setText] = useState('');
+  const [loaded, setLoaded] = useState(false);   // storage read finished?
+  const savingRef = useRef(false);               // serialises writes
 
   useEffect(() => { loadEntries(); }, []);
 
-  async function loadEntries() {
+  // Always read what is really on disk. Never derive the saved value from
+  // component state alone: on a slow device the initial read can still be in
+  // flight when the user saves, and writing state-derived data would wipe
+  // every earlier entry.
+  async function readStored() {
     try {
       const raw = await AsyncStorage.getItem(JOURNAL_KEY);
-      setEntries(raw ? JSON.parse(raw) : []);
-    } catch(e) {}
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];   // tolerate corrupt storage
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function loadEntries() {
+    const stored = await readStored();
+    setEntries(stored);
+    setLoaded(true);
   }
 
   async function saveEntry() {
-    if (!text.trim()) return;
-    const newEntry = { ticker: ticker.trim().toUpperCase(), text: text.trim(), date: new Date().toISOString() };
-    const updated = [newEntry, ...entries];
-    setEntries(updated);
-    await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated));
-    setTicker('');
-    setText('');
+    if (!text.trim() || savingRef.current) return;
+    savingRef.current = true;
+    try {
+      const newEntry = { ticker: ticker.trim().toUpperCase(), text: text.trim(), date: new Date().toISOString() };
+      const current = await readStored();          // merge against disk, not state
+      const updated = [newEntry, ...current];
+      await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated));
+      setEntries(updated);
+      setLoaded(true);
+      setTicker('');
+      setText('');
+    } catch (e) {
+    } finally {
+      savingRef.current = false;
+    }
   }
 
+  // Delete by identity (date + text), not by list index: the index can point
+  // at a different row if the list changed between render and tap.
   async function deleteEntry(idx) {
-    const updated = entries.filter((_, i) => i !== idx);
-    setEntries(updated);
+    const target = entries[idx];
+    if (!target) return;
+    const current = await readStored();
+    const updated = current.filter(function(e) {
+      return !(e && e.date === target.date && e.text === target.text);
+    });
     await AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated));
+    setEntries(updated);
   }
 
   function fmtDate(iso) {
@@ -259,7 +289,8 @@ function JournalScreen({ colors, t, lang, insets, onBack, initialTicker }) {
             <Text style={[ss.sourceNote, { color: colors.textDimmer, textAlign: 'center', marginTop: 20 }]}>{t.journal_empty}</Text>
           ) : (
             entries.map((e, i) => (
-              <View key={i} style={[ss.journalEntry, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
+              <View key={(e && e.date) ? e.date + '#' + i : String(i)}
+                    style={[ss.journalEntry, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
                 {e.ticker ? <Text style={[ss.jTicker, { color: colors.accent }]}>{e.ticker}</Text> : null}
                 <Text style={[ss.jText, { color: colors.text }]}>{e.text}</Text>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>

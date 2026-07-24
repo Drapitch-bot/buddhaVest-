@@ -47,10 +47,15 @@ export default function BrandHeader({ onRefresh, greeting }) {
   // opened, so switching screens/tabs doesn't re-trigger the same alert.
   useEffect(() => {
     if (!watchlist || watchlist.length === 0) { setMovers([]); return; }
+    // BrandHeader mounts/unmounts on every tab switch, and the watchlist can
+    // change while a request is in flight. `alive` stops a stale or
+    // post-unmount response from writing state.
+    let alive = true;
     const symbols = watchlist.map(w => w.ticker).join(',');
     fetch(ENDPOINTS.quotes(symbols))
       .then(r => { if (!r.ok) throw new Error('err'); return r.json(); })
       .then(async json => {
+        if (!alive) return;
         const found = (json.quotes || [])
           .filter(q => q.change_pct != null && Math.abs(q.change_pct) >= 2)
           .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
@@ -59,7 +64,12 @@ export default function BrandHeader({ onRefresh, greeting }) {
         // ("now" → "an hour ago" → "3h ago") and survives screen switches.
         const day = new Date().toISOString().slice(0, 10);
         let seen = {};
-        try { seen = JSON.parse(await AsyncStorage.getItem('notif_first_seen')) || {}; } catch (e) {}
+        try {
+          const rawSeen = JSON.parse(await AsyncStorage.getItem('notif_first_seen'));
+          // must be a plain object — an array/string here would make seen[key] junk
+          if (rawSeen && typeof rawSeen === 'object' && !Array.isArray(rawSeen)) seen = rawSeen;
+        } catch (e) {}
+        if (!alive) return;
         const pruned = {};
         const nowTs = Date.now();
         found.forEach(q => {
@@ -72,10 +82,11 @@ export default function BrandHeader({ onRefresh, greeting }) {
         const sig = Object.keys(pruned).sort().join('|');
         sigRef.current = sig;
         AsyncStorage.getItem('notif_seen_sig').then(prev => {
-          if (prev !== sig) setHasUnread(true);
+          if (alive && prev !== sig) setHasUnread(true);
         });
       })
       .catch(() => {});
+    return function() { alive = false; };
   }, [watchlist]);
 
   function openNotif() {

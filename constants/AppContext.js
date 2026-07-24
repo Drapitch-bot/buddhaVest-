@@ -29,7 +29,12 @@ export function AppProvider({ children }) {
       const savedLocalCurrency = await AsyncStorage.getItem('showLocalCurrency');
       if (theme) setIsDark(theme === 'dark');
       if (savedLang) setLang(savedLang);
-      if (savedWatchlist) setWatchlist(JSON.parse(savedWatchlist));
+      if (savedWatchlist) {
+        // Tolerate corrupt/legacy storage: anything that isn't an array would
+        // crash every .some()/.filter()/.map() call downstream.
+        const parsed = JSON.parse(savedWatchlist);
+        if (Array.isArray(parsed)) setWatchlist(parsed);
+      }
       if (savedTranslate !== null) setTranslateArticles(savedTranslate === 'true');
       if (savedLocalCurrency !== null) setShowLocalCurrency(savedLocalCurrency === 'true');
     } catch (e) {}
@@ -68,20 +73,26 @@ export function AppProvider({ children }) {
     setLang('en');
   }
 
+  // Uses the functional form so the new list is always derived from the LATEST
+  // state, never from a stale closure. Without this, a fast double-tap (or a
+  // tap before loadSettings finished) computed from an outdated list and the
+  // second write silently dropped the first change.
   async function toggleWatchlist(ticker, name) {
-    const exists = watchlist.find(w => w.ticker === ticker);
-    let newList;
-    if (exists) {
-      newList = watchlist.filter(w => w.ticker !== ticker);
-    } else {
-      newList = [...watchlist, { ticker, name }];
+    let newList = null;
+    setWatchlist(function(prev) {
+      const list = Array.isArray(prev) ? prev : [];
+      newList = list.some(w => w.ticker === ticker)
+        ? list.filter(w => w.ticker !== ticker)
+        : [...list, { ticker, name }];
+      return newList;
+    });
+    if (newList) {
+      try { await AsyncStorage.setItem('watchlist', JSON.stringify(newList)); } catch (e) {}
     }
-    setWatchlist(newList);
-    await AsyncStorage.setItem('watchlist', JSON.stringify(newList));
   }
 
   function isInWatchlist(ticker) {
-    return watchlist.some(w => w.ticker === ticker);
+    return Array.isArray(watchlist) && watchlist.some(w => w.ticker === ticker);
   }
 
   return (

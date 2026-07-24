@@ -1,8 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { View, PanResponder, Dimensions } from 'react-native';
+import { View, PanResponder, Dimensions, useWindowDimensions } from 'react-native';
 import Svg, { Path, Defs, LinearGradient, Stop, Line, Circle, Text as SvgText, Rect } from 'react-native-svg';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+// Fallback only — the live width comes from useWindowDimensions inside the
+// component so the chart re-lays-out when a tablet rotates.
+const SCREEN_W_INITIAL = Dimensions.get('window').width;
 
 // Layout constants — module scope so the PanResponder closure can use them
 // without depending on render-time values.
@@ -14,6 +16,7 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
   // above the "no data" early return. Previously three useRef calls sat below
   // it — if this component ever rendered empty first and with data after,
   // React would throw "Rendered more hooks than during the previous render".
+  const { width: winW } = useWindowDimensions();
   const [tooltipIdx, setTooltipIdx] = useState(null);
   const chartRef  = useRef(null);
   const pricesRef = useRef([]);
@@ -46,7 +49,7 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
   const prices  = hasData ? data.prices : [];
   const dates   = hasData ? (data.dates || prices.map((_, i) => String(i))) : [];
 
-  const W = SCREEN_W - 48;   // margin 24 on each side
+  const W = (winW || SCREEN_W_INITIAL) - 48;   // margin 24 on each side
   const H = height;
   const cW = W - PAD.left - PAD.right;
   const cH = H - PAD.top  - PAD.bottom;
