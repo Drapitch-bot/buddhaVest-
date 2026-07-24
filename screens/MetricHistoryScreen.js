@@ -161,7 +161,7 @@ function tileScoreColor(score, colors) {
 }
 
 export default function MetricHistoryScreen({ route, navigation }) {
-  const { ticker, metricKey, label, tileNote, tileScore, tileValue } = route.params;
+  const { ticker, metricKey, label, tileNote, tileScore, tileValue, tileValueText } = route.params;
   const { colors, t } = useApp();
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState('quarterly');
@@ -279,12 +279,13 @@ export default function MetricHistoryScreen({ route, navigation }) {
   const usingYahooFallback = series.length < 2 && yahooPrices && yahooPrices.length > 1;
   const effectiveSeries = usingYahooFallback ? yahooPrices : series;
 
-  // A stock-PRICE chart under a valuation RATIO (EV/EBITDA, Forward P/E, P/B…)
-  // is meaningless and confused users. When a ratio metric has no real series,
-  // suppress the price fallback entirely and fall through to the clean
-  // "value + explanation" view instead of a misleading price chart.
-  const isRatioMetric = RATIO_METRICS.has(metricKey);
-  const suppressPriceChart = isRatioMetric && (usePrice || usingYahooFallback);
+  // A stock-PRICE chart under ANY other metric (EV/EBITDA, Forward P/E,
+  // Share Buyback, Cash Position…) is meaningless — the numbers on the axis
+  // aren't the metric, and a decades-long price line reads as if it were.
+  // The only metric a price chart legitimately belongs to is the price itself.
+  const PRICE_METRICS = new Set(['price', 'stock_price', 'share_price']);
+  const suppressPriceChart = (usePrice || usingYahooFallback)
+                          && !PRICE_METRICS.has(metricKey);
 
   // Show BOTH: tile note (exact truncated text from tile) AND i18n full explanation
   const i18nExpl = t.metric_explanations?.[metricKey] || t.metric_explanations?.[apiKey] || null;
@@ -471,7 +472,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
                       {tileValue != null ? (
                         <>
                           <Text style={[s.currentValue, { color: colors.text, marginBottom: 8 }]}>
-                            {typeof tileValue === 'number'
+                            {tileValueText != null
+                              ? tileValueText
+                              : typeof tileValue === 'number'
                               ? (() => {
                                   const isRatio = RATIO_METRICS.has(metricKey);
                                   const abs = Math.abs(tileValue);

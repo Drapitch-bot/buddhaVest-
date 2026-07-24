@@ -12,7 +12,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../constants/AppContext';
-import { API_BASE } from '../constants/api';
 import BrandHeader from '../components/BrandHeader';
 
 const MONK_ABOUT = require('../assets/monk_about.png'); // same image both modes

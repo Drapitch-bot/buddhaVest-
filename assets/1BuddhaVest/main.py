@@ -117,6 +117,24 @@ CACHE_TTL = {
 
 _CACHE_MAX = 300  # hard cap on cached entries — bounds the memory footprint
 
+# ── Input sanitizers ──
+# Tickers reach outbound URLs (Tiingo/Yahoo/Stooq) and cache keys, so restrict
+# them to the characters real symbols use: letters, digits, '.', '-', '^'.
+# This blocks path traversal ("../"), cache-key collisions and URL breakage.
+_TICKER_OK = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.-^=")
+_VALID_LANGS = ("he", "en", "ru", "es")
+
+def _clean_ticker(t: str) -> str:
+    t = (t or "").strip()[:20]
+    cleaned = "".join(c for c in t if c in _TICKER_OK)
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Invalid ticker.")
+    return cleaned
+
+def _clean_lang(l: str) -> str:
+    l = (l or "").strip().lower()[:5]
+    return l if l in _VALID_LANGS else "en"
+
 def _cache_get(key: str):
     with _cache_lock:
         entry = _cache.get(key)
@@ -527,6 +545,8 @@ def search(q: str):
 @app.get("/analyze/{ticker}")
 def analyze(ticker: str, lang: str = "he"):
     """מחזיר ניתוח מלא למנייה בודדת. lang: he/en/ru/es - שולט בשפת הטקסטים ההסברתיים."""
+    ticker = _clean_ticker(ticker)
+    lang = _clean_lang(lang)
     cache_key = f"analyze_{ticker.upper()}_{lang}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -535,7 +555,9 @@ def analyze(ticker: str, lang: str = "he"):
     try:
         data = get_stock_data(ticker)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not fetch data for '{ticker}': {e}")
+        # Don't echo the raw exception to clients (internal detail leak).
+        print(f"[analyze] fetch failed for {ticker}: {e}")
+        raise HTTPException(status_code=502, detail="Could not fetch data for this ticker.")
 
     # אם yfinance מחזיר info ריק - הסימול כנראה לא קיים (או שזו בעיית סיומת בורסה)
     if not data.get("info") or (
@@ -901,6 +923,8 @@ def debug_rows(ticker: str):
 @app.get("/metric-history/{ticker}/{metric}")
 def metric_history(ticker: str, metric: str):
     """מחזיר היסטוריה של מדד פיננסי ספציפי ל-5 שנים רבעונית/שנתית"""
+    ticker = _clean_ticker(ticker)
+    metric = "".join(c for c in (metric or "")[:40] if c.isalnum() or c == "_")
     cache_key = f"metric_history_{ticker.upper()}_{metric}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1413,6 +1437,7 @@ def metric_history(ticker: str, metric: str):
 @app.get("/events/{ticker}")
 def ticker_events(ticker: str):
     """דוחות כספיים קרובים, דיבידנדים וסיפלטים"""
+    ticker = _clean_ticker(ticker)
     cache_key = f"events_{ticker.upper()}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1533,6 +1558,7 @@ def ticker_events(ticker: str):
 @app.get("/financials/{ticker}")
 def ticker_financials(ticker: str):
     """דוחות כספיים מלאים - Income Statement, Balance Sheet, Cash Flow"""
+    ticker = _clean_ticker(ticker)
     cache_key = f"financials_{ticker.upper()}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1582,6 +1608,7 @@ def ticker_financials(ticker: str):
 @app.get("/etf-info/{ticker}")
 def etf_info(ticker: str):
     """נתונים ספציפיים ל-ETF"""
+    ticker = _clean_ticker(ticker)
     cache_key = f"etf_{ticker.upper()}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1652,6 +1679,7 @@ def etf_info(ticker: str):
 @app.get("/price-history/{ticker}")
 def price_history(ticker: str):
     """היסטוריית מחיר חודשית מ-Tiingo — מורשה לשימוש מסחרי, key מאובטח בשרת"""
+    ticker = _clean_ticker(ticker)  # also guards the outbound Tiingo URL path
     cache_key = f"price_history_{ticker.upper()}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1790,6 +1818,8 @@ def ticker_news(ticker: str, lang: str = "en"):
     חדשות עבור מנייה ספציפית - ממוזג מ-Yahoo וגם מ-Google News (חינמי, בלי מפתח API),
     כך שמניות עם כיסוי דליל ב-Yahoo (חברות קטנות, לא-אמריקאיות) עדיין יקבלו כתבות.
     """
+    ticker = _clean_ticker(ticker)
+    lang = _clean_lang(lang)
     # Per-ticker base (fetch + resolve + filter) — language-independent, cached
     base_key = f"news_base_{ticker.upper()}"
     base = _cache_get(base_key)
@@ -2099,6 +2129,8 @@ def ticker_signals(ticker: str, lang: str = "he"):
     """
     'דברים שכדאי לעקוב אחריהם' - סינון כותרות חדשות לפי מילות מפתח.
     """
+    ticker = _clean_ticker(ticker)
+    lang = _clean_lang(lang)
     try:
         articles = get_news(ticker, limit=15)
     except Exception as e:

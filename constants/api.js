@@ -1,19 +1,24 @@
 export const API_BASE = 'https://buddhavest.onrender.com';
 
+// Everything interpolated into a URL goes through encodeURIComponent.
+// Tickers can legitimately contain '.' and '^' (BRK.B, ^GSPC, DLEKG.TA) and a
+// malformed one must never be able to alter the request path.
+const e = (v) => encodeURIComponent(String(v == null ? '' : v));
+
 export const ENDPOINTS = {
-  analyze: (ticker, lang = 'he') => `${API_BASE}/analyze/${ticker}?lang=${lang}`,
-  search: (q) => `${API_BASE}/search?q=${encodeURIComponent(q)}`,
+  analyze: (ticker, lang = 'he') => `${API_BASE}/analyze/${e(ticker)}?lang=${e(lang)}`,
+  search: (q) => `${API_BASE}/search?q=${e(q)}`,
   marketOverview: () => `${API_BASE}/market-overview`,
-  news: (lang = 'en') => `${API_BASE}/news?lang=${lang}`,
-  stockNews: (ticker, lang = 'en') => `${API_BASE}/news/${ticker}?lang=${lang}`,
-  financials: (ticker) => `${API_BASE}/financials/${ticker}`,
-  events: (ticker) => `${API_BASE}/events/${ticker}`,
-  signals: (ticker, lang = 'he') => `${API_BASE}/signals/${ticker}?lang=${lang}`,
-  etfInfo: (ticker) => `${API_BASE}/etf-info/${ticker}`,
-  metricHistory: (ticker, metric) => `${API_BASE}/metric-history/${ticker}/${metric}`,
-  priceHistory: (ticker) => `${API_BASE}/price-history/${ticker}`,
-  exchangeRate: (currency = 'ILS') => `${API_BASE}/exchange-rate?currency=${currency}`,
+  news: (lang = 'en') => `${API_BASE}/news?lang=${e(lang)}`,
+  stockNews: (ticker, lang = 'en') => `${API_BASE}/news/${e(ticker)}?lang=${e(lang)}`,
+  financials: (ticker) => `${API_BASE}/financials/${e(ticker)}`,
+  events: (ticker) => `${API_BASE}/events/${e(ticker)}`,
+  signals: (ticker, lang = 'he') => `${API_BASE}/signals/${e(ticker)}?lang=${e(lang)}`,
+  etfInfo: (ticker) => `${API_BASE}/etf-info/${e(ticker)}`,
+  metricHistory: (ticker, metric) => `${API_BASE}/metric-history/${e(ticker)}/${e(metric)}`,
+  priceHistory: (ticker) => `${API_BASE}/price-history/${e(ticker)}`,
+  exchangeRate: (currency = 'ILS') => `${API_BASE}/exchange-rate?currency=${e(currency)}`,
   status: () => `${API_BASE}/status`,
-  quotes: (symbols) => `${API_BASE}/quotes?symbols=${encodeURIComponent(symbols)}`,
-  translateArticle: (url, lang) => `${API_BASE}/translate-article?url=${encodeURIComponent(url)}&lang=${lang}`,
+  quotes: (symbols) => `${API_BASE}/quotes?symbols=${e(symbols)}`,
+  translateArticle: (url, lang) => `${API_BASE}/translate-article?url=${e(url)}&lang=${e(lang)}`,
 };

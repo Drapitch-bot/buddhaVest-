@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 
 // noteClass from HTML: score >= 70 → green, >= 40 → amber, else → red, null → textDimmer
 function scoreColor(score, colors) {

@@ -4,21 +4,58 @@ import Svg, { Path, Defs, LinearGradient, Stop, Line, Circle, Text as SvgText, R
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
+// Layout constants — module scope so the PanResponder closure can use them
+// without depending on render-time values.
+const PAD = { top: 20, bottom: 32, left: 8, right: 8 };
+
 // data = { dates: string[], prices: number[] }  (from API history field)
 export default function PriceChart({ data, colors, height = 200, showCurrency = true }) {
+  // RULES OF HOOKS: every hook must run on EVERY render, so they all live
+  // above the "no data" early return. Previously three useRef calls sat below
+  // it — if this component ever rendered empty first and with data after,
+  // React would throw "Rendered more hooks than during the previous render".
   const [tooltipIdx, setTooltipIdx] = useState(null);
-  const chartRef = useRef(null);
+  const chartRef  = useRef(null);
+  const pricesRef = useRef([]);
+  const cWRef     = useRef(1);
 
-  if (!data || !data.prices || data.prices.length < 2) return null;
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder:  () => true,
+      onPanResponderGrant: (evt) => {
+        const localX = evt.nativeEvent.locationX - PAD.left;
+        const n = pricesRef.current.length;
+        if (n < 2 || !cWRef.current) return;
+        const idx = Math.round((localX / cWRef.current) * (n - 1));
+        setTooltipIdx(Math.max(0, Math.min(n - 1, idx)));
+      },
+      onPanResponderMove: (evt) => {
+        const localX = evt.nativeEvent.locationX - PAD.left;
+        const n = pricesRef.current.length;
+        if (n < 2 || !cWRef.current) return;
+        const idx = Math.round((localX / cWRef.current) * (n - 1));
+        setTooltipIdx(Math.max(0, Math.min(n - 1, idx)));
+      },
+      onPanResponderRelease:   () => { setTooltipIdx(null); },
+      onPanResponderTerminate: () => { setTooltipIdx(null); },
+    })
+  ).current;
 
-  const prices = data.prices;
-  const dates  = data.dates || prices.map((_, i) => String(i));
+  const hasData = !!(data && data.prices && data.prices.length >= 2);
+  const prices  = hasData ? data.prices : [];
+  const dates   = hasData ? (data.dates || prices.map((_, i) => String(i))) : [];
 
   const W = SCREEN_W - 48;   // margin 24 on each side
   const H = height;
-  const PAD = { top: 20, bottom: 32, left: 8, right: 8 };
   const cW = W - PAD.left - PAD.right;
   const cH = H - PAD.top  - PAD.bottom;
+
+  // Keep refs pointing at the latest data for the (once-created) PanResponder.
+  pricesRef.current = prices;
+  cWRef.current = cW;
+
+  if (!hasData) return null;
 
   const minV = Math.min(...prices);
   const maxV = Math.max(...prices);
@@ -38,39 +75,6 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
 
   // Y axis labels (3 levels)
   const yLevels = [minV, (minV + maxV) / 2, maxV];
-
-  // ── PanResponder ──────────────────────────────────────────────────────────
-  // Keep a ref to latest prices so PanResponder (created once) always uses
-  // the current data length — not the stale value from the first render.
-  const pricesRef = useRef(prices);
-  pricesRef.current = prices;
-  const cWRef = useRef(cW);
-  cWRef.current = cW;
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder:  () => true,
-      onPanResponderGrant: (evt) => {
-        const localX = evt.nativeEvent.locationX - PAD.left;
-        const n = pricesRef.current.length;
-        const idx = Math.round((localX / cWRef.current) * (n - 1));
-        setTooltipIdx(Math.max(0, Math.min(n - 1, idx)));
-      },
-      onPanResponderMove: (evt) => {
-        const localX = evt.nativeEvent.locationX - PAD.left;
-        const n = pricesRef.current.length;
-        const idx = Math.round((localX / cWRef.current) * (n - 1));
-        setTooltipIdx(Math.max(0, Math.min(n - 1, idx)));
-      },
-      onPanResponderRelease: () => {
-        setTooltipIdx(null);
-      },
-      onPanResponderTerminate: () => {
-        setTooltipIdx(null);
-      },
-    })
-  ).current;
 
   // Tooltip positioning
   const tp = tooltipIdx != null ? pts[tooltipIdx] : null;

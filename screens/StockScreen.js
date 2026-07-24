@@ -44,6 +44,12 @@ function metricValueDisplay(key, metric) {
   const pctKeys   = ['operating_margin', 'gross_margin', 'net_margin', 'moat', 'dividend', 'buyback'];
   if (bigKeys.includes(key))   return '$' + formatBigNumber(v);
   if (ratioKeys.includes(key)) return String(v);
+  // Buyback is a percent ONLY when the server could compute it against market
+  // cap; otherwise value is a raw currency amount (value_unit === 'currency').
+  // Without this check a 3.5e9 repurchase rendered as "3500000000%".
+  if (key === 'buyback' && metric.value_unit === 'currency') {
+    return '$' + formatBigNumber(v);
+  }
   if (pctKeys.includes(key))   return v + '%';
   if (key === 'pe_ratio')      return String(v);
   if (key === 'cash_runway')   return Math.round(v) + ' mo';
@@ -109,6 +115,9 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t }) {
                 tileNote: m.explanation || null,
                 tileScore: m.score ?? null,
                 tileValue: m.value ?? null,
+                // Pass the already-formatted string so the detail screen shows
+                // exactly what the tile showed (no "%" on currency amounts).
+                tileValueText: metricValueDisplay(key, m),
               });
             }}
           />
@@ -331,11 +340,16 @@ export default function StockScreen({ route, navigation }) {
         ? (t.dividend_pays || 'Pays dividend (~{pct}%)').replace('{pct}', divPct.toFixed(1))
         : (t.dividend_none || 'No dividend'))
     : null;
-  const bbPct = m.buyback && m.buyback.value != null ? m.buyback.value : null;
+  // Only treat the buyback value as a percentage when the server says so
+  // (value_unit 'currency' means it's a raw amount, not a yield).
+  const bbIsPct = m.buyback && m.buyback.value_unit !== 'currency';
+  const bbPct = (bbIsPct && m.buyback.value != null) ? m.buyback.value : null;
   const bbSummary = m.buyback
     ? (m.buyback.does_buyback && bbPct != null
         ? (t.buyback_yes || 'Buys back shares (~{pct}%)').replace('{pct}', bbPct.toFixed(1))
-        : (t.buyback_no || 'No buyback'))
+        : (m.buyback.does_buyback
+            ? (t.buyback_yes_plain || 'Buys back shares')
+            : (t.buyback_no || 'No buyback')))
     : null;
 
   return (
@@ -474,7 +488,7 @@ export default function StockScreen({ route, navigation }) {
                 {ov.market_cap ? (
                   <View style={[s.overviewTile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
                     <Text style={[s.oLabel, { color: colors.textDim }]}>{t.market_cap || 'Market Cap'}</Text>
-                    <Text style={[s.oValue, { color: colors.text }]}>{'$' + formatBigNumber(ov.market_cap)}</Text>
+                    <Text style={[s.oValue, { color: colors.text }]}>{priceSymbol + formatBigNumber(ov.market_cap)}</Text>
                   </View>
                 ) : null}
                 {ov.sector ? (
@@ -526,8 +540,8 @@ export default function StockScreen({ route, navigation }) {
                     <View style={[s.rangeMarker, { left: rangePct + '%', backgroundColor: colors.text }]} />
                   </LinearGradient>
                   <View style={s.rangeLabels}>
-                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{'$' + ov.week52_low.toFixed(2)}</Text>
-                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{'$' + ov.week52_high.toFixed(2)}</Text>
+                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{priceSymbol + ov.week52_low.toFixed(2)}</Text>
+                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{priceSymbol + ov.week52_high.toFixed(2)}</Text>
                   </View>
                 </View>
               ) : null}

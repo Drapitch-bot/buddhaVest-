@@ -552,11 +552,21 @@ def metric_buyback(info, cashflow):
             note += f" כ-{rounded_pct}% משווי השוק - היקף מתון."
             parts.append(("bb_modest", {"pct": rounded_pct}))
 
-    display_value = round(yield_pct, 2) if yield_pct is not None else round(amount, 0)
+    # CRITICAL: value is a PERCENT only when market cap was available. Without
+    # it we fall back to the raw repurchase amount (currency, e.g. 3.5e9) — the
+    # app used to render that with a "%" suffix, producing "3500000000%".
+    # value_unit tells the client which it is.
+    if yield_pct is not None:
+        display_value = round(yield_pct, 2)
+        value_unit = "percent"
+    else:
+        display_value = round(amount, 0)
+        value_unit = "currency"
 
     return {
         "does_buyback": True,
         "value": display_value,
+        "value_unit": value_unit,
         "label": "Buyback Yield",
         "explanation": note,
         "explanation_parts": parts,

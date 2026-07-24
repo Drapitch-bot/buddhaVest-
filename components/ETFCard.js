@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
 
 export default function ETFCard({ ticker, colors, t, navigation }) {
@@ -8,14 +8,20 @@ export default function ETFCard({ ticker, colors, t, navigation }) {
 
   useEffect(() => { loadETF(); }, [ticker]);
 
+  // Race guard: switching tickers fast fires overlapping requests; only the
+  // LATEST may write state so stale data can't land on the wrong stock.
+  const reqIdRef = useRef(0);
+
   async function loadETF() {
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     try {
       const res = await fetch(ENDPOINTS.etfInfo(ticker));
       const json = await res.json();
+      if (reqId !== reqIdRef.current) return; // stale
       setData(json);
     } catch (e) {}
-    setLoading(false);
+    if (reqId === reqIdRef.current) setLoading(false);
   }
 
   function fmtPct(v) {

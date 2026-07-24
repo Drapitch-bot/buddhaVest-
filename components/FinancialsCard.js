@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, Modal } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
 
@@ -62,14 +62,20 @@ export default function FinancialsCard({ ticker, colors, t, lang = 'en' }) {
 
   useEffect(() => { loadFinancials(); }, [ticker]);
 
+  // Race guard: only the LATEST ticker's response may write state, so switching
+  // stocks quickly can't leave one company's statements on another's screen.
+  const reqIdRef = useRef(0);
+
   async function loadFinancials() {
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     try {
       const res = await fetch(ENDPOINTS.financials(ticker));
       const json = await res.json();
+      if (reqId !== reqIdRef.current) return; // stale
       setData(json);
     } catch (e) {}
-    setLoading(false);
+    if (reqId === reqIdRef.current) setLoading(false);
   }
 
   function fmtVal(v) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
 
@@ -11,14 +11,19 @@ export default function EventsCard({ ticker, colors, t }) {
 
   useEffect(() => { loadEvents(); }, [ticker]);
 
+  // Race guard: only the LATEST ticker's response may write state.
+  const reqIdRef = useRef(0);
+
   async function loadEvents() {
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     try {
       const res  = await fetch(ENDPOINTS.events(ticker));
       const data = await res.json();
+      if (reqId !== reqIdRef.current) return; // stale
       setEvents(data.events || []);
-    } catch(e) { setEvents([]); }
-    setLoading(false);
+    } catch(e) { if (reqId === reqIdRef.current) setEvents([]); }
+    if (reqId === reqIdRef.current) setLoading(false);
   }
 
   function parsePastDetail(detail, date) {
