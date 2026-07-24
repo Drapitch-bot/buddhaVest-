@@ -56,7 +56,7 @@ export default function BrandHeader({ onRefresh, greeting }) {
       .then(r => { if (!r.ok) throw new Error('err'); return r.json(); })
       .then(async json => {
         if (!alive) return;
-        const found = (json.quotes || [])
+        const found = (Array.isArray(json.quotes) ? json.quotes : [])
           .filter(q => q.change_pct != null && Math.abs(q.change_pct) >= 2)
           .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
         if (found.length === 0) { setMovers([]); return; }

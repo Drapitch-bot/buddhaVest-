@@ -21,7 +21,7 @@ export default function EventsCard({ ticker, colors, t }) {
       const res  = await fetch(ENDPOINTS.events(ticker));
       const data = await res.json();
       if (reqId !== reqIdRef.current) return; // stale
-      setEvents(data.events || []);
+      setEvents(Array.isArray(data.events) ? data.events : []);
     } catch(e) { if (reqId === reqIdRef.current) setEvents([]); }
     if (reqId === reqIdRef.current) setLoading(false);
   }
@@ -46,9 +46,19 @@ export default function EventsCard({ ticker, colors, t }) {
     return (period ? `${period}` : '') + (parts.length ? ' · ' + parts.join(' · ') : '');
   }
 
-  const now      = new Date().toISOString().slice(0, 10);
-  const upcoming = (events || []).filter(e => e.date >= now).sort((a, b) => a.date.localeCompare(b.date));
-  const past     = (events || []).filter(e => e.date <  now).sort((a, b) => b.date.localeCompare(a.date));
+  // LOCAL calendar date, not UTC: toISOString() shifts to UTC, so late at night
+  // in Israel (UTC+3) "today" resolved to yesterday and today's event was filed
+  // under "past".
+  const _n = new Date();
+  const now = _n.getFullYear() + '-' +
+              String(_n.getMonth() + 1).padStart(2, '0') + '-' +
+              String(_n.getDate()).padStart(2, '0');
+
+  // Only well-formed entries take part; anything without a usable date used to
+  // match neither filter and vanished from the card without a trace.
+  const safeEvents = Array.isArray(events) ? events.filter(e => e && typeof e.date === 'string' && e.date) : [];
+  const upcoming = safeEvents.filter(e => e.date >= now).sort((a, b) => a.date.localeCompare(b.date));
+  const past     = safeEvents.filter(e => e.date <  now).sort((a, b) => b.date.localeCompare(a.date));
 
   function getTypeLabel(type) {
     if (type === 'earnings')      return t.events_earnings  || 'Next Earnings Report';
@@ -68,7 +78,7 @@ export default function EventsCard({ ticker, colors, t }) {
 
       {loading ? (
         <ActivityIndicator color={colors.accent} style={{ margin: 16 }} />
-      ) : !events || events.length === 0 ? (
+      ) : safeEvents.length === 0 ? (
         <Text style={[s.empty, { color: colors.textDimmer }]}>
           {t.events_no_data || t.noEvents || 'No events available'}
         </Text>

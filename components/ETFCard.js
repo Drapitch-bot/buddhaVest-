@@ -77,7 +77,7 @@ export default function ETFCard({ ticker, colors, t, navigation }) {
       </View>
 
       {/* Holdings */}
-      {data.top_holdings?.length > 0 && (
+      {Array.isArray(data.top_holdings) && data.top_holdings.length > 0 && (
         <>
           <Text style={[s.holdingsTitle, { color: colors.textDim }]}>{t.holdings}</Text>
           {data.top_holdings.map((h, i) => (

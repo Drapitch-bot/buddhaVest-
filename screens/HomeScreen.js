@@ -209,7 +209,7 @@ export default function HomeScreen({ navigation }) {
       const res  = await fetch(ENDPOINTS.news(lang));
       const data = await res.json();
       if (reqId !== newsReqIdRef.current) return; // stale — newer request took over
-      setNews((data.articles || []).slice(0, 3));
+      setNews(Array.isArray(data.articles) ? data.articles.slice(0, 3) : []);
     } catch(e) {}
   }
 

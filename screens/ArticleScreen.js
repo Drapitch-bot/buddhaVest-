@@ -185,7 +185,9 @@ export default function ArticleScreen({ route, navigation }) {
     if (!needsTranslation || translatedHtml || domSentRef.current) return;
     var data;
     try { data = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
-    if (!data || !data.items || data.items.length < 2) return;
+    // Array.isArray, not just .length — a hostile page could post
+    // {items:"aaa"}, which passes a length check and then crashes on .map().
+    if (!data || !Array.isArray(data.items) || data.items.length < 2) return;
     domSentRef.current = true;
     setTranslating(true);
 

@@ -24,7 +24,8 @@ export default function NewsCard({ ticker, colors, t, lang = 'en', navigation })
     try {
       const res   = await fetch(ENDPOINTS.stockNews(ticker, lang));
       const data  = await res.json();
-      const raw   = data.articles || data.news || [];
+      const rawIn = data.articles || data.news;
+      const raw   = Array.isArray(rawIn) ? rawIn : [];
       const items = await translateNewsItems(raw, lang);
       if (reqId !== reqIdRef.current) return; // stale — newer request took over
       setNews(items);

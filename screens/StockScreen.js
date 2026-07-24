@@ -281,7 +281,8 @@ export default function StockScreen({ route, navigation }) {
       const res  = await fetch(ENDPOINTS.signals(tk, lang));
       const json = await res.json();
       if (reqId !== reqIdRef.current) return;
-      setSignals(json.flagged || json.signals || []);
+      const sig = json.flagged || json.signals;
+      setSignals(Array.isArray(sig) ? sig : []);
     } catch(e) { if (reqId === reqIdRef.current) setSignals([]); }
   }
 

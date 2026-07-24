@@ -30,7 +30,7 @@ export default function SearchScreen({ navigation }) {
       const res = await fetch(ENDPOINTS.search(q));
       const data = await res.json();
       if (reqId !== reqIdRef.current) return; // stale — newer keystroke took over
-      setResults(data.results || []);
+      setResults(Array.isArray(data.results) ? data.results : []);
     } catch(e) { if (reqId === reqIdRef.current) setResults([]); }
     if (reqId === reqIdRef.current) setLoading(false);
   }
