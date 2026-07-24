@@ -117,6 +117,14 @@ CACHE_TTL = {
 
 _CACHE_MAX = 300  # hard cap on cached entries — bounds the memory footprint
 
+# History window for metric-history calculations.
+# These endpoints used period="max": for an old listing (KO trades since 1962)
+# that pulls ~16,000 daily rows into pandas just to emit ~44 monthly points,
+# because the financial statements behind the calculation only go back ~5 years
+# anyway. 10 years is comfortably more than the data can support and cuts the
+# per-request memory spike dramatically.
+_HIST_PERIOD = "10y"
+
 # ── Input sanitizers ──
 # Tickers reach outbound URLs (Tiingo/Yahoo/Stooq) and cache keys, so restrict
 # them to the characters real symbols use: letters, digits, '.', '-', '^'.
@@ -1029,7 +1037,7 @@ def metric_history(ticker: str, metric: str):
         elif metric in ("pe_ratio", "peg_ratio"):
             try:
                 import pandas as pd, math as _math
-                hist = stock.history(period="max")
+                hist = stock.history(period=_HIST_PERIOD)
                 eps_q_df = _get_quarterly_income(stock)
                 eps_a_df = _get_annual_income(stock)
 
@@ -1123,7 +1131,7 @@ def metric_history(ticker: str, metric: str):
             # מחשב היסטוריה של מכפיל על-ידי: מחיר חודשי / נתון פיננסי רבעוני TTM
             try:
                 import math as _math
-                hist = stock.history(period="max")
+                hist = stock.history(period=_HIST_PERIOD)
                 info = stock.info or {}
                 shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
 
@@ -1254,7 +1262,7 @@ def metric_history(ticker: str, metric: str):
             # ── buyback / dividend — calculated from cashflow / dividend history ──
             try:
                 import math as _math
-                hist = stock.history(period="max")
+                hist = stock.history(period=_HIST_PERIOD)
                 info = stock.info or {}
 
                 if metric == "buyback":
@@ -1442,15 +1450,18 @@ def metric_history(ticker: str, metric: str):
                 result_data["use_price"] = True
 
         if result_data["use_price"]:
-            hist = stock.history(period="max")
+            hist = stock.history(period=_HIST_PERIOD)
             if hist is not None and not hist.empty:
                 import math
                 close = hist["Close"].resample("ME").last().dropna()
-                result_data["price_history"] = [
+                _pts = [
                     {"date": d.strftime("%b %Y"), "value": round(float(v), 2)}
                     for d, v in zip(close.index, close.values)
                     if v is not None and not math.isnan(float(v))
                 ]
+                # Last 5 years is all the chart can meaningfully show; sending
+                # more just inflates the payload and the client's memory.
+                result_data["price_history"] = _pts[-60:]
             else:
                 result_data["price_history"] = []
 
