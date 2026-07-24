@@ -135,6 +135,19 @@ def _clean_lang(l: str) -> str:
     l = (l or "").strip().lower()[:5]
     return l if l in _VALID_LANGS else "en"
 
+# Article pages are fetched from URLs the client supplies, so the response size
+# must be bounded: an oversized target (a video, an archive, a huge feed) would
+# otherwise be pulled entirely into memory on a small instance.
+_MAX_HTML_BYTES = 3 * 1024 * 1024   # 3 MB
+_MAX_HTML_CHARS = 3 * 1024 * 1024
+
+def _too_large(resp) -> bool:
+    try:
+        cl = resp.headers.get("content-length")
+        return cl is not None and int(cl) > _MAX_HTML_BYTES
+    except Exception:
+        return False
+
 def _validate_public_url(u: str) -> str:
     """
     Guards the server-side article fetcher against SSRF.
@@ -1445,7 +1458,9 @@ def metric_history(ticker: str, metric: str):
         return result_data
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log internally; never hand the raw exception text to the caller.
+        print(f"[endpoint] error: {e}")
+        raise HTTPException(status_code=500, detail="Could not build this report.")
 
 
 @app.get("/events/{ticker}")
@@ -1566,7 +1581,9 @@ def ticker_events(ticker: str):
         return result
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log internally; never hand the raw exception text to the caller.
+        print(f"[endpoint] error: {e}")
+        raise HTTPException(status_code=500, detail="Could not build this report.")
 
 
 @app.get("/financials/{ticker}")
@@ -1616,7 +1633,9 @@ def ticker_financials(ticker: str):
         return result
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Log internally; never hand the raw exception text to the caller.
+        print(f"[endpoint] error: {e}")
+        raise HTTPException(status_code=500, detail="Could not build this report.")
 
 
 @app.get("/etf-info/{ticker}")
@@ -1687,7 +1706,8 @@ def etf_info(ticker: str):
         return result
 
     except Exception as e:
-        return {"is_etf": False, "error": str(e)}
+        print(f"[etf-info] error: {e}")
+        return {"is_etf": False}
 
 
 @app.get("/price-history/{ticker}")
@@ -1722,7 +1742,8 @@ def price_history(ticker: str):
         _cache_set(cache_key, result, CACHE_TTL["stock"])
         return result
     except Exception as e:
-        return {"ticker": ticker.upper(), "prices": [], "error": str(e)}
+        print(f"[price-history] error: {e}")
+        return {"ticker": ticker.upper(), "prices": []}
 
 
 @app.get("/exchange-rate")
@@ -1930,7 +1951,9 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 r = _cffi.get(fetch_url, impersonate="chrome124",
                               headers={"Accept-Language": "en-US,en;q=0.9"},
                               timeout=8, allow_redirects=True)
-                return r.text
+                if _too_large(r):
+                    return None
+                return (r.text or "")[:_MAX_HTML_CHARS]   # bound the memory
             html = await _asyncio.wait_for(
                 loop.run_in_executor(None, _cffi_get), timeout=8
             )
@@ -1946,10 +1969,12 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                     "Accept-Language": "en-US,en;q=0.9",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 })
-                html = resp.text
+                if _too_large(resp):
+                    return None
+                html = resp.text[:_MAX_HTML_CHARS]
         except Exception:
             pass
-        return html
+        return html[:_MAX_HTML_CHARS] if html else html
 
     # Try original URL
     raw_html = await _fetch_url(url)
@@ -1962,6 +1987,8 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 head_resp = await client.get(url, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 })
+                if _too_large(head_resp):
+                    raise Exception("oversized")
                 head_html = head_resp.text[:4000]
                 from bs4 import BeautifulSoup as _BS
                 head_soup = _BS(head_html, "html.parser")
@@ -1980,7 +2007,9 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                                 "Accept-Language": "en-US,en;q=0.9",
                             })
-                            raw_html = cr.text
+                            if _too_large(cr):
+                                raise Exception("oversized")
+                            raw_html = cr.text[:_MAX_HTML_CHARS]
         except Exception:
             pass
 

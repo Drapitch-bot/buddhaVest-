@@ -13,8 +13,16 @@ const SIZE = 88;
 const CIRCUMFERENCE = 264; // approx 2*pi*42
 
 export default function ScoreGauge({ score, colors }) {
-  const gaugeColor = score >= 75 ? colors.green : score >= 50 ? colors.amber : colors.red;
-  const offset = CIRCUMFERENCE - (CIRCUMFERENCE * (score || 0) / 100);
+  // A missing score must read as "no data", never as a verdict. Previously a
+  // null/NaN score fell through to the red branch — showing an "avoid"-coloured
+  // gauge (and a bare "%") for a stock we simply couldn't score.
+  const hasScore = typeof score === 'number' && isFinite(score);
+  const pct = hasScore ? Math.max(0, Math.min(100, score)) : 0;
+  const gaugeColor = !hasScore ? (colors.textDimmer || colors.textDim)
+                   : pct >= 75 ? colors.green
+                   : pct >= 50 ? colors.amber
+                   : colors.red;
+  const offset = CIRCUMFERENCE - (CIRCUMFERENCE * pct / 100);
 
   return (
     <View style={s.wrap}>
@@ -47,7 +55,7 @@ export default function ScoreGauge({ score, colors }) {
       {/* .gauge-label { font-size:22px; font-weight:600 } */}
       <View style={StyleSheet.absoluteFill}>
         <View style={s.center}>
-          <Text style={[s.label, { color: colors.text }]}>{score}%</Text>
+          <Text style={[s.label, { color: colors.text }]}>{hasScore ? pct + '%' : '—'}</Text>
         </View>
       </View>
     </View>
