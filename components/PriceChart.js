@@ -11,7 +11,10 @@ const SCREEN_W_INITIAL = Dimensions.get('window').width;
 const PAD = { top: 20, bottom: 32, left: 8, right: 8 };
 
 // data = { dates: string[], prices: number[] }  (from API history field)
-export default function PriceChart({ data, colors, height = 200, showCurrency = true }) {
+// `currency` is the symbol to prefix values with ('₪' for TASE listings).
+// It was hard-coded to '$', so an Israeli stock's chart labelled shekel values
+// as dollars.
+export default function PriceChart({ data, colors, height = 200, showCurrency = true, currency = '$' }) {
   // RULES OF HOOKS: every hook must run on EVERY render, so they all live
   // above the "no data" early return. Previously three useRef calls sat below
   // it — if this component ever rendered empty first and with data after,
@@ -87,7 +90,7 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
   const tipY = tp ? Math.max(tp.y - TOOLTIP_H - 6, PAD.top) : 0;
 
   function fmtPrice(v) {
-    const prefix = showCurrency ? '$' : '';
+    const prefix = showCurrency ? (currency || '$') : '';
     const abs = Math.abs(v);
     const sign = v < 0 ? '-' : '';
     if (abs >= 1e12) return sign + prefix + (abs / 1e12).toFixed(2) + 'T';

@@ -309,7 +309,9 @@ function JournalScreen({ colors, t, lang, insets, onBack, initialTicker }) {
 }
 
 // ─── Sub-screen: About ────────────────────────────────────────────────────────
-function AboutScreen({ colors, t, insets, isDark, onBack }) {
+function AboutScreen({ colors, t, insets, isDark, onBack, lang }) {
+  const rtl = lang === 'he';
+  const dir = { textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' };
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* Back button — always visible, above the scroll */}
@@ -334,9 +336,9 @@ function AboutScreen({ colors, t, insets, isDark, onBack }) {
             />
           </View>
           {/* ❓ moved to end, ? removed from title */}
-          <Text style={[ss.cardTitle, { color: colors.text }]}>{t.more_about_title + ' ❓'}</Text>
-          <Text style={[ss.aboutBody, { color: colors.textDim }]}>{t.about_body}</Text>
-          <Text style={[ss.aboutBody, { color: colors.textDimmer, marginTop: 12, fontSize: 11 }]}>{t.copyright_notice}</Text>
+          <Text style={[ss.cardTitle, { color: colors.text }, dir]}>{t.more_about_title + ' ❓'}</Text>
+          <Text style={[ss.aboutBody, { color: colors.textDim }, dir]}>{t.about_body}</Text>
+          <Text style={[ss.aboutBody, { color: colors.textDimmer, marginTop: 12, fontSize: 11 }, dir]}>{t.copyright_notice}</Text>
         </View>
       </ScrollView>
     </View>
@@ -344,7 +346,12 @@ function AboutScreen({ colors, t, insets, isDark, onBack }) {
 }
 
 // ─── Sub-screen: Terms of Service ────────────────────────────────────────────
-function ToSScreen({ colors, insets, onBack, t }) {
+function ToSScreen({ colors, insets, onBack, t, lang }) {
+  // The legal text is the most important text in the app to be readable. In
+  // Hebrew it was rendering left-aligned LTR, which makes a disclaimer hard to
+  // read — exactly the wrong place to have a layout problem.
+  const rtl = lang === 'he';
+  const dir = { textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' };
   const sections = [
     { title: t.tos_s1_title, body: t.tos_s1_body },
     { title: t.tos_s2_title, body: t.tos_s2_body },
@@ -368,8 +375,8 @@ function ToSScreen({ colors, insets, onBack, t }) {
           <Text style={[ss.cardTitle, { color: colors.text }]}>{'🛡️ ' + (t.more_tos_title || 'Terms of Service')}</Text>
           {sections.map((sec, i) => (
             <View key={i} style={[ss.tosSection, { borderBottomColor: colors.cardBorder, borderBottomWidth: i < sections.length - 1 ? 0.5 : 0 }]}>
-              <Text style={[ss.tosTitle, { color: colors.text }]}>{sec.title}</Text>
-              <Text style={[ss.tosBody, { color: colors.textDim }]}>{sec.body}</Text>
+              <Text style={[ss.tosTitle, { color: colors.text }, dir]}>{sec.title}</Text>
+              <Text style={[ss.tosBody, { color: colors.textDim }, dir]}>{sec.body}</Text>
             </View>
           ))}
         </View>

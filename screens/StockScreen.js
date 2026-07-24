@@ -122,6 +122,7 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t, cur }
                 // Pass the already-formatted string so the detail screen shows
                 // exactly what the tile showed (no "%" on currency amounts).
                 tileValueText: metricValueDisplay(key, m, cur),
+                cur: cur,   // so the detail screen labels values in the same currency
               });
             }}
           />
@@ -599,6 +600,7 @@ export default function StockScreen({ route, navigation }) {
                   data={{ prices: history.prices, dates: history.dates || [] }}
                   colors={colors}
                   height={160}
+                  currency={priceSymbol}
                 />
               </View>
             ) : (

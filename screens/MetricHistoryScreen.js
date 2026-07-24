@@ -168,6 +168,9 @@ function tileScoreColor(score, colors) {
 
 export default function MetricHistoryScreen({ route, navigation }) {
   const { ticker, metricKey, label, tileNote, tileScore, tileValue, tileValueText } = route.params;
+  // Currency of THIS stock ('₪' for TASE). Values here are the same figures the
+  // tile showed, so they must carry the same symbol.
+  const cur = route.params.cur || '$';
   const { colors, t } = useApp();
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState('quarterly');
@@ -434,9 +437,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
                     {tileValue != null
                       ? (t.use_price_fallback_with_value || 'No historical series tracked for this metric. Current value: {v}. Showing stock price chart for reference.')
                           .replace('{v}', typeof tileValue === 'number'
-                            ? (Math.abs(tileValue) >= 1e12 ? '$' + (Math.abs(tileValue) / 1e12).toFixed(2) + 'T'
-                              : Math.abs(tileValue) >= 1e9  ? '$' + (Math.abs(tileValue) / 1e9).toFixed(2) + 'B'
-                              : Math.abs(tileValue) >= 1e6  ? '$' + (Math.abs(tileValue) / 1e6).toFixed(2) + 'M'
+                            ? (Math.abs(tileValue) >= 1e12 ? cur + (Math.abs(tileValue) / 1e12).toFixed(2) + 'T'
+                              : Math.abs(tileValue) >= 1e9  ? cur + (Math.abs(tileValue) / 1e9).toFixed(2) + 'B'
+                              : Math.abs(tileValue) >= 1e6  ? cur + (Math.abs(tileValue) / 1e6).toFixed(2) + 'M'
                               : tileValue % 1 === 0 ? tileValue.toString()
                               : tileValue.toFixed(2))
                             : String(tileValue))
@@ -448,7 +451,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Chart */}
               {chartData ? (
                 <>
-                  <PriceChart data={chartData} colors={colors} height={220} showCurrency={usePrice || usingYahooFallback || !RATIO_METRICS.has(metricKey)} />
+                  <PriceChart data={chartData} colors={colors} height={220} currency={cur} showCurrency={usePrice || usingYahooFallback || !RATIO_METRICS.has(metricKey)} />
                   {(tileValue != null && !usingYahooFallback) || currentValue != null ? (
                     <Text style={[s.currentValue, { color: colors.text }]}>
                       {(function() {
@@ -461,9 +464,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
                         const abs = Math.abs(v);
                         const sign = v < 0 ? '-' : '';
                         if (!isRatio) {
-                          if (abs >= 1e12) return sign + '$' + (abs / 1e12).toFixed(2) + 'T';
-                          if (abs >= 1e9)  return sign + '$' + (abs / 1e9).toFixed(2) + 'B';
-                          if (abs >= 1e6)  return sign + '$' + (abs / 1e6).toFixed(2) + 'M';
+                          if (abs >= 1e12) return sign + cur + (abs / 1e12).toFixed(2) + 'T';
+                          if (abs >= 1e9)  return sign + cur + (abs / 1e9).toFixed(2) + 'B';
+                          if (abs >= 1e6)  return sign + cur + (abs / 1e6).toFixed(2) + 'M';
                         }
                         return v % 1 === 0 ? v.toString() : v.toFixed(2);
                       })()}
@@ -489,9 +492,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
                                   const abs = Math.abs(tileValue);
                                   const sign = tileValue < 0 ? '-' : '';
                                   if (!isRatio) {
-                                    if (abs >= 1e12) return sign + '$' + (abs / 1e12).toFixed(2) + 'T';
-                                    if (abs >= 1e9)  return sign + '$' + (abs / 1e9).toFixed(2) + 'B';
-                                    if (abs >= 1e6)  return sign + '$' + (abs / 1e6).toFixed(2) + 'M';
+                                    if (abs >= 1e12) return sign + cur + (abs / 1e12).toFixed(2) + 'T';
+                                    if (abs >= 1e9)  return sign + cur + (abs / 1e9).toFixed(2) + 'B';
+                                    if (abs >= 1e6)  return sign + cur + (abs / 1e6).toFixed(2) + 'M';
                                   }
                                   return tileValue % 1 === 0 ? tileValue.toString() : tileValue.toFixed(2);
                                 })()
