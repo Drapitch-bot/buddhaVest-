@@ -526,7 +526,10 @@ def search(q: str):
     """
     if not q or not q.strip():
         return {"query": q, "results": []}
-    results = search_tickers(q.strip())
+    # Cap the query length — no real company name is longer, and this keeps an
+    # oversized request from being forwarded upstream or blowing up the cache.
+    q = q.strip()[:64]
+    results = search_tickers(q)
 
     # אם לא נמצא כלום ב-Yahoo (לא כינוי, לא חיפוש חי) - ננסה גיבוי חינמי (Stooq).
     # שימושי בעיקר כשהקלט הוא כבר סימול קרוב לנכון, רק שYahoo לא מזהה אותו.
@@ -2134,7 +2137,8 @@ def ticker_signals(ticker: str, lang: str = "he"):
     try:
         articles = get_news(ticker, limit=15)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Could not fetch news for '{ticker}': {e}")
+        print(f"[signals] news fetch failed for {ticker}: {e}")
+        raise HTTPException(status_code=502, detail="Could not fetch news for this ticker.")
 
     result = analyze_signals(articles)
     result["ticker"] = ticker.upper()

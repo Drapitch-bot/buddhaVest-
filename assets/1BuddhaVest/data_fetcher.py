@@ -94,14 +94,26 @@ def get_stock_data(ticker: str) -> dict:
         info = {}
     info = _enrich_with_fast_info(stock, info)
 
+    # Each statement is fetched independently and may fail on its own (Yahoo
+    # throttling, schema changes). Previously any single failure raised out of
+    # here and turned the whole /analyze into a 502 — even when price + most
+    # fundamentals were available. The analyzer already treats a missing
+    # statement as "not enough data" for the affected metrics only, so degrade
+    # per-section instead of failing the entire request.
+    def _safe(getter):
+        try:
+            return getter()
+        except Exception:
+            return None
+
     return {
         "ticker": ticker.upper(),
         "info": info,
-        "income": stock.financials,
-        "balance": stock.balance_sheet,
-        "cashflow": stock.cashflow,
+        "income": _safe(lambda: stock.financials),
+        "balance": _safe(lambda: stock.balance_sheet),
+        "cashflow": _safe(lambda: stock.cashflow),
         "history": history,
-        "dividends": stock.dividends,
+        "dividends": _safe(lambda: stock.dividends),
     }
 
 
