@@ -157,13 +157,16 @@ export default function HomeScreen({ navigation }) {
 
   async function loadMarket() {
     const tryFetch = function(ms) {
+      // Clear the timeout when the race settles — otherwise the 30s auto-refresh
+      // interval piled up a pending 20-50s timer on every single tick.
+      let to;
       return Promise.race([
         fetch(ENDPOINTS.marketOverview()).then(function(r) {
           if (!r.ok) throw new Error('err');
           return r.json();
         }),
-        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); }),
-      ]);
+        new Promise(function(_, rej) { to = setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); }),
+      ]).finally(function() { clearTimeout(to); });
     };
     const applyData = function(data) {
       const idxArr = [];

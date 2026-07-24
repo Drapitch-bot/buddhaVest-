@@ -220,17 +220,27 @@ export default function StockScreen({ route, navigation }) {
   // (e.g. the old language) that resolves later is discarded.
   const reqIdRef = useRef(0);
 
+  // Leaving the screen mid-load must also cancel: the error path waits 8s and
+  // then retries for up to 40s, so without this the app kept a request alive
+  // long after the user navigated away and then wrote state to a dead screen.
+  useEffect(function() {
+    return function() { reqIdRef.current++; };   // invalidates every in-flight request
+  }, []);
+
   async function loadStock() {
     const reqId = ++reqIdRef.current;
     setLoading(true); setError(null); setWakingUp(false); setSignals(null); setBizExpanded(false);
     const tryFetch = function(ms) {
+      // The timeout handle is cleared once the race settles, otherwise every
+      // request left a 20-40s timer pending in the background.
+      let to;
       return Promise.race([
         fetch(ENDPOINTS.analyze(ticker, lang)).then(function(r) {
           if (!r.ok) throw new Error('Server error');
           return r.json();
         }),
-        new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); })
-      ]);
+        new Promise(function(_, rej) { to = setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); })
+      ]).finally(function() { clearTimeout(to); });
     };
     // Time-based gentle note: only if the load drags past 4s, and only for the
     // current request. Clears the moment data arrives; a warm server never

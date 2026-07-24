@@ -110,21 +110,31 @@ export default function WatchlistScreen({ navigation }) {
     }
 
     const newPrices = {};
-    await Promise.all(watchlist.map(async function(item) {
-      try {
-        const res  = await fetch(ENDPOINTS.analyze(item.ticker, lang));
-        const data = await res.json();
-        newPrices[item.ticker] = {
-          price:               data.current_price,
-          change:              data.price_change_pct,
-          score:               data.final_score,
-          recommendation:      data.recommendation,
-          recommendation_color: data.recommendation_color,
-          company_name:        data.company_name,
-          price_currency:      data.price_currency,  // 'ILS' for TASE stocks
-        };
-      } catch(e) {}
-    }));
+    // Fetch in small batches instead of firing one /analyze per ticker all at
+    // once. A 15-stock watchlist used to open 15 simultaneous heavy requests
+    // (full financial statements each) every 90s — enough to push a small
+    // server instance into an out-of-memory restart. Batching keeps the same
+    // result with a fraction of the peak load.
+    const BATCH = 4;
+    const items = watchlist.slice();
+    for (let i = 0; i < items.length; i += BATCH) {
+      if (reqId !== reqIdRef.current) return;   // stale/left the screen — stop early
+      await Promise.all(items.slice(i, i + BATCH).map(async function(item) {
+        try {
+          const res  = await fetch(ENDPOINTS.analyze(item.ticker, lang));
+          const data = await res.json();
+          newPrices[item.ticker] = {
+            price:               data.current_price,
+            change:              data.price_change_pct,
+            score:               data.final_score,
+            recommendation:      data.recommendation,
+            recommendation_color: data.recommendation_color,
+            company_name:        data.company_name,
+            price_currency:      data.price_currency,  // 'ILS' for TASE stocks
+          };
+        } catch(e) {}
+      }));
+    }
     if (reqId !== reqIdRef.current) return; // stale — discard prices/timestamp
     setPrices(newPrices);
     setLastUpdated(new Date());
