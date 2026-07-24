@@ -135,6 +135,43 @@ def _clean_lang(l: str) -> str:
     l = (l or "").strip().lower()[:5]
     return l if l in _VALID_LANGS else "en"
 
+def _validate_public_url(u: str) -> str:
+    """
+    Guards the server-side article fetcher against SSRF.
+
+    /translate-article takes a URL from the client and fetches it FROM THE
+    SERVER. Without this check, a crafted URL could point at loopback, a
+    private LAN address or the cloud metadata service (169.254.169.254) and the
+    response would be handed straight back to the caller — a standard way to
+    read internal endpoints or credentials.
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+
+    u = (u or "").strip()
+    if len(u) > 2048:
+        raise HTTPException(status_code=400, detail="Invalid URL.")
+    parsed = urlparse(u)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Invalid URL.")
+    host = (parsed.hostname or "").lower()
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid URL.")
+    # Block obvious local names
+    if host in ("localhost", "localhost.localdomain") or host.endswith(".local") \
+            or host.endswith(".internal") or host == "metadata.google.internal":
+        raise HTTPException(status_code=400, detail="Invalid URL.")
+    # Block literal private / loopback / link-local IPs
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise HTTPException(status_code=400, detail="Invalid URL.")
+    except HTTPException:
+        raise
+    except ValueError:
+        pass  # a normal hostname, not an IP literal
+    return u
+
 def _cache_get(key: str):
     with _cache_lock:
         entry = _cache.get(key)
@@ -1650,7 +1687,11 @@ def price_history(ticker: str):
 
 @app.get("/exchange-rate")
 def exchange_rate(currency: str = "ILS"):
-    currency = currency.upper()
+    # Whitelist: this value builds an outbound quote symbol ("{cur}=X") and a
+    # cache key, so an arbitrary string must never reach either.
+    currency = (currency or "").strip().upper()[:3]
+    if currency not in ("ILS", "RUB", "EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD"):
+        currency = "ILS"
     cache_key = f"exchange_{currency}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1726,6 +1767,7 @@ def _get_base_news() -> list:
 
 @app.get("/news")
 def general_news(lang: str = "en"):
+    lang = _clean_lang(lang)   # whitelist: also keeps the cache key bounded
     cache_key = f"news_general_{lang}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -1809,6 +1851,9 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
     import json as _json
     from bs4 import BeautifulSoup
 
+    url = _validate_public_url(url)   # SSRF guard — server fetches this URL
+    lang = _clean_lang(lang)
+
     # Cache: same URL + lang for 1 hour
     cache_key = f"tarticle_{lang}_{url}"
     cached = _cache_get(cache_key)
@@ -1883,6 +1928,11 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 canonical_tag = head_soup.find("link", rel="canonical")
                 if canonical_tag:
                     canonical_url = canonical_tag.get("href", "")
+                    # Second-order SSRF guard: the canonical URL comes from the
+                    # fetched page, so a hostile page could point it at an
+                    # internal address. Validate it exactly like the input URL.
+                    if canonical_url and canonical_url != url:
+                        canonical_url = _validate_public_url(canonical_url)
                     if canonical_url and canonical_url != url:
                         # httpx only for canonical — keeps worst-case under 28s
                         async with httpx.AsyncClient(timeout=4, follow_redirects=True) as c2:
@@ -2018,11 +2068,12 @@ async def translate_batch_get(q: str = "Hello world", lang: str = "he"):
     """Debug/self-test variant of the POST endpoint — same translation path,
     testable from a plain browser: /translate-batch?q=Some text&lang=he"""
     import asyncio as _asyncio
+    lang = _clean_lang(lang)
     def _run():
         try:
             return _translate_text(q[:4500], lang)
-        except Exception as e:
-            return f"ERROR: {e}"
+        except Exception:
+            return ""   # don't echo internal exception text back to the caller
     out = await _asyncio.get_event_loop().run_in_executor(None, _run)
     return {"texts": [out], "lang": lang}
 
@@ -2036,13 +2087,25 @@ async def translate_batch_endpoint(request: Request):
     Body: {"texts": [...], "lang": "he"} -> {"texts": [...]}
     """
     import asyncio as _asyncio
+    # Read the body with a hard size cap BEFORE parsing. Starlette has no
+    # default limit, so an oversized payload was fully materialised in memory
+    # on a small instance before the [:30] truncation could help.
+    MAX_BODY = 256 * 1024  # 256 KB — far above 30 paragraphs of article text
     try:
-        payload = await request.json()
+        raw = await request.body()
     except Exception:
+        raise HTTPException(status_code=400, detail="invalid body")
+    if len(raw) > MAX_BODY:
+        raise HTTPException(status_code=413, detail="payload too large")
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="invalid JSON body")
 
     texts = payload.get("texts") or []
-    lang = (payload.get("lang") or "he").strip()
+    lang = _clean_lang(payload.get("lang"))   # whitelist — reaches an outbound URL
     if not isinstance(texts, list) or not texts:
         return {"texts": []}
     texts = [str(t)[:4500] for t in texts[:30]]
@@ -2054,7 +2117,9 @@ async def translate_batch_endpoint(request: Request):
                 return _translate_text(txt, lang)
             except Exception:
                 return txt
-        with ThreadPoolExecutor(max_workers=10) as ex:
+        # 4 workers, not 10: several concurrent article opens used to spawn
+        # 10 threads each on a small instance.
+        with ThreadPoolExecutor(max_workers=4) as ex:
             return list(ex.map(_one, texts))
 
     translated = await _asyncio.get_event_loop().run_in_executor(None, _run)
@@ -2099,7 +2164,13 @@ def quotes_endpoint(symbols: str = ""):
     מחיר + אחוז שינוי יומי לרשימת סימולים (מופרדים בפסיק).
     משמש את פאנל ההתראות — תזוזות במניות רשימת המעקב.
     """
-    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:20]
+    # Each symbol reaches yfinance and a cache key — filter to valid ticker
+    # characters (same rule as _clean_ticker) and drop anything else.
+    syms = []
+    for s in symbols.split(",")[:20]:
+        s = "".join(c for c in s.strip()[:20] if c in _TICKER_OK).upper()
+        if s:
+            syms.append(s)
     if not syms:
         return {"quotes": []}
 
