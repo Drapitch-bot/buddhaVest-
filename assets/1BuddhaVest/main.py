@@ -446,6 +446,10 @@ def _resolve_gnews_articles(articles: list) -> list:
 
 
 _PREWARM_BUSY = set()
+_PREWARM_LOCK = threading.Lock()
+# True only while the boot-time news warm-up runs. Article pre-translation is
+# suppressed during that window — see _prewarm_news for why.
+_BOOTING = True
 
 def _prewarm_articles(urls: list, lang: str):
     """
@@ -454,21 +458,31 @@ def _prewarm_articles(urls: list, lang: str):
     """
     import threading
     import os as _os
-    if lang == "en" or lang in _PREWARM_BUSY:
+    if lang == "en" or _BOOTING:
         return
-    _PREWARM_BUSY.add(lang)
+    # check-and-claim under a lock: two simultaneous /news requests could both
+    # pass a bare `in` test and start duplicate warm-up loops.
+    with _PREWARM_LOCK:
+        if lang in _PREWARM_BUSY:
+            return
+        _PREWARM_BUSY.add(lang)
     port = _os.environ.get("PORT", "8000")
 
     def _run():
         try:
-            for u in urls:
+            # Three articles, not six, and a breath between them: each one is a
+            # full page download plus a translation round-trip, so warming six
+            # back-to-back produced a large memory spike for a feature that only
+            # saves a second on the article the user actually taps.
+            for u in urls[:3]:
                 if not u or 'news.google.com' in u:
                     continue
                 try:
                     httpx.get(f"http://127.0.0.1:{port}/translate-article",
-                              params={"url": u, "lang": lang}, timeout=60)
+                              params={"url": u, "lang": lang}, timeout=30)
                 except Exception:
                     pass
+                time.sleep(2)
         finally:
             _PREWARM_BUSY.discard(lang)
 
@@ -478,12 +492,30 @@ def _prewarm_articles(urls: list, lang: str):
 # כשהשרת מתעורר (cold start ב-Render) – מאחסן חדשות לכל השפות ברקע,
 # כדי שהמשתמש הראשון יקבל תשובה מהירה מה-cache ולא יחכה לתרגום.
 def _prewarm_news():
-    time.sleep(5)  # wait for server to fully start
-    for _lang in ["en", "he", "ru", "es"]:
-        try:
-            general_news(_lang)
-        except Exception:
-            pass
+    """
+    Warms the news cache for all four languages after boot.
+
+    This used to run all four languages back-to-back, and each non-English one
+    also kicked off six full article downloads + translations — roughly 18 heavy
+    fetches inside the first minute of the process's life. On a small instance
+    that is the worst possible moment for a memory spike, and if it pushed the
+    container over its limit the restart simply replayed the same burst.
+
+    Now: the languages are spaced out, and `_BOOTING` suppresses article
+    pre-translation until the warm-up is done, so boot costs one translate pass
+    per language instead of a stampede.
+    """
+    global _BOOTING
+    try:
+        time.sleep(15)  # let the server settle before doing any real work
+        for _lang in ["en", "he", "ru", "es"]:
+            try:
+                general_news(_lang)
+            except Exception:
+                pass
+            time.sleep(10)   # spread the load instead of spiking it
+    finally:
+        _BOOTING = False     # from here on, normal request-driven prewarming
 
 threading.Thread(target=_prewarm_news, daemon=True).start()
 
