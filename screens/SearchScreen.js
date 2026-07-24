@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, ActivityIndicator, ScrollView,
@@ -20,12 +20,35 @@ export default function SearchScreen({ navigation }) {
   // Race guard: typing fast fires overlapping requests; only the LATEST may
   // write results, so a stale response can't overwrite the current query's.
   const reqIdRef = useRef(0);
+  const debounceRef = useRef(null);
 
-  async function doSearch(q) {
+  // Fired on EVERY keystroke. Without the debounce below, typing "AAPL" sent
+  // four separate searches — and each one the server couldn't resolve also
+  // triggered extra upstream lookups. Waiting for a short pause in typing sends
+  // one request instead, with no perceptible delay.
+  function onQueryChange(q) {
     setQuery(q);
-    const reqId = ++reqIdRef.current;
-    if (q.length < 1) { setResults([]); return; }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (q.trim().length < 1) {
+      reqIdRef.current++;          // cancel anything in flight
+      setResults([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    debounceRef.current = setTimeout(function() { runSearch(q); }, 300);
+  }
+
+  // Cancel a pending search when leaving the screen.
+  useEffect(function() {
+    return function() {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      reqIdRef.current++;
+    };
+  }, []);
+
+  async function runSearch(q) {
+    const reqId = ++reqIdRef.current;
     try {
       const res = await fetch(ENDPOINTS.search(q));
       const data = await res.json();
@@ -54,7 +77,7 @@ export default function SearchScreen({ navigation }) {
           placeholder={t.searchPlaceholder}
           placeholderTextColor={colors.textDimmer}
           value={query}
-          onChangeText={doSearch}
+          onChangeText={onQueryChange}
           autoCapitalize="characters"
           autoCorrect={false}
           textAlign="right"

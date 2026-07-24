@@ -1544,11 +1544,18 @@ def ticker_events(ticker: str):
             try:
                 dt = datetime.fromtimestamp(ex_div, tz=timezone.utc)
                 if dt > datetime.now(tz=timezone.utc):
+                    # Currency follows the listing (TASE quotes in shekel), and the
+                    # wording is left to the client: this string used to be a
+                    # hard-coded English "$X/share annually", which showed dollars
+                    # for Israeli stocks and English text to Hebrew/Russian users.
+                    _ccy = (info.get("currency") or "").upper()
+                    _sym = "₪" if (ticker.upper().endswith(".TA") or _ccy in ("ILA", "ILS")) else "$"
                     events.append({
                         "type": "dividend",
                         "date": dt.strftime("%Y-%m-%d"),
                         "label": "Ex-Dividend Date",
-                        "detail": f"${div_rate:.2f}/share annually"
+                        "detail": f"{_sym}{div_rate:.2f}",
+                        "detail_key": "div_per_share",   # client appends localised wording
                     })
             except Exception:
                 pass
@@ -1762,12 +1769,22 @@ def price_history(ticker: str):
     if cached is not None:
         return cached
 
+    if not TIINGO_TOKEN:
+        # No key configured — don't fire a request that can only fail.
+        return {"ticker": ticker.upper(), "prices": []}
+
     try:
+        # The token goes in a header, not the query string: a URL carrying the
+        # secret can end up inside an httpx exception message (which we log) or
+        # in any intermediate access log.
         url = (
             f"https://api.tiingo.com/tiingo/daily/{ticker}/prices"
-            f"?startDate=2020-01-01&resampleFreq=monthly&token={TIINGO_TOKEN}"
+            f"?startDate=2020-01-01&resampleFreq=monthly"
         )
-        resp = httpx.get(url, headers={"Content-Type": "application/json"}, timeout=10)
+        resp = httpx.get(url, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Token {TIINGO_TOKEN}",
+        }, timeout=10)
         if not resp.is_success:
             return {"ticker": ticker.upper(), "prices": []}
         data = resp.json()

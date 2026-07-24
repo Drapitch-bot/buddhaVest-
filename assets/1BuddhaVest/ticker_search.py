@@ -199,10 +199,20 @@ def search_tickers(query: str, max_results: int = 6) -> list:
     if results:
         return results
 
-    # שכבה 3 – ניסיון וריאציות אם החיפוש הרגיל לא החזיר כלום
-    variants = _build_variants(query)
-    for variant in variants:
-        results = _yahoo_search(variant, max_results)
+    # שכבה 3 – ניסיון וריאציות אם החיפוש הרגיל לא החזיר כלום.
+    # Only for real name-like queries: the client searches on every keystroke, so
+    # for "A" or "AA" this layer used to fire up to three EXTRA Yahoo lookups per
+    # character typed — and for a single word the variant is identical to the
+    # query that just failed.
+    if len(query) < 3:
+        return []
+    seen = {query.lower()}
+    for variant in _build_variants(query):
+        v = (variant or "").strip()
+        if not v or v.lower() in seen:
+            continue          # skip duplicates of a search we already did
+        seen.add(v.lower())
+        results = _yahoo_search(v, max_results)
         if results:
             return results
 

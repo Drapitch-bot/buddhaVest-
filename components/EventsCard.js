@@ -99,7 +99,12 @@ export default function EventsCard({ ticker, colors, t }) {
                       {getTypeLabel(e.type) || e.label}
                     </Text>
                     <Text style={[s.eventDetail, { color: colors.textDimmer }]}>
-                      {e.date}{e.detail ? ' · ' + e.detail : ''}
+                      {e.date}
+                      {e.detail
+                        ? ' · ' + e.detail + (e.detail_key === 'div_per_share'
+                            ? ' ' + (t.events_per_share || 'per share, annually')
+                            : '')
+                        : ''}
                     </Text>
                   </View>
                 </View>
