@@ -291,6 +291,13 @@ def metric_net_income_trend(income):
         return {"value": None, "label": "Net Income (latest)", "explanation": "אין מספיק היסטוריה.",
                 "explanation_parts": [("nit_no_history", {})], "score": None}
 
+    # Force newest-first instead of trusting the provider's column order. This
+    # comparison decides "profits growing" vs "profits declining"; if the order
+    # ever flipped, the verdict would silently invert with no error to notice.
+    try:
+        series = series.sort_index(ascending=False)
+    except Exception:
+        pass
     latest, previous = series.iloc[0], series.iloc[1]
     if latest > 0 and latest > previous:
         score, note, key = 100, "הרווחים חיוביים וצומחים משנה לשנה.", "nit_growing"
@@ -371,7 +378,12 @@ def metric_free_cash_flow(cashflow):
             if capex is not None:
                 break
         capex = capex or 0
-        fcf = ocf + capex  # capex כבר שלילי ב-yfinance
+        # Sign-safe: yfinance reports capex as a NEGATIVE number, so the old
+        # `ocf + capex` worked — but if the field ever arrives positive (other
+        # sources do report it that way) the same expression would ADD capital
+        # spending to free cash flow and invert a scored metric. Subtracting the
+        # magnitude is correct under either convention.
+        fcf = ocf - abs(capex)
 
     if fcf > 0:
         score, note, key = 90, "תזרים מזומנים חופשי חיובי - העסק מייצר מזומן פנוי אמיתי.", "fcf_positive"
@@ -431,6 +443,16 @@ def metric_dividend(info, dividends):
     """
     yield_ = _safe_info(info, "dividendYield")
     info_says_pays = bool(yield_ and yield_ > 0)
+
+    # Force oldest→newest ordering. Everything below relies on it: index[-1] is
+    # treated as the latest payment and tail(4) as the four most recent ones.
+    # If the provider ever returned the series reversed, the "recent payment"
+    # check and the yield estimate would both silently use the OLDEST data.
+    if dividends is not None and not dividends.empty:
+        try:
+            dividends = dividends.sort_index()
+        except Exception:
+            pass
 
     recent_dividend_paid = False
     if dividends is not None and not dividends.empty:
@@ -492,7 +514,9 @@ def metric_dividend(info, dividends):
     if years_paying is not None:
         if years_paying >= 5:
             score = 85
-            consistency_note = f" משולם בעקביות כ-{years_paying} שנים - סימן לתזרים מזומנים יציב."
+            # See i18n_data["div_consistent"]: this is the SPAN of the payment
+            # history, not proof of uninterrupted payments — so don't claim it.
+            consistency_note = f" היסטוריית תשלומי דיבידנד של כ-{years_paying} שנים."
             parts.append(("div_consistent", {"years": years_paying}))
         else:
             score = 60

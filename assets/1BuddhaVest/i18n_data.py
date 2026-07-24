@@ -455,11 +455,15 @@ EXPLANATIONS = {
         "ru": "Компания платит дивиденды (согласно истории выплат), но точную доходность сейчас рассчитать нельзя.",
         "es": "La empresa paga dividendos (según el historial de pagos), pero no se puede calcular un rendimiento exacto en este momento.",
     },
+    # Wording note: we measure the SPAN of the dividend history (first payment
+    # to last), not whether payments were uninterrupted. Claiming "paid
+    # consistently" asserted something the data doesn't prove — a company that
+    # paid, stopped for years, then resumed would have produced the same number.
     "div_consistent": {
-        "he": "משולם בעקביות כ-{years} שנים - סימן לתזרים מזומנים יציב.",
-        "en": "Paid consistently for about {years} years - a sign of stable cash flow.",
-        "ru": "Стабильно выплачивается около {years} лет - признак устойчивого денежного потока.",
-        "es": "Se paga de forma constante desde hace {years} años - señal de un flujo de caja estable.",
+        "he": "היסטוריית תשלומי דיבידנד של כ-{years} שנים.",
+        "en": "Dividend payment history spanning about {years} years.",
+        "ru": "История выплат дивидендов охватывает около {years} лет.",
+        "es": "Historial de pago de dividendos de aproximadamente {years} años.",
     },
     "div_building": {
         "he": "ההיסטוריה קצרה (כ-{years} שנים) - מסלול ההוכחה עדיין נבנה.",
