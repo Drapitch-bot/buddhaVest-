@@ -171,7 +171,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
   // Currency of THIS stock ('₪' for TASE). Values here are the same figures the
   // tile showed, so they must carry the same symbol.
   const cur = route.params.cur || '$';
-  const { colors, t } = useApp();
+  const { colors, t, lang } = useApp();
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState('quarterly');
   const [data, setData] = useState(null);
@@ -300,6 +300,11 @@ export default function MetricHistoryScreen({ route, navigation }) {
                           && !PRICE_METRICS.has(metricKey);
 
   // Show BOTH: tile note (exact truncated text from tile) AND i18n full explanation
+  // These explanation boxes are translated sentences; without a direction they
+  // rendered left-to-right in Hebrew, same as the stock screen used to.
+  const isRtl = lang === 'he';
+  const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
+
   const i18nExpl = t.metric_explanations?.[metricKey] || t.metric_explanations?.[apiKey] || null;
   // serverExpl: only if different from both above
   const serverExpl = data?.explanation || data?.expl || null;
@@ -345,7 +350,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
           marginTop: 12,
           marginBottom: 4,
         }]}>
-          <Text style={[s.explText, { color: tileScoreColor(tileScore, colors) }]}>{tileNote}</Text>
+          <Text style={[s.explText, { color: tileScoreColor(tileScore, colors) }, dirStyle]}>{tileNote}</Text>
         </View>
       ) : null}
       {i18nExpl && i18nExpl !== tileNote ? (
@@ -356,7 +361,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
           marginTop: tileNote ? 6 : 12,
           marginBottom: 4,
         }]}>
-          <Text style={[s.explText, { color: colors.textDim }]}>{i18nExpl}</Text>
+          <Text style={[s.explText, { color: colors.textDim }, dirStyle]}>{i18nExpl}</Text>
         </View>
       ) : null}
       {serverExpl && serverExpl !== tileNote && serverExpl !== i18nExpl ? (
@@ -367,7 +372,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
           marginTop: 6,
           marginBottom: 4,
         }]}>
-          <Text style={[s.explText, { color: colors.textDimmer }]}>{serverExpl}</Text>
+          <Text style={[s.explText, { color: colors.textDimmer }, dirStyle]}>{serverExpl}</Text>
         </View>
       ) : null}
 
@@ -433,7 +438,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                   backgroundColor: (colors.accent || '#6366f1') + '15',
                   borderColor: (colors.accent || '#6366f1') + '40',
                 }]}>
-                  <Text style={[s.noDataText, { color: colors.textDim }]}>
+                  <Text style={[s.noDataText, { color: colors.textDim }, dirStyle]}>
                     {tileValue != null
                       ? (t.use_price_fallback_with_value || 'No historical series tracked for this metric. Current value: {v}. Showing stock price chart for reference.')
                           .replace('{v}', typeof tileValue === 'number'
@@ -505,7 +510,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                             borderColor: (colors.accent || '#6366f1') + '40',
                             marginBottom: 16,
                           }]}>
-                            <Text style={[s.noDataText, { color: colors.textDim }]}>
+                            <Text style={[s.noDataText, { color: colors.textDim }, dirStyle]}>
                               {t.no_history_for_metric || 'No historical series available for this metric. The value shown is the current reading from the latest financial report.'}
                             </Text>
                           </View>

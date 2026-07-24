@@ -232,6 +232,11 @@ export default function HomeScreen({ navigation }) {
   function cc(v) { return v > 0 ? colors.green : v < 0 ? colors.red : colors.textDim; }
 
   // Index label icons — VIX emoji is dynamic
+  // The tip banner carries the 'green doesn't mean buy' caveat — a long
+  // translated sentence that was rendering left-to-right in Hebrew.
+  const isRtl = lang === 'he';
+  const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
+
   const idxIcon = { sp500: '📈', nasdaq: '📊', usdils: '₪' };
   function vixEmoji(v) {
     if (v == null) return '😐';
@@ -337,14 +342,14 @@ export default function HomeScreen({ navigation }) {
           <LinearGradient colors={['#2d1f00', '#1c1f26']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={s.tipBanner}>
             <Text style={{ fontSize: 14, color: colors.amber }}>💡</Text>
-            <Text style={[s.tipText, { color: colors.accent, flex: 1 }]}>
+            <Text style={[s.tipText, { color: colors.accent, flex: 1 }, dirStyle]}>
               {t.tip_banner || 'Live market data from Yahoo Finance. Green doesn\'t mean "buy" — check the full analysis before deciding.'}
             </Text>
           </LinearGradient>
         ) : (
           <View style={[s.tipBanner, { backgroundColor: colors.card, borderColor: colors.cardBorder, borderWidth: 1 }]}>
             <Text style={{ fontSize: 14, color: colors.amber }}>💡</Text>
-            <Text style={[s.tipText, { color: colors.text, flex: 1 }]}>
+            <Text style={[s.tipText, { color: colors.text, flex: 1 }, dirStyle]}>
               {t.tip_banner || 'Live market data from Yahoo Finance. Green doesn\'t mean "buy" — check the full analysis before deciding.'}
             </Text>
           </View>
