@@ -189,7 +189,18 @@ export default function ArticleScreen({ route, navigation }) {
     domSentRef.current = true;
     setTranslating(true);
 
-    var texts = [data.title || ''].concat(data.items.map(function(it) { return it.text; }));
+    // The message comes from a third-party page loaded in the WebView, so treat
+    // every field as untrusted: cap the item count and keep only the fields we
+    // actually use (text is escaped below; the TAG is whitelisted, never
+    // interpolated raw — otherwise a hostile page could send tag:"script").
+    var ALLOWED_TAGS = { p: 'p', h2: 'h2', h3: 'h3' };
+    var items = data.items.slice(0, 30).map(function(it) {
+      return {
+        tag: ALLOWED_TAGS[String(it && it.tag).toLowerCase()] || 'p',
+        text: String((it && it.text) || '').slice(0, 4500),
+      };
+    });
+    var texts = [String(data.title || '').slice(0, 500)].concat(items.map(function(it) { return it.text; }));
     fetch(API_BASE + '/translate-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -202,10 +213,10 @@ export default function ArticleScreen({ route, navigation }) {
         var isRtl = lang === 'he';
         var body = '';
         if (tr[0]) body += '<h1>' + escapeHtml(tr[0]) + '</h1>';
-        for (var i = 0; i < data.items.length; i++) {
+        for (var i = 0; i < items.length; i++) {
           var t = tr[i + 1] || '';
           if (t) {
-            var tag = data.items[i].tag === 'p' ? 'p' : data.items[i].tag;
+            var tag = items[i].tag;   // already whitelisted to p/h2/h3
             body += '<' + tag + '>' + escapeHtml(t) + '</' + tag + '>';
           }
         }

@@ -192,6 +192,29 @@ def _cache_set(key: str, data, ttl: int):
                 for k in sorted(_cache, key=lambda k: _cache[k]["expires"])[: len(_cache) - _CACHE_MAX]:
                     del _cache[k]
 
+# ── Request coalescing (single-flight) ──
+# Without this, N users asking for the same ticker while the cache is cold each
+# triggered a full, independent Yahoo fetch (financials + balance + cashflow +
+# history — heavy DataFrames). Serialising per cache key means the first caller
+# does the work and the rest read the cache it just filled: same answer, a
+# fraction of the peak memory.
+_key_locks = {}
+_key_locks_guard = threading.Lock()
+_KEY_LOCKS_MAX = 200
+
+def _key_lock(key: str):
+    with _key_locks_guard:
+        lk = _key_locks.get(key)
+        if lk is None:
+            if len(_key_locks) > _KEY_LOCKS_MAX:
+                # drop locks nobody is holding, so the dict can't grow forever
+                for k, v in list(_key_locks.items()):
+                    if not v.locked():
+                        _key_locks.pop(k, None)
+            lk = threading.Lock()
+            _key_locks[key] = lk
+        return lk
+
 def _cache_clear_expired():
     """מנקה entries פגי תוקף כדי לא לצבור זיכרון"""
     with _cache_lock:
@@ -592,6 +615,23 @@ def analyze(ticker: str, lang: str = "he"):
     if cached is not None:
         return cached
 
+    # Coalesce duplicate concurrent requests for this exact ticker+lang.
+    _lk = _key_lock(cache_key)
+    _got = _lk.acquire(timeout=50)
+    try:
+        if _got:
+            # Someone may have filled the cache while we waited for the lock.
+            cached = _cache_get(cache_key)
+            if cached is not None:
+                return cached
+        return _analyze_uncached(ticker, lang, cache_key)
+    finally:
+        if _got:
+            _lk.release()
+
+
+def _analyze_uncached(ticker: str, lang: str, cache_key: str):
+    """The expensive path — only ever entered by one caller per key at a time."""
     try:
         data = get_stock_data(ticker)
     except Exception as e:
