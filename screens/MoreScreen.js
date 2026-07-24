@@ -13,8 +13,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../constants/AppContext';
 import BrandHeader from '../components/BrandHeader';
+// Metro bundles JSON natively, so no extra dependency is needed.
+import appConfig from '../app.json';
 
 const MONK_ABOUT = require('../assets/monk_about.png'); // same image both modes
+
+// Version shown in Settings — read from app.json rather than hard-coded, so a
+// release bump can't leave the UI (and Google's reviewer) showing a stale v1.0.0.
+const APP_VERSION = (appConfig && appConfig.expo && appConfig.expo.version) || '1.0.0';
 
 const LANGS = [
   { code: 'he', label: 'עברית' },
@@ -119,7 +125,7 @@ function SettingsScreen({ colors, t, insets, isDark, toggleTheme, lang, changeLa
 
           <View style={[ss.settingsRow, { borderBottomColor: colors.cardBorder }]}>
             <View style={{ flex: 1 }}>
-              <Text style={[ss.mTicker, { color: colors.text }]}>BuddhaVest v1.0.0</Text>
+              <Text style={[ss.mTicker, { color: colors.text }]}>{'BuddhaVest v' + APP_VERSION}</Text>
               <Text style={[ss.mName, { color: colors.textDimmer, fontSize: 11 }]}>{t.settings_version_features}</Text>
             </View>
           </View>
