@@ -846,82 +846,16 @@ def _get_annual_cashflow(stock):
         except: pass
     return None
 
-@app.get("/debug-pe/{ticker}")
-def debug_pe(ticker: str):
-    """בדיקת חישוב PE היסטורי"""
-    try:
-        import yfinance as yf
-        import pandas as pd
-        stock = yf.Ticker(ticker)
-        hist = stock.history(period="5y")
-        eps_df = _get_quarterly_income(stock)
-        
-        result = {
-            "hist_rows": len(hist) if hist is not None else 0,
-            "eps_df_empty": eps_df is None or eps_df.empty,
-            "eps_index": [],
-            "eps_values": [],
-            "sample_pe": []
-        }
-        
-        if eps_df is not None and not eps_df.empty:
-            eps_q = None
-            for key in ["Diluted EPS", "Basic EPS"]:
-                if key in eps_df.index:
-                    eps_q = eps_df.loc[key].sort_index()
-                    result["eps_key_used"] = key
-                    break
-            
-            if eps_q is not None:
-                if hasattr(eps_q.index, 'tz') and eps_q.index.tz is not None:
-                    eps_q.index = eps_q.index.tz_localize(None)
-                
-                result["eps_index"] = [str(i)[:10] for i in eps_q.index[-8:]]
-                result["eps_values"] = [round(float(v), 4) if v is not None else None for v in eps_q.values[-8:]]
-                
-                price_monthly = hist["Close"].resample("ME").last()
-                if hasattr(price_monthly.index, 'tz') and price_monthly.index.tz is not None:
-                    price_monthly.index = price_monthly.index.tz_localize(None)
-                
-                count = 0
-                for date, price in list(price_monthly.items())[-12:]:
-                    past_eps = eps_q[eps_q.index <= date].tail(4)
-                    ttm = float(past_eps.sum()) if len(past_eps) == 4 else None
-                    pe = round(float(price)/ttm, 2) if ttm and ttm != 0 else None
-                    result["sample_pe"].append({
-                        "date": date.strftime("%b %Y"),
-                        "price": round(float(price), 2),
-                        "ttm_eps": round(ttm, 4) if ttm else None,
-                        "eps_count": len(past_eps),
-                        "pe": pe
-                    })
-        
-        return result
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "trace": traceback.format_exc()}
-
-@app.get("/debug-rows/{ticker}")
-def debug_rows(ticker: str):
-    """מחזיר את שמות השורות האמיתיים מ-yfinance"""
-    try:
-        import yfinance as yf
-        stock = yf.Ticker(ticker)
-        result = {}
-        for attr in ["quarterly_income_stmt", "quarterly_financials", "income_stmt", "financials",
-                     "quarterly_balance_sheet", "balance_sheet",
-                     "quarterly_cash_flow", "quarterly_cashflow", "cash_flow", "cashflow"]:
-            try:
-                df = getattr(stock, attr)
-                if df is not None and not df.empty:
-                    result[attr] = list(df.index)
-                else:
-                    result[attr] = "empty"
-            except Exception as e:
-                result[attr] = f"error: {str(e)}"
-        return result
-    except Exception as e:
-        return {"error": str(e)}
+# ── REMOVED: /debug-pe and /debug-rows ──
+# These were development-only inspectors left publicly reachable. They were
+# removed because they:
+#   1. returned a full Python traceback to the caller on error (leaking file
+#      paths, code structure and library versions),
+#   2. took an unvalidated ticker straight into yfinance,
+#   3. had no cache and pulled 5 years of history / 10 statement DataFrames per
+#      call — an unauthenticated way for anyone to exhaust a memory-limited
+#      instance (the same pressure behind the Render out-of-memory restarts).
+# No client code ever called them. Re-add locally if needed for debugging.
 
 @app.get("/metric-history/{ticker}/{metric}")
 def metric_history(ticker: str, metric: str):
