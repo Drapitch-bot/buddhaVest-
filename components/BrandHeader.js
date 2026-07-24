@@ -26,7 +26,11 @@ const BELL_DARK  = require('../assets/bell_dark.png');   // cream bell — for d
 const BELL_LIGHT = require('../assets/bell_light.png');  // darker bell — for light mode
 
 export default function BrandHeader({ onRefresh, greeting }) {
-  const { colors, isDark, t, watchlist } = useApp();
+  const { colors, isDark, t, watchlist, lang } = useApp();
+  // Notification text is generated per language; without this it rendered
+  // left-to-right for Hebrew like the About/ToS screens used to.
+  const isRtl = lang === 'he';
+  const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
   const insets = useSafeAreaInsets();
   const spinAnim = useRef(new Animated.Value(0)).current;
   const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
@@ -228,9 +232,9 @@ export default function BrandHeader({ onRefresh, greeting }) {
                         <Text style={{ fontSize: 20, marginRight: 10 }}>{item.icon}</Text>
                       )}
                       <View style={{ flex: 1 }}>
-                        <Text style={[s.notifText, { color: colors.text }]} numberOfLines={3}>{item.text}</Text>
+                        <Text style={[s.notifText, { color: colors.text }, dirStyle]} numberOfLines={3}>{item.text}</Text>
                         {item.time ? (
-                          <Text style={[s.notifTime, { color: colors.textDimmer }]}>{item.time}</Text>
+                          <Text style={[s.notifTime, { color: colors.textDimmer }, dirStyle]}>{item.time}</Text>
                         ) : null}
                       </View>
                     </View>

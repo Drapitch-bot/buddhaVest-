@@ -9,19 +9,21 @@ function scoreColor(score, colors) {
   return colors.red;
 }
 
-export default function MetricTile({ label, value, note, score, colors, onPress }) {
+// `rtl` drives text direction for the note, which is a translated sentence.
+export default function MetricTile({ label, value, note, score, colors, onPress, rtl }) {
+  const dir = { textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' };
   return (
     <TouchableOpacity
       style={[s.tile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
       onPress={onPress}
       activeOpacity={0.7}>
       {/* .m-label { font-size:12px; color:var(--text-dim) } */}
-      <Text style={[s.label, { color: colors.textDim }]} numberOfLines={1}>{label}</Text>
+      <Text style={[s.label, { color: colors.textDim }, dir]} numberOfLines={1}>{label}</Text>
       {/* .m-value { font-size:17px; font-weight:600 } */}
-      <Text style={[s.value, { color: colors.text }]} numberOfLines={1}>{value ?? '—'}</Text>
+      <Text style={[s.value, { color: colors.text }, dir]} numberOfLines={1}>{value ?? '—'}</Text>
       {/* .m-note { font-size:11px; margin:4px 0 0; line-height:1.35 } */}
       {note ? (
-        <Text style={[s.note, { color: scoreColor(score, colors) }]} numberOfLines={2}>{note}</Text>
+        <Text style={[s.note, { color: scoreColor(score, colors) }, dir]} numberOfLines={2}>{note}</Text>
       ) : null}
     </TouchableOpacity>
   );

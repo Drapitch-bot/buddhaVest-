@@ -74,7 +74,20 @@ def get_stooq_quote(ticker: str) -> dict | None:
     if not base:
         return None
 
-    for suffix in COMMON_SUFFIXES:
+    # Overall time budget. Trying all eight suffixes at 4s each meant a symbol
+    # that exists nowhere kept the server busy for ~32 seconds — long after the
+    # app (20s timeout) had already given up on the request.
+    import time as _time
+    deadline = _time.monotonic() + 10
+
+    # A symbol that already carries an exchange suffix (e.g. "dlekg.ta") gains
+    # nothing from appending ".us"/".uk"; only try the bare symbol for those.
+    has_suffix = "." in base
+    suffixes = [""] if has_suffix else COMMON_SUFFIXES
+
+    for suffix in suffixes:
+        if _time.monotonic() > deadline:
+            break
         candidate = base if suffix == "" or base.endswith(suffix) else base + suffix
         row = _fetch_csv_row(candidate)
         if row:
@@ -117,6 +130,13 @@ def get_stooq_daily(ticker: str, stooq_symbol: str | None = None) -> dict | None
             continue
         rows = [r for r in csv.DictReader(io.StringIO(raw))
                 if r.get("Close") not in (None, "", "N/D")]
+        # Sort by date so rows[-1] really is the latest close and rows[-2] the
+        # previous one. Reversed input would otherwise produce a daily change
+        # computed from the two OLDEST days — wrong, with nothing to signal it.
+        try:
+            rows.sort(key=lambda r: r.get("Date") or "")
+        except Exception:
+            pass
         if rows:
             try:
                 price = float(rows[-1]["Close"])

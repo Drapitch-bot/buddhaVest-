@@ -90,7 +90,7 @@ function timeAgo(published, t) {
 }
 
 // ── MetricsGrid ───────────────────────────────────────────────────────────────
-function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t, cur }) {
+function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t, cur, rtl }) {
   const pairs = metricKeys.filter(function(k) {
     const m = metrics[k];
     if (!m) return false;
@@ -111,6 +111,7 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t, cur }
             note={m.explanation}
             score={m.score}
             colors={colors}
+            rtl={rtl}
             onPress={function() {
               navigation.navigate('MetricHistory', {
                 ticker: ticker,
@@ -321,6 +322,12 @@ export default function StockScreen({ route, navigation }) {
   // 'ILS'): show ₪ as the primary symbol and skip the USD→ILS second line.
   const priceIsILS  = data && data.price_currency === 'ILS';
   const priceSymbol = priceIsILS ? '₪' : '$';
+
+  // Every long translated string on this screen (recommendation explanation,
+  // card descriptions, the Munger checklist, metric notes) was rendering
+  // left-to-right in Hebrew. Only the business summary handled direction.
+  const isRtl = lang === 'he';
+  const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
   const showSecondaryCcy = !priceIsILS && secondaryCurrency != null;
 
   function incomeLabelFor() {
@@ -478,19 +485,19 @@ export default function StockScreen({ route, navigation }) {
                 <View style={s.decisionInfo}>
                   <Text style={[s.recLabel, { color: colors.textDim }]}>{t.buddhavest_rec || 'Our Conclusion'}</Text>
                   <Text style={[s.recValue, { color: rcColor }]}>{recInfo.label}</Text>
-                  <Text style={[s.recExplain, { color: colors.textDimmer }]} numberOfLines={3}>{recInfo.explain}</Text>
+                  <Text style={[s.recExplain, { color: colors.textDimmer }, dirStyle]} numberOfLines={3}>{recInfo.explain}</Text>
                 </View>
               </View>
               {divSummary ? (
                 <View style={[s.divLine, { borderTopColor: colors.cardBorder }]}>
                   <Text>{m.dividend && m.dividend.pays_dividend ? '🪙' : '🚫'}</Text>
-                  <Text style={[s.divText, { color: colors.textDim }]}>{divSummary}</Text>
+                  <Text style={[s.divText, { color: colors.textDim }, dirStyle]}>{divSummary}</Text>
                 </View>
               ) : null}
               {bbSummary ? (
                 <View style={[s.divLine, { borderTopColor: colors.cardBorder }]}>
                   <Text>{m.buyback && m.buyback.does_buyback ? '♻️' : '🚫'}</Text>
-                  <Text style={[s.divText, { color: colors.textDim }]}>{bbSummary}</Text>
+                  <Text style={[s.divText, { color: colors.textDim }, dirStyle]}>{bbSummary}</Text>
                 </View>
               ) : null}
             </View>
@@ -568,14 +575,14 @@ export default function StockScreen({ route, navigation }) {
           {(m.pe_ratio && m.pe_ratio.value != null) || (m.peg_ratio && m.peg_ratio.value != null) ? (
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <Text style={[s.cardTitle, { color: colors.text }]}>{'🏷️ ' + (t.valuation || 'Valuation')}</Text>
-              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} />
+              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} rtl={isRtl} />
             </View>
           ) : null}
 
           {/* Profitability card */}
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[s.cardTitle, { color: colors.text }]}>{'📊 ' + (t.profitability || 'Profitability & Margins')}</Text>
-            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} />
+            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} rtl={isRtl} />
           </View>
 
           {/* Balance card */}
@@ -588,7 +595,7 @@ export default function StockScreen({ route, navigation }) {
                 ...(m.cash_runway && m.cash_runway.value != null ? ['cash_runway'] : []),
                 'dividend','buyback',
               ]}
-              metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} />
+              metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} rtl={isRtl} />
           </View>
 
           {/* Price chart card */}
@@ -624,7 +631,7 @@ export default function StockScreen({ route, navigation }) {
           {/* Signals card */}
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[s.cardTitle, { color: colors.text }]}>{'📡 ' + (t.signals || 'Things to Watch')}</Text>
-            <Text style={[s.cardDesc, { color: colors.textDimmer }]}>
+            <Text style={[s.cardDesc, { color: colors.textDimmer }, dirStyle]}>
               {t.signals_desc || 'Automatic keyword scan of recent headlines. Not a financial indicator, not part of the score.'}
             </Text>
             {signals == null ? (
@@ -642,7 +649,7 @@ export default function StockScreen({ route, navigation }) {
           {/* Munger checklist card */}
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[s.cardTitle, { color: colors.text }]}>{'🧠 ' + (t.munger_title || 'A reminder before you decide')}</Text>
-            <Text style={[s.cardDesc, { color: colors.textDimmer }]}>
+            <Text style={[s.cardDesc, { color: colors.textDimmer }, dirStyle]}>
               {t.munger_desc || "A few questions worth asking yourself, inspired by Charlie Munger's approach."}
             </Text>
             {[
@@ -655,8 +662,8 @@ export default function StockScreen({ route, navigation }) {
                 <View key={i} style={s.mungerItem}>
                   <Text style={[s.mungerIcon, { color: colors.accent }]}>{item.icon}</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={[s.mungerQ, { color: colors.text }]}>{item.q}</Text>
-                    <Text style={[s.mungerD, { color: colors.textDim }]}>{item.d}</Text>
+                    <Text style={[s.mungerQ, { color: colors.text }, dirStyle]}>{item.q}</Text>
+                    <Text style={[s.mungerD, { color: colors.textDim }, dirStyle]}>{item.d}</Text>
                   </View>
                 </View>
               );
