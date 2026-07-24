@@ -29,6 +29,10 @@ const METRIC_KEY_MAP = {
 
 const FETCH_TIMEOUT_MS = 55000;
 
+// The only metrics a raw stock-PRICE chart legitimately belongs to. Module
+// scope because both the fetch decision and the render decision use it.
+const PRICE_METRICS = new Set(['price', 'stock_price', 'share_price']);
+
 // Metrics that are ratios/percentages — no $ sign in chart tooltip
 const RATIO_METRICS = new Set([
   'pe_ratio', 'forward_pe', 'peg_ratio',
@@ -47,6 +51,8 @@ function normalizeItem(item) {
   if (Array.isArray(item)) {
     return { date: String(item[0] || ''), value: item[1] };
   }
+  // A null/primitive entry inside the series used to throw here on item.value.
+  if (!item || typeof item !== 'object') return { date: '', value: null };
   const value = item.value ?? item.v ?? item.val ?? null;
   const date  = item.date  || item.period || item.quarter
               || item.year  || item.label  || '';
@@ -202,25 +208,29 @@ export default function MetricHistoryScreen({ route, navigation }) {
     setSlowLoad(false);
     setData(null);
     setYahooPrices(null);
-    setFallbackLoading(true);
     setMode('quarterly');
 
     slowTimer.current = setTimeout(() => setSlowLoad(true), 5000);
 
-    // ── Fallback starts IMMEDIATELY — parallel with backend ──────────────────
-    // As soon as Yahoo/Stooq return price data, we stop the spinner and show a
-    // price chart. If the backend later responds with real metric data, it
-    // overwrites the price chart and clears the fallback.
-    fetchFallbackPrices(ticker).then(function(yp) {
-      if (loadId.current !== myId) return;   // stale — newer loadHistory() fired
-      setFallbackLoading(false);
-      if (!yp || yp.length < 2) return;
-      if (metricLoaded.current) return;       // backend already has metric data
-      setYahooPrices(yp);
-      setLoading(false);                      // stop spinner NOW
-      clearTimeout(slowTimer.current);
-      setSlowLoad(false);
-    }).catch(function() { setFallbackLoading(false); });
+    // ── Price fallback ────────────────────────────────────────────────────────
+    // Only fetched when a price chart could actually be DISPLAYED. A stock-price
+    // line is suppressed under every non-price metric (it is meaningless there),
+    // so fetching it anyway meant 3 external requests — Yahoo x2 + Stooq — on
+    // every metric tap for data that was thrown away.
+    const wantPriceFallback = PRICE_METRICS.has(metricKey);
+    setFallbackLoading(wantPriceFallback);
+    if (wantPriceFallback) {
+      fetchFallbackPrices(ticker).then(function(yp) {
+        if (loadId.current !== myId) return;   // stale — newer loadHistory() fired
+        setFallbackLoading(false);
+        if (!yp || yp.length < 2) return;
+        if (metricLoaded.current) return;       // backend already has metric data
+        setYahooPrices(yp);
+        setLoading(false);                      // stop spinner NOW
+        clearTimeout(slowTimer.current);
+        setSlowLoad(false);
+      }).catch(function() { setFallbackLoading(false); });
+    }
 
     // ── Backend request ───────────────────────────────────────────────────────
     const controller = new AbortController();
@@ -283,7 +293,6 @@ export default function MetricHistoryScreen({ route, navigation }) {
   // Share Buyback, Cash Position…) is meaningless — the numbers on the axis
   // aren't the metric, and a decades-long price line reads as if it were.
   // The only metric a price chart legitimately belongs to is the price itself.
-  const PRICE_METRICS = new Set(['price', 'stock_price', 'share_price']);
   const suppressPriceChart = (usePrice || usingYahooFallback)
                           && !PRICE_METRICS.has(metricKey);
 

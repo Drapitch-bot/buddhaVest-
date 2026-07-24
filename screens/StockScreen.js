@@ -36,19 +36,23 @@ function formatBigNumber(num) {
   return String(num);
 }
 
-function metricValueDisplay(key, metric) {
+// `cur` is the currency symbol for THIS stock ('₪' for TASE listings). The
+// monetary metrics below are reported in the company's own currency, so a
+// hard-coded '$' mislabelled every Israeli stock's cash flow / cash position.
+function metricValueDisplay(key, metric, cur) {
+  const sym = cur || '$';
   const v = metric && metric.value;
   if (v == null) return '—';
   const bigKeys   = ['free_cash_flow', 'net_income_trend', 'operating_cash_flow', 'cash_position', 'cost_of_revenue'];
   const ratioKeys = ['current_ratio', 'debt_to_equity', 'peg_ratio', 'liabilities_to_equity'];
   const pctKeys   = ['operating_margin', 'gross_margin', 'net_margin', 'moat', 'dividend', 'buyback'];
-  if (bigKeys.includes(key))   return '$' + formatBigNumber(v);
+  if (bigKeys.includes(key))   return sym + formatBigNumber(v);
   if (ratioKeys.includes(key)) return String(v);
   // Buyback is a percent ONLY when the server could compute it against market
   // cap; otherwise value is a raw currency amount (value_unit === 'currency').
   // Without this check a 3.5e9 repurchase rendered as "3500000000%".
   if (key === 'buyback' && metric.value_unit === 'currency') {
-    return '$' + formatBigNumber(v);
+    return sym + formatBigNumber(v);
   }
   if (pctKeys.includes(key))   return v + '%';
   if (key === 'pe_ratio')      return String(v);
@@ -86,7 +90,7 @@ function timeAgo(published, t) {
 }
 
 // ── MetricsGrid ───────────────────────────────────────────────────────────────
-function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t }) {
+function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t, cur }) {
   const pairs = metricKeys.filter(function(k) {
     const m = metrics[k];
     if (!m) return false;
@@ -103,7 +107,7 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t }) {
           <MetricTile
             key={key}
             label={displayLabel}
-            value={metricValueDisplay(key, m)}
+            value={metricValueDisplay(key, m, cur)}
             note={m.explanation}
             score={m.score}
             colors={colors}
@@ -117,7 +121,7 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t }) {
                 tileValue: m.value ?? null,
                 // Pass the already-formatted string so the detail screen shows
                 // exactly what the tile showed (no "%" on currency amounts).
-                tileValueText: metricValueDisplay(key, m),
+                tileValueText: metricValueDisplay(key, m, cur),
               });
             }}
           />
@@ -563,14 +567,14 @@ export default function StockScreen({ route, navigation }) {
           {(m.pe_ratio && m.pe_ratio.value != null) || (m.peg_ratio && m.peg_ratio.value != null) ? (
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <Text style={[s.cardTitle, { color: colors.text }]}>{'🏷️ ' + (t.valuation || 'Valuation')}</Text>
-              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} />
+              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} />
             </View>
           ) : null}
 
           {/* Profitability card */}
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[s.cardTitle, { color: colors.text }]}>{'📊 ' + (t.profitability || 'Profitability & Margins')}</Text>
-            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} />
+            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} />
           </View>
 
           {/* Balance card */}
@@ -583,7 +587,7 @@ export default function StockScreen({ route, navigation }) {
                 ...(m.cash_runway && m.cash_runway.value != null ? ['cash_runway'] : []),
                 'dividend','buyback',
               ]}
-              metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} />
+              metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={priceSymbol} />
           </View>
 
           {/* Price chart card */}
