@@ -89,8 +89,17 @@ const CONSENT_JS = `
       var els = document.querySelectorAll('button, [role="button"], input[type="submit"]');
       for (var i = 0; i < els.length; i++) {
         var tx = ((els[i].innerText || els[i].value || '') + '').toLowerCase();
+        // Google renders this wall in the DEVICE language, not the app's.
+        // Only English and Hebrew were matched here, so a phone set to Russian
+        // or Spanish never got the wall auto-accepted and the reader sat on
+        // Google's consent page instead of the article. All four supported
+        // languages are covered now (tx is already lower-cased above).
         if (tx.indexOf('accept all') !== -1 || tx.indexOf('agree') !== -1 ||
-            tx.indexOf('קבל') !== -1 || tx.indexOf('אישור') !== -1 || tx.indexOf('הסכמה') !== -1) {
+            tx.indexOf('קבל') !== -1 || tx.indexOf('אישור') !== -1 || tx.indexOf('הסכמה') !== -1 ||
+            tx.indexOf('принять') !== -1 || tx.indexOf('согласен') !== -1 ||
+            tx.indexOf('соглашаюсь') !== -1 || tx.indexOf('принимаю') !== -1 ||
+            tx.indexOf('aceptar') !== -1 || tx.indexOf('acepto') !== -1 ||
+            tx.indexOf('de acuerdo') !== -1) {
           els[i].click();
           return true;
         }
