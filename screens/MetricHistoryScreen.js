@@ -171,16 +171,33 @@ async function fetchFallbackPrices(ticker) {
   return series ? series.slice(-12) : null;
 }
 
-// Same logic as MetricTile: score ≥70 → green, ≥40 → amber, <40 → red, null → purple
+// Same ladder as the tile the user just tapped, so the signal carries across
+// both screens.
+//
+// `null` used to fall back to colors.purple — which in this theme IS '#f59e0b',
+// i.e. AMBER. Every metric opened from "Additional Valuation Multiples" passes
+// no score, so its note box rendered as an amber warning wrapped around a
+// sentence that only explains what the metric means. No score = no verdict =
+// no colour.
 function tileScoreColor(score, colors) {
-  if (score == null) return colors.purple || '#7c3aed';
+  if (score == null) return colors.textDim;
   if (score >= 70)   return colors.green  || '#22c55e';
   if (score >= 40)   return colors.amber  || '#fbbf24';
   return               colors.red    || '#ef4444';
 }
 
+// ValTile metrics carry no score but DO have a colour (P/B above 5 is red), so
+// the stock screen passes it explicitly. Without it the number was red on one
+// screen and grey on the next.
+function signalColor(tileSignal, tileScore, colors) {
+  if (tileSignal === 'green') return colors.green;
+  if (tileSignal === 'red')   return colors.red;
+  if (tileSignal === 'amber') return colors.amber;
+  return tileScoreColor(tileScore, colors);
+}
+
 export default function MetricHistoryScreen({ route, navigation }) {
-  const { ticker, metricKey, label, tileNote, tileScore, tileValue, tileValueText } = route.params;
+  const { ticker, metricKey, label, tileNote, tileScore, tileValue, tileValueText, tileSignal } = route.params;
   // Currency of THIS stock ('₪' for TASE). Values here are the same figures the
   // tile showed, so they must carry the same symbol.
   const cur = route.params.cur || '$';
@@ -369,19 +386,21 @@ export default function MetricHistoryScreen({ route, navigation }) {
       {/* ── Explanations: BOTH tile note AND i18n full explanation, shown immediately ── */}
       {tileNote ? (
         <View style={[s.explBox, {
-          backgroundColor: tileScoreColor(tileScore, colors) + '22',
-          borderColor:     tileScoreColor(tileScore, colors) + '55',
+          backgroundColor: signalColor(tileSignal, tileScore, colors) + '22',
+          borderColor:     signalColor(tileSignal, tileScore, colors) + '55',
           marginHorizontal: 16,
           marginTop: 12,
           marginBottom: 4,
         }]}>
-          <Text style={[s.explText, { color: tileScoreColor(tileScore, colors) }, dirStyle]}>{tileNote}</Text>
+          <Text style={[s.explText, { color: signalColor(tileSignal, tileScore, colors) }, dirStyle]}>{tileNote}</Text>
         </View>
       ) : null}
       {i18nExpl && i18nExpl !== tileNote ? (
         <View style={[s.explBox, {
-          backgroundColor: (colors.accent || '#6366f1') + '15',
-          borderColor: (colors.accent || '#6366f1') + '40',
+          /* Pure explanation of what the metric means — never a warning.
+             This used colors.accent, which is '#f59e0b' (amber) in this theme. */
+          backgroundColor: colors.cardAlt,
+          borderColor: colors.cardBorder,
           marginHorizontal: 16,
           marginTop: tileNote ? 6 : 12,
           marginBottom: 4,
@@ -391,8 +410,8 @@ export default function MetricHistoryScreen({ route, navigation }) {
       ) : null}
       {serverExpl && serverExpl !== tileNote && serverExpl !== i18nExpl ? (
         <View style={[s.explBox, {
-          backgroundColor: (colors.accent || '#6366f1') + '10',
-          borderColor: (colors.accent || '#6366f1') + '30',
+          backgroundColor: colors.cardAlt,
+          borderColor: colors.cardBorder,
           marginHorizontal: 16,
           marginTop: 6,
           marginBottom: 4,
@@ -460,8 +479,8 @@ export default function MetricHistoryScreen({ route, navigation }) {
                   view below carries its own (correct) explanation. */}
               {(usePrice || usingYahooFallback) && !suppressPriceChart && (
                 <View style={[s.noDataBanner, {
-                  backgroundColor: (colors.accent || '#6366f1') + '15',
-                  borderColor: (colors.accent || '#6366f1') + '40',
+                  backgroundColor: colors.cardAlt,
+                  borderColor: colors.cardBorder,
                 }]}>
                   <Text style={[s.noDataText, { color: colors.textDim }, { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
                     {tileValue != null
@@ -540,8 +559,8 @@ export default function MetricHistoryScreen({ route, navigation }) {
                               : String(tileValue)}
                           </Text>
                           <View style={[s.noDataBanner, {
-                            backgroundColor: (colors.accent || '#6366f1') + '15',
-                            borderColor: (colors.accent || '#6366f1') + '40',
+                            backgroundColor: colors.cardAlt,
+                            borderColor: colors.cardBorder,
                             marginBottom: 16,
                           }]}>
                             <Text style={[s.noDataText, { color: colors.textDim }, { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>

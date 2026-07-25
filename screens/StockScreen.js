@@ -187,14 +187,18 @@ function SignalItem({ item, colors, t, lang, navigation }) {
 }
 
 // ── ValExtra tile ─────────────────────────────────────────────────────────────
+// Same rule as MetricTile: the number and the sentence under it carry ONE
+// colour. Here it was inverted — the figure went red while its note stayed
+// grey, so 7.81 shouted "expensive" and the line beneath it looked neutral.
 function ValTile({ label, value, note, valColor, colors, onPress }) {
+  const signal = valColor || colors.text;
   return (
     <TouchableOpacity
       style={[s.metricTileBase, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
       onPress={onPress} activeOpacity={0.7}>
       <Text style={[s.mLabel, { color: colors.textDim }]}>{label}</Text>
-      <Text style={[s.mValue, { color: valColor || colors.text }]}>{value || '—'}</Text>
-      {note ? <Text style={[s.mNote, { color: colors.textDimmer }]} numberOfLines={2}>{note}</Text> : null}
+      <Text style={[s.mValue, { color: signal }]}>{value || '—'}</Text>
+      {note ? <Text style={[s.mNote, { color: signal }]} numberOfLines={2}>{note}</Text> : null}
     </TouchableOpacity>
   );
 }
@@ -680,27 +684,27 @@ export default function StockScreen({ route, navigation }) {
                     note={t.forward_pe_note || 'P/E multiple based on future projections'}
                     valColor={ve.trailing_pe && ve.forward_pe < ve.trailing_pe ? colors.green : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: t.metric_names?.forward_pe || 'Forward P/E', tileNote: t.forward_pe_note || 'P/E multiple based on future projections', tileScore: null, tileValue: ve.forward_pe ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: t.metric_names?.forward_pe || 'Forward P/E', tileNote: t.forward_pe_note || 'P/E multiple based on future projections', tileScore: null, tileValue: ve.forward_pe ?? null, tileSignal: (ve.trailing_pe && ve.forward_pe < ve.trailing_pe) ? 'green' : null }); }} />
                 ) : null}
                 {ve.price_to_book ? (
                   <ValTile label={t.metric_names?.price_to_book || 'P/B'} value={String(ve.price_to_book)}
                     note={t.pb_note || 'Price relative to net asset value'}
                     valColor={ve.price_to_book < 1 ? colors.green : ve.price_to_book > 5 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: t.metric_names?.price_to_book || 'P/B', tileNote: t.pb_note || 'Price relative to net asset value', tileScore: null, tileValue: ve.price_to_book ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: t.metric_names?.price_to_book || 'P/B', tileNote: t.pb_note || 'Price relative to net asset value', tileScore: null, tileValue: ve.price_to_book ?? null, tileSignal: ve.price_to_book < 1 ? 'green' : ve.price_to_book > 5 ? 'red' : null }); }} />
                 ) : null}
                 {ve.price_to_sales ? (
                   <ValTile label={t.metric_names?.price_to_sales || 'P/S'} value={String(ve.price_to_sales)}
                     note={t.ps_note || 'Price relative to revenue'}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: t.metric_names?.price_to_sales || 'P/S', tileNote: t.ps_note || 'Price relative to revenue', tileScore: null, tileValue: ve.price_to_sales ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: t.metric_names?.price_to_sales || 'P/S', tileNote: t.ps_note || 'Price relative to revenue', tileScore: null, tileValue: ve.price_to_sales ?? null, tileSignal: null }); }} />
                 ) : null}
                 {ve.ev_to_ebitda ? (
                   <ValTile label={t.metric_names?.ev_to_ebitda || 'EV/EBITDA'} value={String(ve.ev_to_ebitda)}
                     note={t.ev_ebitda_note || 'Enterprise multiple'}
                     valColor={ve.ev_to_ebitda < 10 ? colors.green : ve.ev_to_ebitda > 25 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: t.metric_names?.ev_to_ebitda || 'EV/EBITDA', tileNote: t.ev_ebitda_note || 'Enterprise multiple', tileScore: null, tileValue: ve.ev_to_ebitda ?? null }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: t.metric_names?.ev_to_ebitda || 'EV/EBITDA', tileNote: t.ev_ebitda_note || 'Enterprise multiple', tileScore: null, tileValue: ve.ev_to_ebitda ?? null, tileSignal: ve.ev_to_ebitda < 10 ? 'green' : ve.ev_to_ebitda > 25 ? 'red' : null }); }} />
                 ) : null}
               </View>
               <Text style={[s.noteSmall, { color: colors.textDimmer }]}>

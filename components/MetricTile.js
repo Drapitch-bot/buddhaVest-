@@ -1,9 +1,11 @@
 import React from 'react';
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 
-// noteClass from HTML: score >= 70 → green, >= 40 → amber, else → red, null → textDimmer
+// score >= 70 → green, >= 40 → amber, else → red.
+// No score means NO VERDICT, so it must read neutral — amber would announce a
+// warning about a metric we simply could not evaluate.
 function scoreColor(score, colors) {
-  if (score == null) return colors.textDimmer;
+  if (score == null) return colors.text;
   if (score >= 70) return colors.green;
   if (score >= 40) return colors.amber;
   return colors.red;
@@ -12,6 +14,7 @@ function scoreColor(score, colors) {
 // `rtl` drives text direction for the note, which is a translated sentence.
 export default function MetricTile({ label, value, note, score, colors, onPress, rtl }) {
   const dir = { textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' };
+  const signal = scoreColor(score, colors);
   return (
     <TouchableOpacity
       style={[s.tile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
@@ -19,11 +22,15 @@ export default function MetricTile({ label, value, note, score, colors, onPress,
       activeOpacity={0.7}>
       {/* .m-label { font-size:12px; color:var(--text-dim) } */}
       <Text style={[s.label, { color: colors.textDim }, dir]} numberOfLines={1}>{label}</Text>
-      {/* .m-value { font-size:17px; font-weight:600 } */}
-      <Text style={[s.value, { color: colors.text }, dir]} numberOfLines={1}>{value ?? '—'}</Text>
+      {/* .m-value { font-size:17px; font-weight:600 }
+          The NUMBER and the NOTE carry the SAME colour. The note was coloured by
+          score while the number stayed neutral, so a red warning sentence sat
+          under a plain black figure — two different signals about one metric.
+          A missing score leaves both neutral: no verdict, no colour. */}
+      <Text style={[s.value, { color: signal }, dir]} numberOfLines={1}>{value ?? '—'}</Text>
       {/* .m-note { font-size:11px; margin:4px 0 0; line-height:1.35 } */}
       {note ? (
-        <Text style={[s.note, { color: scoreColor(score, colors) }, dir]} numberOfLines={2}>{note}</Text>
+        <Text style={[s.note, { color: signal }, dir]} numberOfLines={2}>{note}</Text>
       ) : null}
     </TouchableOpacity>
   );
