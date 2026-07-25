@@ -14,19 +14,18 @@ const PAD = { top: 20, bottom: 32, left: 8, right: 8 };
 // `currency` is the symbol to prefix values with ('₪' for TASE listings).
 // It was hard-coded to '$', so an Israeli stock's chart labelled shekel values
 // as dollars.
-// `lowerIsBetter` flips what the line colour MEANS.
-// The colour used to be pure direction: last >= first -> green. For a price
-// that is right, but for a valuation multiple it inverted the message: a P/B
-// climbing from 4.3 to 7.81 means the stock got MORE expensive, and the chart
-// painted that green while the tile on the previous screen painted the same
-// number red. Green must always read "good for you", on both screens.
-// `neutralDirection` says: for THIS metric neither direction is good news, so
-// the line must not claim one. Dividend and buyback YIELD both fall when the
-// share price climbs faster than the payout — Walmart raised its dividend every
-// year for 52 years and its yield still slid from 3.2% to 0.9%. Painting that
-// red told the user something was wrong with an exemplary record. Yield alone
-// cannot separate "price rose" from "payout was cut", so we make no claim.
-export default function PriceChart({ data, colors, height = 200, showCurrency = true, currency = '$', lowerIsBetter = false, neutralDirection = false }) {
+// `signal` is the verdict colour the CALLER already decided — the very colour
+// the tile that opened this screen is showing. Pass it and the line matches.
+//
+// Colouring by trend was the mistake: P/B falling 14.9 -> 6.84 is an improving
+// trend, so the line went green, while 6.84 is still above the "expensive"
+// threshold of 5 and the tile showed red. Two screens, one number, opposite
+// verdicts. Shape already carries the trend; colour carries the verdict.
+//
+// Omit `signal` (plain price charts) and it falls back to direction: a rising
+// price is good news for a holder, which is the one case where trend IS the
+// verdict.
+export default function PriceChart({ data, colors, height = 200, showCurrency = true, currency = '$', signal = undefined }) {
   // RULES OF HOOKS: every hook must run on EVERY render, so they all live
   // above the "no data" early return. Previously three useRef calls sat below
   // it — if this component ever rendered empty first and with data after,
@@ -89,10 +88,9 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
     + ` L ${pts[0].x.toFixed(1)} ${(PAD.top + cH).toFixed(1)} Z`;
 
   const isUp      = prices[prices.length - 1] >= prices[0];
-  const isGood    = lowerIsBetter ? !isUp : isUp;
-  const lineColor = neutralDirection
-    ? (colors.blue || '#60a5fa')                       // informational, not a verdict
-    : isGood ? (colors.green || '#4ade80') : (colors.red || '#f87171');
+  const lineColor = signal !== undefined
+    ? signal
+    : (isUp ? (colors.green || '#4ade80') : (colors.red || '#f87171'));
 
   // Y axis labels (3 levels)
   const yLevels = [minV, (minV + maxV) / 2, maxV];

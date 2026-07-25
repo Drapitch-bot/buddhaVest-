@@ -33,24 +33,11 @@ const FETCH_TIMEOUT_MS = 55000;
 // scope because both the fetch decision and the render decision use it.
 const PRICE_METRICS = new Set(['price', 'stock_price', 'share_price']);
 
-// Metrics where a FALLING line is the good news: valuation multiples (cheaper)
-// and leverage/cost ratios (lighter balance sheet, leaner cost base). Without
-// this the chart coloured a rising P/B green — "improving" — while the tile
-// that opened it coloured the same 7.81 red for being expensive.
-const LOWER_IS_BETTER = new Set([
-  'pe_ratio', 'forward_pe', 'peg_ratio',
-  'price_to_book', 'pb_ratio', 'price_to_sales', 'ps_ratio',
-  'ev_to_ebitda', 'ev_ebitda',
-  'debt_to_equity', 'debt_equity',
-  'liabilities_to_equity', 'liab_equity',
-  'cost_of_revenue',
-]);
-
-// Metrics where NEITHER direction is good news, so the chart must not claim one.
+// Metrics where NEITHER direction nor level is a verdict we can justify.
 // A dividend or buyback YIELD falls both when the payout is cut (bad) and when
-// the share price outruns it (good). Walmart raised its dividend every year for
-// 52 years and the yield still fell 3.2% -> 0.9%; a red line called that a
-// problem. The yield alone cannot tell the two apart, so we stay neutral.
+// the share price outruns it (good) — Walmart raised its dividend every year
+// for 52 years and the yield still fell 3.2% -> 0.9%. The yield alone cannot
+// tell those apart, so the chart stays neutral rather than guess.
 const NEUTRAL_DIRECTION = new Set(['dividend', 'buyback']);
 
 // Metrics that are ratios/percentages — no $ sign in chart tooltip
@@ -354,6 +341,14 @@ export default function MetricHistoryScreen({ route, navigation }) {
   const isRtl = lang === 'he';
   const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
 
+  // One colour for this metric everywhere: tile, note box and chart line.
+  // Metrics with neither a score nor a threshold (revenue, EPS, dividend yield…)
+  // get a neutral blue — informational, never a verdict we cannot justify.
+  const hasVerdict = tileSignal != null || tileScore != null;
+  const chartSignal = hasVerdict && !NEUTRAL_DIRECTION.has(metricKey)
+    ? signalColor(tileSignal, tileScore, colors)
+    : (colors.blue || '#60a5fa');
+
   const i18nExpl = t.metric_explanations?.[metricKey] || t.metric_explanations?.[apiKey] || null;
   // serverExpl: only if different from both above
   const serverExpl = data?.explanation || data?.expl || null;
@@ -515,10 +510,10 @@ export default function MetricHistoryScreen({ route, navigation }) {
                     showCurrency={usePrice || usingYahooFallback || !RATIO_METRICS.has(metricKey)}
                     /* A price fallback chart is a PRICE — rising is good even
                        under a "lower is better" metric, so don't invert it. */
-                    lowerIsBetter={!usePrice && !usingYahooFallback
-                                   && (LOWER_IS_BETTER.has(metricKey) || LOWER_IS_BETTER.has(apiKey))}
-                    neutralDirection={!usePrice && !usingYahooFallback
-                                   && NEUTRAL_DIRECTION.has(metricKey)} />
+                    /* Same verdict colour the tile showed. A price fallback
+                       chart is a PRICE, so it keeps the direction rule. */
+                    signal={(usePrice || usingYahooFallback) ? undefined
+                            : chartSignal} />
                   {(tileValue != null && !usingYahooFallback) || currentValue != null ? (
                     <Text style={[s.currentValue, { color: colors.text }]}>
                       {(function() {
