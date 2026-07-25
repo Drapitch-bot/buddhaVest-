@@ -44,6 +44,16 @@ const PROXY_CHART = {
   cash_runway: 'proxy_chart_cash_runway',
 };
 
+// Metrics where the headline number and the chart are computed from DIFFERENT
+// sources, verified against the live API on WMT:
+//   debt_to_equity  Yahoo's debtToEquity field  vs  Total Debt / Equity   (10%)
+//   ev_to_ebitda    Yahoo's enterpriseToEbitda  vs  our EV calc          (7.6%)
+//   buyback         annual report / market cap  vs  quarterly TTM        (31%)
+//   peg_ratio       provider field              vs  computed from EPS    (5.7%)
+// None of these is a bug — they are legitimate methodology differences. But the
+// user sees one title above two different numbers, so we say so.
+const COMPUTED_DIFFERENTLY = new Set(['debt_to_equity', 'ev_to_ebitda', 'buyback', 'peg_ratio']);
+
 // Metrics where NEITHER direction nor level is a verdict we can justify.
 // A dividend or buyback YIELD falls both when the payout is cut (bad) and when
 // the share price outruns it (good) — Walmart raised its dividend every year
@@ -513,6 +523,17 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Chart */}
               {chartData ? (
                 <>
+                  {COMPUTED_DIFFERENTLY.has(metricKey) && t.chart_method_note ? (
+                    <View style={[s.noDataBanner, {
+                      backgroundColor: colors.cardAlt,
+                      borderColor: colors.cardBorder,
+                    }]}>
+                      <Text style={[s.noDataText, { color: colors.textDim },
+                                    { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
+                        {t.chart_method_note}
+                      </Text>
+                    </View>
+                  ) : null}
                   {PROXY_CHART[metricKey] && t[PROXY_CHART[metricKey]] ? (
                     <View style={[s.noDataBanner, {
                       backgroundColor: colors.cardAlt,

@@ -840,12 +840,26 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         sector = info.get("sector")
         industry_pe = None  # yfinance לא מחזיר ממוצע סקטור ישירות
         
+        # A NEGATIVE multiple is not a cheap multiple — it means there are no
+        # earnings (or no EBITDA, or negative equity) to divide by, so the ratio
+        # carries no information. analyzer.py already refuses a negative P/E for
+        # the scored metric; these display-only fields never did, so a
+        # cash-burning company showed "Forward P/E -8.47" and, worse,
+        # "EV/EBITDA -6.72" coloured GREEN, because the tile's rule is
+        # `< 10 -> green` and -6.72 passes it. Verified live on RIVN.
+        def _pos(v):
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return None
+            return round(f, 2) if f > 0 else None
+
         result["valuation_extra"] = {
-            "forward_pe": round(float(forward_pe), 2) if forward_pe else None,
-            "trailing_pe": round(float(trailing_pe), 2) if trailing_pe else None,
-            "price_to_book": round(float(info.get("priceToBook", 0)), 2) if info.get("priceToBook") else None,
-            "price_to_sales": round(float(info.get("priceToSalesTrailing12Months", 0)), 2) if info.get("priceToSalesTrailing12Months") else None,
-            "ev_to_ebitda": round(float(info.get("enterpriseToEbitda", 0)), 2) if info.get("enterpriseToEbitda") else None,
+            "forward_pe":     _pos(forward_pe),
+            "trailing_pe":    _pos(trailing_pe),
+            "price_to_book":  _pos(info.get("priceToBook")),
+            "price_to_sales": _pos(info.get("priceToSalesTrailing12Months")),
+            "ev_to_ebitda":   _pos(info.get("enterpriseToEbitda")),
             "sector": sector,
         }
     except Exception:
