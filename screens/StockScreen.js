@@ -507,6 +507,27 @@ export default function StockScreen({ route, navigation }) {
             </View>
           ) : null}
 
+          {/* Whole pillar missing → the disclosed 40/35/25 formula was NOT the one
+              applied. SPY (an ETF) scored 62 from valuation and dividend alone,
+              i.e. 58/42, while the About screen promises 40/35/25 and business
+              quality was entirely absent. Verified live. Say so rather than let
+              the number imply a completeness it does not have. */}
+          {(function() {
+            if (data == null || data.final_score == null) return null;
+            const missingPillars = [];
+            if (cs.quality   == null) missingPillars.push(t.score_pillar_quality   || 'business quality');
+            if (cs.valuation == null) missingPillars.push(t.score_pillar_valuation || 'valuation');
+            if (cs.income    == null) missingPillars.push(t.score_pillar_income    || 'cash flow & dividend');
+            if (!missingPillars.length || !t.score_partial_note) return null;
+            return (
+              <View style={[s.card, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}>
+                <Text style={[s.cardDesc, { color: colors.textDim, marginBottom: 0 }, dirStyle]}>
+                  {t.score_partial_note.replace('{missing}', missingPillars.join(' · '))}
+                </Text>
+              </View>
+            );
+          })()}
+
           {/* Overview card */}
           {(ov.market_cap || ov.week52_low != null) ? (
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>

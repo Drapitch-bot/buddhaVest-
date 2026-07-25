@@ -191,6 +191,10 @@ export const translations = {
     market_cap: 'שווי שוק', sector_label: 'סקטור',
     volume_label: 'נפח מסחר', avg_volume_label: 'נפח ממוצע', week52_label: 'טווח 52 שבועות',
     // Metric tile / screen names (all languages — API returns English, we override here)
+    score_partial_note: 'שימו לב: הציון הזה חושב בלי {missing}, כי לא נמצאו נתונים. הנוסחה המלאה היא 40% איכות עסקית, 35% תמחור ו-25% תזרים ודיבידנד — כאן המשקלים חולקו מחדש בין מה שכן היה. השוו רק לחברות עם אותה רמת מידע.',
+    score_pillar_quality: 'איכות עסקית',
+    score_pillar_valuation: 'תמחור',
+    score_pillar_income: 'תזרים ודיבידנד',
     chart_method_note: 'המספר הגדול מגיע ישירות מספק הנתונים, והגרף מחושב על ידי BuddhaVest מהדוחות הכספיים — לכן ייתכן הפרש ביניהם, לפעמים ניכר. שניהם מוצגים כפי שהם, בלי להתאים אחד לשני.',
     proxy_chart_forward_pe: 'שימו לב: אין סדרה היסטורית ל-P/E עתידי — התחזיות של אתמול לא נשמרות. הגרף מציג מכפיל רווח נוכחי (מחיר חלקי רווח 12 חודשים אחרונים) כהקשר בלבד, ולכן הוא יכול להיראות שונה מאוד מהמספר למעלה.',
     proxy_chart_moat: 'שימו לב: לציון היתרון התחרותי אין סדרה היסטורית — הוא מחושב מממוצע וסטיית תקן של שנים. הגרף מציג את המרווח הגולמי לאורך זמן, שהוא הנתון שממנו הציון נגזר.',
@@ -462,6 +466,10 @@ export const translations = {
     // Overview card labels
     market_cap: 'Market Cap', sector_label: 'Sector',
     volume_label: 'Volume', avg_volume_label: 'Avg Volume', week52_label: '52-Week Range',
+    score_partial_note: 'Note: this score was computed without {missing}, because no data was found. The full formula is 40% business quality, 35% valuation and 25% cash flow & dividend — here the weights were redistributed across what was available. Compare only with companies that have the same level of information.',
+    score_pillar_quality: 'business quality',
+    score_pillar_valuation: 'valuation',
+    score_pillar_income: 'cash flow & dividend',
     chart_method_note: 'The large number comes straight from the data provider, while the chart is computed by BuddhaVest from the financial statements — so the two can differ, sometimes noticeably. Both are shown as they are, with neither adjusted to match the other.',
     proxy_chart_forward_pe: "Note: forward P/E has no history — yesterday's forecasts aren't kept. The chart shows the CURRENT P/E (price divided by the last 12 months' earnings) for context only, so it can look very different from the number above.",
     proxy_chart_moat: 'Note: the competitive-advantage score has no history of its own — it is computed from the average and variation across years. The chart shows gross margin over time, the figure the score is derived from.',
@@ -737,6 +745,10 @@ export const translations = {
     // Overview card labels
     market_cap: 'Рыночная кап.', sector_label: 'Сектор',
     volume_label: 'Объём', avg_volume_label: 'Сред. объём', week52_label: 'Диапазон 52 нед.',
+    score_partial_note: 'Обратите внимание: эта оценка рассчитана без раздела «{missing}», данных не нашлось. Полная формула — 40% качество бизнеса, 35% оценка стоимости, 25% денежный поток и дивиденды; здесь веса перераспределены между доступными разделами. Сравнивайте только с компаниями с тем же объёмом данных.',
+    score_pillar_quality: 'качество бизнеса',
+    score_pillar_valuation: 'оценка стоимости',
+    score_pillar_income: 'денежный поток и дивиденды',
     chart_method_note: 'Крупное число берётся напрямую у поставщика данных, а график рассчитывается BuddhaVest по финансовой отчётности — поэтому между ними возможно расхождение, иногда заметное. Оба показаны как есть, без подгонки друг под друга.',
     proxy_chart_forward_pe: 'Обратите внимание: у форвардного P/E нет истории — вчерашние прогнозы не сохраняются. График показывает ТЕКУЩИЙ P/E (цена, делённая на прибыль за 12 месяцев) только для контекста, поэтому он может сильно отличаться от числа выше.',
     proxy_chart_moat: 'Обратите внимание: у оценки конкурентного преимущества нет собственной истории — она считается из среднего и разброса по годам. График показывает валовую маржу во времени, показатель, из которого выводится оценка.',
@@ -1028,6 +1040,10 @@ export const translations = {
     // Overview card labels
     market_cap: 'Cap. de mercado', sector_label: 'Sector',
     volume_label: 'Volumen', avg_volume_label: 'Vol. medio', week52_label: 'Rango 52 sem.',
+    score_partial_note: 'Nota: esta puntuación se calculó sin {missing}, porque no se encontraron datos. La fórmula completa es 40% calidad del negocio, 35% valoración y 25% flujo de caja y dividendo — aquí los pesos se redistribuyeron entre lo disponible. Compara solo con empresas que tengan el mismo nivel de información.',
+    score_pillar_quality: 'calidad del negocio',
+    score_pillar_valuation: 'valoración',
+    score_pillar_income: 'flujo de caja y dividendo',
     chart_method_note: 'El número grande viene directamente del proveedor de datos, mientras que el gráfico lo calcula BuddhaVest a partir de los estados financieros — por eso pueden diferir, a veces de forma notable. Ambos se muestran tal cual, sin ajustar uno al otro.',
     proxy_chart_forward_pe: 'Nota: el P/E futuro no tiene historial — las previsiones de ayer no se guardan. El gráfico muestra el P/E ACTUAL (precio dividido por el beneficio de los últimos 12 meses) solo como contexto, por lo que puede verse muy distinto del número de arriba.',
     proxy_chart_moat: 'Nota: la puntuación de ventaja competitiva no tiene historial propio — se calcula a partir de la media y la variación entre años. El gráfico muestra el margen bruto a lo largo del tiempo, la cifra de la que se deriva.',
