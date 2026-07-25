@@ -2311,13 +2311,15 @@ def quotes_endpoint(symbols: str = ""):
         cached = _cache_get(cache_key)
         if cached is not None:
             return cached
-        price, change = None, None
+        price, change, name, ccy = None, None, None, ""
         try:
             info = get_quote(sym)["info"]
             price = info.get("currentPrice") or info.get("regularMarketPrice")
             prev = info.get("previousClose")
             if price is not None and prev:
                 change = round((price - prev) / prev * 100, 2)
+            name = info.get("shortName") or info.get("longName")
+            ccy = (info.get("currency") or "").upper()
         except Exception:
             pass
         if price is None:  # Stooq fallback (Yahoo blocked / unknown symbol)
@@ -2329,7 +2331,24 @@ def quotes_endpoint(symbols: str = ""):
                         change = round((sq["price"] - sq["prev_close"]) / sq["prev_close"] * 100, 2)
             except Exception:
                 pass
-        result = {"ticker": sym, "price": price, "change_pct": change}
+
+        # Tel Aviv stocks are quoted by Yahoo in agorot (1/100 ILS). /analyze
+        # already converts; this endpoint must apply the SAME rule or the
+        # watchlist's fast first paint would flash a 100x price (Delek showed
+        # 8173 instead of 81.73) before the full analysis corrected it.
+        price_currency = "USD"
+        if sym.endswith(".TA") or ccy in ("ILA", "ILS"):
+            price_currency = "ILS"
+            if ccy != "ILS" and price is not None:
+                price = round(price / 100.0, 2)
+
+        result = {
+            "ticker": sym,
+            "price": price,
+            "change_pct": change,
+            "company_name": name,
+            "price_currency": price_currency,
+        }
         if price is not None:
             _cache_set(cache_key, result, CACHE_TTL["quote"])
         return result

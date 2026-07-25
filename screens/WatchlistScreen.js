@@ -97,26 +97,53 @@ export default function WatchlistScreen({ navigation }) {
   async function loadPrices() {
     const reqId = ++reqIdRef.current;
     setLoading(true);
+    // Secondary-currency rate runs ALONGSIDE the stock fetches, not before
+    // them. Awaiting it first meant every Hebrew/Russian/Spanish user paid an
+    // extra round trip before the first stock request even left the device.
     const cfg = LANG_CURRENCY[lang];
     if (cfg) {
-      try {
-        const exRes  = await fetch(ENDPOINTS.exchangeRate(cfg.code));
-        const exData = await exRes.json();
-        if (reqId !== reqIdRef.current) return; // stale — newer request took over
-        setSecondaryCurrency(exData.rate ? { rate: exData.rate, symbol: cfg.symbol } : null);
-      } catch(e) { if (reqId === reqIdRef.current) setSecondaryCurrency(null); }
+      fetch(ENDPOINTS.exchangeRate(cfg.code))
+        .then(function(r) { return r.json(); })
+        .then(function(exData) {
+          if (reqId !== reqIdRef.current) return; // stale — newer request took over
+          setSecondaryCurrency(exData.rate ? { rate: exData.rate, symbol: cfg.symbol } : null);
+        })
+        .catch(function() { if (reqId === reqIdRef.current) setSecondaryCurrency(null); });
     } else {
       if (reqId === reqIdRef.current) setSecondaryCurrency(null);
     }
 
-    const newPrices = {};
-    // Fetch in small batches instead of firing one /analyze per ticker all at
-    // once. A 15-stock watchlist used to open 15 simultaneous heavy requests
-    // (full financial statements each) every 90s — enough to push a small
-    // server instance into an out-of-memory restart. Batching keeps the same
-    // result with a fraction of the peak load.
-    const BATCH = 4;
     const items = watchlist.slice();
+    const newPrices = {};
+
+    // ── Phase 1: one lightweight /quotes call for the WHOLE list ────────────
+    // /analyze pulls full financial statements per ticker; waiting for all of
+    // them before painting anything is why the screen sat empty for seconds.
+    // /quotes fans out server-side (8 workers, 60s cache) and returns price,
+    // change and name for every ticker in a single round trip, so rows show
+    // real numbers almost immediately. Scores arrive in phase 2.
+    try {
+      const qRes  = await fetch(ENDPOINTS.quotes(items.map(function(i) { return i.ticker; }).join(',')));
+      const qData = await qRes.json();
+      if (reqId !== reqIdRef.current) return;              // stale — drop
+      (qData.quotes || []).forEach(function(q) {
+        if (!q || !q.ticker || q.price == null) return;
+        newPrices[q.ticker] = {
+          price:          q.price,
+          change:         q.change_pct,
+          company_name:   q.company_name,
+          price_currency: q.price_currency,
+        };
+      });
+      setPrices(Object.assign({}, newPrices));             // first paint
+    } catch(e) { /* phase 2 will fill everything in */ }
+
+    // ── Phase 2: batched /analyze for scores + recommendations ──────────────
+    // Still batched (a 15-stock list firing 15 heavy requests at once could
+    // push a small instance into an OOM restart), but state is now committed
+    // after EVERY batch, so rows fill in progressively instead of all at the
+    // end. Same total server load, far shorter time-to-first-content.
+    const BATCH = 4;
     for (let i = 0; i < items.length; i += BATCH) {
       if (reqId !== reqIdRef.current) return;   // stale/left the screen — stop early
       await Promise.all(items.slice(i, i + BATCH).map(async function(item) {
@@ -134,9 +161,10 @@ export default function WatchlistScreen({ navigation }) {
           };
         } catch(e) {}
       }));
+      if (reqId !== reqIdRef.current) return;
+      setPrices(Object.assign({}, newPrices));  // commit this batch right away
     }
-    if (reqId !== reqIdRef.current) return; // stale — discard prices/timestamp
-    setPrices(newPrices);
+    if (reqId !== reqIdRef.current) return; // stale — discard timestamp
     setLastUpdated(new Date());
     setLoading(false);
   }
