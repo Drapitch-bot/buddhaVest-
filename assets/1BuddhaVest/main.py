@@ -971,6 +971,29 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     return result
 
 
+def _tase_price_mismatch(ticker: str) -> bool:
+    """
+    True for Tel-Aviv listings, where a price-derived multiple computed here
+    CANNOT be trusted.
+
+    Yahoo quotes TASE equities in agorot (1/100 ILS) while the financial
+    statements are in shekels. Every multiple built from
+    `stock.history()["Close"]` therefore mixes two units. Verified live on
+    DLEKG.TA: the tile showed P/B 1.62 and this endpoint returned 164.63 (x101),
+    and EV/EBITDA 17.53 against 316.49 (x18 — not a clean x100, because the debt
+    and cash terms are already in shekels and partly offset the inflated market
+    cap).
+
+    Scaling the price by 100 looks like the obvious fix, but the EPS series unit
+    could not be established from the data: reconciling reported EPS, net income
+    and shares outstanding is off by a factor of 10 in BOTH directions, so a
+    blind correction risks breaking P/E, which currently returns plausible
+    values. Until that is settled, these endpoints fall through to the price
+    chart instead of publishing a number that is provably wrong.
+    """
+    return (ticker or "").upper().endswith(".TA")
+
+
 def _annual_from_monthly(series_q: list) -> list:
     """
     Collapse a monthly series into one point per YEAR — the LAST month of each
@@ -1213,7 +1236,8 @@ def metric_history(ticker: str, metric: str):
             except Exception:
                 result_data["use_price"] = True
         elif metric in ("calc_forward_pe", "calc_pb", "calc_ps", "calc_ev_ebitda",
-                        "forward_pe", "price_to_book", "price_to_sales", "ev_to_ebitda"):
+                        "forward_pe", "price_to_book", "price_to_sales", "ev_to_ebitda") \
+                and not _tase_price_mismatch(ticker):
             # מחשב היסטוריה של מכפיל על-ידי: מחיר חודשי / נתון פיננסי רבעוני TTM
             try:
                 import math as _math
