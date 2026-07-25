@@ -46,6 +46,13 @@ const LOWER_IS_BETTER = new Set([
   'cost_of_revenue',
 ]);
 
+// Metrics where NEITHER direction is good news, so the chart must not claim one.
+// A dividend or buyback YIELD falls both when the payout is cut (bad) and when
+// the share price outruns it (good). Walmart raised its dividend every year for
+// 52 years and the yield still fell 3.2% -> 0.9%; a red line called that a
+// problem. The yield alone cannot tell the two apart, so we stay neutral.
+const NEUTRAL_DIRECTION = new Set(['dividend', 'buyback']);
+
 // Metrics that are ratios/percentages — no $ sign in chart tooltip
 const RATIO_METRICS = new Set([
   'pe_ratio', 'forward_pe', 'peg_ratio',
@@ -509,7 +516,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
                     /* A price fallback chart is a PRICE — rising is good even
                        under a "lower is better" metric, so don't invert it. */
                     lowerIsBetter={!usePrice && !usingYahooFallback
-                                   && (LOWER_IS_BETTER.has(metricKey) || LOWER_IS_BETTER.has(apiKey))} />
+                                   && (LOWER_IS_BETTER.has(metricKey) || LOWER_IS_BETTER.has(apiKey))}
+                    neutralDirection={!usePrice && !usingYahooFallback
+                                   && NEUTRAL_DIRECTION.has(metricKey)} />
                   {(tileValue != null && !usingYahooFallback) || currentValue != null ? (
                     <Text style={[s.currentValue, { color: colors.text }]}>
                       {(function() {

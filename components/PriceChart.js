@@ -20,7 +20,13 @@ const PAD = { top: 20, bottom: 32, left: 8, right: 8 };
 // climbing from 4.3 to 7.81 means the stock got MORE expensive, and the chart
 // painted that green while the tile on the previous screen painted the same
 // number red. Green must always read "good for you", on both screens.
-export default function PriceChart({ data, colors, height = 200, showCurrency = true, currency = '$', lowerIsBetter = false }) {
+// `neutralDirection` says: for THIS metric neither direction is good news, so
+// the line must not claim one. Dividend and buyback YIELD both fall when the
+// share price climbs faster than the payout — Walmart raised its dividend every
+// year for 52 years and its yield still slid from 3.2% to 0.9%. Painting that
+// red told the user something was wrong with an exemplary record. Yield alone
+// cannot separate "price rose" from "payout was cut", so we make no claim.
+export default function PriceChart({ data, colors, height = 200, showCurrency = true, currency = '$', lowerIsBetter = false, neutralDirection = false }) {
   // RULES OF HOOKS: every hook must run on EVERY render, so they all live
   // above the "no data" early return. Previously three useRef calls sat below
   // it — if this component ever rendered empty first and with data after,
@@ -84,7 +90,9 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
 
   const isUp      = prices[prices.length - 1] >= prices[0];
   const isGood    = lowerIsBetter ? !isUp : isUp;
-  const lineColor = isGood ? (colors.green || '#4ade80') : (colors.red || '#f87171');
+  const lineColor = neutralDirection
+    ? (colors.blue || '#60a5fa')                       // informational, not a verdict
+    : isGood ? (colors.green || '#4ade80') : (colors.red || '#f87171');
 
   // Y axis labels (3 levels)
   const yLevels = [minV, (minV + maxV) / 2, maxV];
