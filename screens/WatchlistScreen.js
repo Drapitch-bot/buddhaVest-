@@ -122,20 +122,26 @@ export default function WatchlistScreen({ navigation }) {
     // /quotes fans out server-side (8 workers, 60s cache) and returns price,
     // change and name for every ticker in a single round trip, so rows show
     // real numbers almost immediately. Scores arrive in phase 2.
+    // The server caps /quotes at 20 symbols per call, so a longer watchlist is
+    // split into chunks — otherwise stocks 21+ would stay blank until phase 2.
     try {
-      const qRes  = await fetch(ENDPOINTS.quotes(items.map(function(i) { return i.ticker; }).join(',')));
-      const qData = await qRes.json();
-      if (reqId !== reqIdRef.current) return;              // stale — drop
-      (qData.quotes || []).forEach(function(q) {
-        if (!q || !q.ticker || q.price == null) return;
-        newPrices[q.ticker] = {
-          price:          q.price,
-          change:         q.change_pct,
-          company_name:   q.company_name,
-          price_currency: q.price_currency,
-        };
-      });
-      setPrices(Object.assign({}, newPrices));             // first paint
+      const QUOTE_CHUNK = 20;
+      for (let c = 0; c < items.length; c += QUOTE_CHUNK) {
+        const syms = items.slice(c, c + QUOTE_CHUNK).map(function(i) { return i.ticker; }).join(',');
+        const qRes  = await fetch(ENDPOINTS.quotes(syms));
+        const qData = await qRes.json();
+        if (reqId !== reqIdRef.current) return;            // stale — drop
+        (qData.quotes || []).forEach(function(q) {
+          if (!q || !q.ticker || q.price == null) return;
+          newPrices[q.ticker] = {
+            price:          q.price,
+            change:         q.change_pct,
+            company_name:   q.company_name,
+            price_currency: q.price_currency,
+          };
+        });
+        setPrices(Object.assign({}, newPrices));           // first paint
+      }
     } catch(e) { /* phase 2 will fill everything in */ }
 
     // ── Phase 2: batched /analyze for scores + recommendations ──────────────

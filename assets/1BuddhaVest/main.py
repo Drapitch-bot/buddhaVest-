@@ -2318,7 +2318,11 @@ def quotes_endpoint(symbols: str = ""):
             prev = info.get("previousClose")
             if price is not None and prev:
                 change = round((price - prev) / prev * 100, 2)
-            name = info.get("shortName") or info.get("longName")
+            # longName FIRST — /analyze uses longName, and phase 2 of the
+            # watchlist overwrites this value. Preferring shortName here made
+            # the name visibly flip ("ALPHABET INC-CL A" -> "Alphabet Inc.")
+            # a second after the row appeared, in every language.
+            name = info.get("longName") or info.get("shortName")
             ccy = (info.get("currency") or "").upper()
         except Exception:
             pass
