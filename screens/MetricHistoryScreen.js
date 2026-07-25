@@ -33,6 +33,17 @@ const FETCH_TIMEOUT_MS = 55000;
 // scope because both the fetch decision and the render decision use it.
 const PRICE_METRICS = new Set(['price', 'stock_price', 'share_price']);
 
+// Metrics whose chart is NOT the metric itself. The code has always known this
+// (see METRIC_KEY_MAP's "proxy" comments and the forward-P/E substitution in
+// main.py) but the user was never told: the screen showed "Forward P/E 38.62"
+// above a line running 66–363, because that line is TRAILING P/E. Each of these
+// now renders an explicit note saying what the chart actually is.
+const PROXY_CHART = {
+  forward_pe:  'proxy_chart_forward_pe',
+  moat:        'proxy_chart_moat',
+  cash_runway: 'proxy_chart_cash_runway',
+};
+
 // Metrics where NEITHER direction nor level is a verdict we can justify.
 // A dividend or buyback YIELD falls both when the payout is cut (bad) and when
 // the share price outruns it (good) — Walmart raised its dividend every year
@@ -502,6 +513,17 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Chart */}
               {chartData ? (
                 <>
+                  {PROXY_CHART[metricKey] && t[PROXY_CHART[metricKey]] ? (
+                    <View style={[s.noDataBanner, {
+                      backgroundColor: colors.cardAlt,
+                      borderColor: colors.cardBorder,
+                    }]}>
+                      <Text style={[s.noDataText, { color: colors.textDim },
+                                    { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
+                        {t[PROXY_CHART[metricKey]]}
+                      </Text>
+                    </View>
+                  ) : null}
                   <PriceChart
                     data={chartData}
                     colors={colors}

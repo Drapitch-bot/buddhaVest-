@@ -191,6 +191,9 @@ export const translations = {
     market_cap: 'שווי שוק', sector_label: 'סקטור',
     volume_label: 'נפח מסחר', avg_volume_label: 'נפח ממוצע', week52_label: 'טווח 52 שבועות',
     // Metric tile / screen names (all languages — API returns English, we override here)
+    proxy_chart_forward_pe: 'שימו לב: אין סדרה היסטורית ל-P/E עתידי — התחזיות של אתמול לא נשמרות. הגרף מציג מכפיל רווח נוכחי (מחיר חלקי רווח 12 חודשים אחרונים) כהקשר בלבד, ולכן הוא יכול להיראות שונה מאוד מהמספר למעלה.',
+    proxy_chart_moat: 'שימו לב: לציון היתרון התחרותי אין סדרה היסטורית — הוא מחושב מממוצע וסטיית תקן של שנים. הגרף מציג את המרווח הגולמי לאורך זמן, שהוא הנתון שממנו הציון נגזר.',
+    proxy_chart_cash_runway: 'שימו לב: הגרף מציג תזרים מזומנים חופשי בדולרים, לא חודשי מסלול. המסלול מחושב מקצב השריפה הנוכחי ואין לו סדרה היסטורית — הגרף מראה את הנתון שקובע אותו.',
     metric_names: {
       pe_ratio:             'מכפיל רווח (P/E)',
       peg_ratio:            'מכפיל PEG',
@@ -458,6 +461,9 @@ export const translations = {
     // Overview card labels
     market_cap: 'Market Cap', sector_label: 'Sector',
     volume_label: 'Volume', avg_volume_label: 'Avg Volume', week52_label: '52-Week Range',
+    proxy_chart_forward_pe: "Note: forward P/E has no history — yesterday's forecasts aren't kept. The chart shows the CURRENT P/E (price divided by the last 12 months' earnings) for context only, so it can look very different from the number above.",
+    proxy_chart_moat: 'Note: the competitive-advantage score has no history of its own — it is computed from the average and variation across years. The chart shows gross margin over time, the figure the score is derived from.',
+    proxy_chart_cash_runway: 'Note: the chart shows free cash flow in currency, not months of runway. Runway is computed from the current burn rate and has no history; the chart shows the figure that drives it.',
     metric_names: {
       pe_ratio:             'P/E Ratio',
       peg_ratio:            'PEG Ratio',
@@ -729,6 +735,9 @@ export const translations = {
     // Overview card labels
     market_cap: 'Рыночная кап.', sector_label: 'Сектор',
     volume_label: 'Объём', avg_volume_label: 'Сред. объём', week52_label: 'Диапазон 52 нед.',
+    proxy_chart_forward_pe: 'Обратите внимание: у форвардного P/E нет истории — вчерашние прогнозы не сохраняются. График показывает ТЕКУЩИЙ P/E (цена, делённая на прибыль за 12 месяцев) только для контекста, поэтому он может сильно отличаться от числа выше.',
+    proxy_chart_moat: 'Обратите внимание: у оценки конкурентного преимущества нет собственной истории — она считается из среднего и разброса по годам. График показывает валовую маржу во времени, показатель, из которого выводится оценка.',
+    proxy_chart_cash_runway: 'Обратите внимание: график показывает свободный денежный поток в валюте, а не месяцы запаса. Запас считается из текущего темпа расходования и истории не имеет; график показывает величину, которая его определяет.',
     metric_names: {
       pe_ratio:             'Коэф. P/E',
       peg_ratio:            'Коэф. PEG',
@@ -1016,6 +1025,9 @@ export const translations = {
     // Overview card labels
     market_cap: 'Cap. de mercado', sector_label: 'Sector',
     volume_label: 'Volumen', avg_volume_label: 'Vol. medio', week52_label: 'Rango 52 sem.',
+    proxy_chart_forward_pe: 'Nota: el P/E futuro no tiene historial — las previsiones de ayer no se guardan. El gráfico muestra el P/E ACTUAL (precio dividido por el beneficio de los últimos 12 meses) solo como contexto, por lo que puede verse muy distinto del número de arriba.',
+    proxy_chart_moat: 'Nota: la puntuación de ventaja competitiva no tiene historial propio — se calcula a partir de la media y la variación entre años. El gráfico muestra el margen bruto a lo largo del tiempo, la cifra de la que se deriva.',
+    proxy_chart_cash_runway: 'Nota: el gráfico muestra el flujo de caja libre en moneda, no meses de margen. El margen se calcula del ritmo actual de consumo y no tiene historial; el gráfico muestra la cifra que lo determina.',
     metric_names: {
       pe_ratio:             'Ratio P/E',
       peg_ratio:            'Ratio PEG',

@@ -1062,7 +1062,10 @@ def metric_history(ticker: str, metric: str):
             "Current Assets":   ["Current Assets"],
             "Current Liabilities": ["Current Liabilities"],
             "Total Liabilities Net Minority Interest": ["Total Liabilities Net Minority Interest"],
-            "Cash And Cash Equivalents": ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments"],
+            # totalCash (what the tile shows) is cash PLUS short-term investments, so the
+            # STI-inclusive row has to come first — otherwise the tile read $12.35B
+            # while its own chart topped out at $6.0B.
+            "Cash And Cash Equivalents": ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"],
             "Operating Cash Flow": ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"],
             "Free Cash Flow":   ["Free Cash Flow"],
         }
