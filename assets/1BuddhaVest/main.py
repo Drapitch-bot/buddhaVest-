@@ -320,6 +320,32 @@ class SanitizedJSONResponse(JSONResponse):
 app.router.default_response_class = SanitizedJSONResponse
 
 
+@app.middleware("http")
+async def _no_http_cache(request: Request, call_next):
+    """
+    Force revalidation on every API response.
+
+    FastAPI sends no Cache-Control, which lets ANY layer between us and the
+    user store a response indefinitely: a CDN/proxy, and — the one that
+    actually bit us — Android's OkHttp cache inside the app itself.
+
+    That is how a Tel-Aviv stock kept showing 8173 instead of 81.73 long after
+    the agorot fix shipped: the phone was replaying a response body produced by
+    the old server code. Proven by fetching the same ticker under a cache key
+    that had never been used, which returned the correct 84.45 with
+    price_currency "ILS".
+
+    The server keeps its own in-memory cache (that is what protects Yahoo from
+    load); this only stops COPIES of a response outliving a deploy. /privacy is
+    a static legal page and is left cacheable.
+    """
+    response = await call_next(request)
+    if not request.url.path.startswith("/privacy"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 # ─── Article domain blocklist ────────────────────────────────────────────────
 # Sites that require login / paywall to read articles — remove from the news
 # feed entirely so users only see articles they can actually open and read.
@@ -931,6 +957,24 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     return result
 
 
+def _annual_from_monthly(series_q: list) -> list:
+    """
+    Collapse a monthly series into one point per YEAR — the LAST month of each
+    year, not the first.
+
+    The previous logic walked the ascending monthly series and kept the first
+    point it saw for a year, which is JANUARY. So the "Annual" toggle showed
+    January snapshots labelled with the year: KO's 2023 annual P/E read 25.25
+    (Jan) when the year actually closed at 22.19 (Dec) — a 14% gap presented to
+    the user as that year's figure. Year-end is the conventional annual reading
+    and matches what the annual financial statements represent.
+    """
+    by_year = {}
+    for pt in series_q:                      # ascending, so the last write wins
+        by_year[str(pt["date"]).split(" ")[-1]] = pt
+    return [by_year[y] for y in sorted(by_year)]
+
+
 def _get_quarterly_income(stock):
     for attr in ["quarterly_income_stmt", "quarterly_financials", "quarterly_incomestmt"]:
         try:
@@ -1097,8 +1141,6 @@ def metric_history(ticker: str, metric: str):
                         price_monthly.index = price_monthly.index.tz_localize(None)
 
                     series_q = []
-                    series_a = []
-                    seen_years = set()
 
                     for date, price in price_monthly.items():
                         price = float(price)
@@ -1125,10 +1167,6 @@ def metric_history(ticker: str, metric: str):
                         if metric == "pe_ratio":
                             pt = {"date": date.strftime("%b %Y"), "value": pe}
                             series_q.append(pt)
-                            yr = pt["date"].split(" ")[-1]
-                            if yr not in seen_years:
-                                seen_years.add(yr)
-                                series_a.append(pt)
 
                         elif metric == "peg_ratio":
                             prev_ttm = None
@@ -1149,13 +1187,9 @@ def metric_history(ticker: str, metric: str):
                             if 0 < peg < 200 and not _math.isnan(peg):
                                 pt = {"date": date.strftime("%b %Y"), "value": peg}
                                 series_q.append(pt)
-                                yr = pt["date"].split(" ")[-1]
-                                if yr not in seen_years:
-                                    seen_years.add(yr)
-                                    series_a.append(pt)
 
                     result_data["quarterly"] = series_q
-                    result_data["annual"] = series_a
+                    result_data["annual"] = _annual_from_monthly(series_q)
                     if not series_q:
                         result_data["use_price"] = True
 
@@ -1234,8 +1268,7 @@ def metric_history(ticker: str, metric: str):
                     eps_q  = get_series(income_q,  ["Diluted EPS", "Basic EPS"])
                     eps_a  = get_series(income_a,  ["Diluted EPS", "Basic EPS"])
 
-                    series_q, series_a = [], []
-                    seen_years = set()
+                    series_q = []
 
                     for date, price in price_monthly.items():
                         price = float(price)
@@ -1280,13 +1313,9 @@ def metric_history(ticker: str, metric: str):
 
                         pt = {"date": date.strftime("%b %Y"), "value": val}
                         series_q.append(pt)
-                        yr = pt["date"].split(" ")[-1]
-                        if yr not in seen_years:
-                            seen_years.add(yr)
-                            series_a.append(pt)
 
                     result_data["quarterly"] = series_q
-                    result_data["annual"] = series_a
+                    result_data["annual"] = _annual_from_monthly(series_q)
                     if not series_q:
                         result_data["use_price"] = True
 
@@ -1338,14 +1367,20 @@ def metric_history(ticker: str, metric: str):
                         if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
                             price_monthly.index = price_monthly.index.tz_localize(None)
 
-                        series_q, series_a, seen_years = [], [], set()
+                        series_q = []
                         for date, price in price_monthly.items():
                             price = float(price)
                             try:
                                 ttm_rep = None
                                 if rep_q is not None:
                                     past = rep_q[rep_q.index <= date].tail(4)
-                                    if len(past) >= 2:
+                                    # Exactly 4 quarters, like every other TTM in
+                                    # this file. ">= 2" let a SIX-MONTH total be
+                                    # reported as a twelve-month buyback yield,
+                                    # understating it by up to half. With fewer
+                                    # than 4 we fall through to the annual figure
+                                    # below, which is a real 12-month number.
+                                    if len(past) == 4:
                                         ttm_rep = float(past.sum())
                                 if (not ttm_rep) and rep_a is not None:
                                     past = rep_a[rep_a.index <= date].tail(1)
@@ -1361,15 +1396,11 @@ def metric_history(ticker: str, metric: str):
                                     continue
                                 pt = {"date": date.strftime("%b %Y"), "value": val}
                                 series_q.append(pt)
-                                yr = pt["date"].split(" ")[-1]
-                                if yr not in seen_years:
-                                    seen_years.add(yr)
-                                    series_a.append(pt)
                             except Exception:
                                 continue
 
                         result_data["quarterly"] = series_q
-                        result_data["annual"]    = series_a
+                        result_data["annual"]    = _annual_from_monthly(series_q)
                         if not series_q:
                             result_data["use_price"] = True
 
@@ -1388,7 +1419,7 @@ def metric_history(ticker: str, metric: str):
                             if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
                                 price_monthly.index = price_monthly.index.tz_localize(None)
 
-                            series_q, series_a, seen_years = [], [], set()
+                            series_q = []
                             for date, price in price_monthly.items():
                                 price = float(price)
                                 if price <= 0:
@@ -1404,15 +1435,11 @@ def metric_history(ticker: str, metric: str):
                                         continue
                                     pt = {"date": date.strftime("%b %Y"), "value": val}
                                     series_q.append(pt)
-                                    yr = pt["date"].split(" ")[-1]
-                                    if yr not in seen_years:
-                                        seen_years.add(yr)
-                                        series_a.append(pt)
                                 except Exception:
                                     continue
 
                             result_data["quarterly"] = series_q
-                            result_data["annual"]    = series_a
+                            result_data["annual"]    = _annual_from_monthly(series_q)
                             if not series_q:
                                 result_data["use_price"] = True
                     except Exception:

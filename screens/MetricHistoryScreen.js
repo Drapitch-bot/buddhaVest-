@@ -33,6 +33,19 @@ const FETCH_TIMEOUT_MS = 55000;
 // scope because both the fetch decision and the render decision use it.
 const PRICE_METRICS = new Set(['price', 'stock_price', 'share_price']);
 
+// Metrics where a FALLING line is the good news: valuation multiples (cheaper)
+// and leverage/cost ratios (lighter balance sheet, leaner cost base). Without
+// this the chart coloured a rising P/B green — "improving" — while the tile
+// that opened it coloured the same 7.81 red for being expensive.
+const LOWER_IS_BETTER = new Set([
+  'pe_ratio', 'forward_pe', 'peg_ratio',
+  'price_to_book', 'pb_ratio', 'price_to_sales', 'ps_ratio',
+  'ev_to_ebitda', 'ev_ebitda',
+  'debt_to_equity', 'debt_equity',
+  'liabilities_to_equity', 'liab_equity',
+  'cost_of_revenue',
+]);
+
 // Metrics that are ratios/percentages — no $ sign in chart tooltip
 const RATIO_METRICS = new Set([
   'pe_ratio', 'forward_pe', 'peg_ratio',
@@ -468,7 +481,16 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Chart */}
               {chartData ? (
                 <>
-                  <PriceChart data={chartData} colors={colors} height={220} currency={cur} showCurrency={usePrice || usingYahooFallback || !RATIO_METRICS.has(metricKey)} />
+                  <PriceChart
+                    data={chartData}
+                    colors={colors}
+                    height={220}
+                    currency={cur}
+                    showCurrency={usePrice || usingYahooFallback || !RATIO_METRICS.has(metricKey)}
+                    /* A price fallback chart is a PRICE — rising is good even
+                       under a "lower is better" metric, so don't invert it. */
+                    lowerIsBetter={!usePrice && !usingYahooFallback
+                                   && (LOWER_IS_BETTER.has(metricKey) || LOWER_IS_BETTER.has(apiKey))} />
                   {(tileValue != null && !usingYahooFallback) || currentValue != null ? (
                     <Text style={[s.currentValue, { color: colors.text }]}>
                       {(function() {

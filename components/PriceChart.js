@@ -14,7 +14,13 @@ const PAD = { top: 20, bottom: 32, left: 8, right: 8 };
 // `currency` is the symbol to prefix values with ('₪' for TASE listings).
 // It was hard-coded to '$', so an Israeli stock's chart labelled shekel values
 // as dollars.
-export default function PriceChart({ data, colors, height = 200, showCurrency = true, currency = '$' }) {
+// `lowerIsBetter` flips what the line colour MEANS.
+// The colour used to be pure direction: last >= first -> green. For a price
+// that is right, but for a valuation multiple it inverted the message: a P/B
+// climbing from 4.3 to 7.81 means the stock got MORE expensive, and the chart
+// painted that green while the tile on the previous screen painted the same
+// number red. Green must always read "good for you", on both screens.
+export default function PriceChart({ data, colors, height = 200, showCurrency = true, currency = '$', lowerIsBetter = false }) {
   // RULES OF HOOKS: every hook must run on EVERY render, so they all live
   // above the "no data" early return. Previously three useRef calls sat below
   // it — if this component ever rendered empty first and with data after,
@@ -77,7 +83,8 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
     + ` L ${pts[0].x.toFixed(1)} ${(PAD.top + cH).toFixed(1)} Z`;
 
   const isUp      = prices[prices.length - 1] >= prices[0];
-  const lineColor = isUp ? (colors.green || '#4ade80') : (colors.red || '#f87171');
+  const isGood    = lowerIsBetter ? !isUp : isUp;
+  const lineColor = isGood ? (colors.green || '#4ade80') : (colors.red || '#f87171');
 
   // Y axis labels (3 levels)
   const yLevels = [minV, (minV + maxV) / 2, maxV];
