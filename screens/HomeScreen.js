@@ -140,22 +140,39 @@ export default function HomeScreen({ navigation }) {
   loadAllRef.current = loadAll;
 
   // Fetch all FX rates once in parallel — no per-language delay
+  // Race guard for the market/FX loads. The 30s auto-refresh, pull-to-refresh
+  // and the initial mount all call loadAll(), so several loadMarket() calls can
+  // legitimately overlap — especially on a cold server, where the first attempt
+  // times out at 20s and retries with a 50s budget while later ticks already
+  // succeeded. Without this, that slow first call lands LAST and overwrites
+  // fresh data with older data (or with an empty movers list, blanking the
+  // whole table). Only the newest generation may write.
+  // NOTE: market and FX need SEPARATE counters. loadAll() runs them together
+  // via Promise.all, so a shared counter would have loadFX() bump the token
+  // that loadMarket() is holding — and loadMarket's result would be discarded
+  // every single time, leaving the indices and movers table permanently empty.
+  const marketReqIdRef = useRef(0);
+  const fxReqIdRef     = useRef(0);
+
   async function loadFX() {
+    const reqId = ++fxReqIdRef.current;
     try {
       const [ILS, RUB, EUR] = await Promise.all([
         fetchFXRate('ILS=X'),
         fetchFXRate('RUB=X'),
         fetchFXRate('EUR=X'),
       ]);
+      if (reqId !== fxReqIdRef.current) return; // stale
       const rates = {};
       if (ILS) rates.ILS = ILS;
       if (RUB) rates.RUB = RUB;
       if (EUR) rates.EUR = EUR;
-      if (Object.keys(rates).length) setFxRates(rates);
+      if (Object.keys(rates).length) setFxRates(function(prev) { return { ...prev, ...rates }; });
     } catch(e) {}
   }
 
   async function loadMarket() {
+    const reqId = ++marketReqIdRef.current;
     const tryFetch = function(ms) {
       // Clear the timeout when the race settles — otherwise the 30s auto-refresh
       // interval piled up a pending 20-50s timer on every single tick.
@@ -169,19 +186,24 @@ export default function HomeScreen({ navigation }) {
       ]).finally(function() { clearTimeout(to); });
     };
     const applyData = function(data) {
+      if (reqId !== marketReqIdRef.current) return;   // stale — newer load owns the screen
       const idxArr = [];
       if (data['S&P 500']) idxArr.push({ key: 'sp500',  label: 'S&P 500', value: data['S&P 500'].value, change_pct: data['S&P 500'].change_pct });
       if (data['Nasdaq'])  idxArr.push({ key: 'nasdaq', label: 'Nasdaq',  value: data['Nasdaq'].value,  change_pct: data['Nasdaq'].change_pct });
       if (data['VIX'])     idxArr.push({ key: 'vix',    label: 'VIX',     value: data['VIX'].value,    change_pct: null });
-      setBaseIndices(idxArr);
+      if (idxArr.length) setBaseIndices(idxArr);   // same rule: never blank good tiles
       if (data.usd_ils) { setUsdIls(data.usd_ils); setFxRates(function(prev) { return { ...prev, ILS: data.usd_ils }; }); }
-      const allMovers = data.movers || [];
-      setTableData(allMovers);
+      // A cold or partially-warmed server can answer with an EMPTY movers list.
+      // Blanking a table that already holds good rows is what made the stock
+      // table "sometimes have data and sometimes not" — keep what is on screen
+      // and let the next refresh fill it in.
+      const allMovers = Array.isArray(data.movers) ? data.movers : [];
+      if (allMovers.length) setTableData(allMovers);
       const top4 = [...allMovers]
         .filter(function(m) { return m.change_pct != null; })
         .sort(function(a, b) { return Math.abs(b.change_pct) - Math.abs(a.change_pct); })
         .slice(0, 4);
-      setMovers(top4);
+      if (top4.length) setMovers(top4);
     };
     // Time-based, not failure-based: show the gentle "loading" note only if the
     // load actually drags past 4s (a warm server returns well before that, so

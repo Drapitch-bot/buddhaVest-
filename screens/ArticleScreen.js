@@ -120,12 +120,20 @@ export default function ArticleScreen({ route, navigation }) {
   const [resolvedUrl, setResolvedUrl] = useState(isGnewsUrl(url) ? null : url);
   const abortRef = useRef(null);
   const domSentRef = useRef(false);
+  // Generation counter for the DOM-extraction translation path. The server fast
+  // path is cancelled by its effect cleanup (AbortController), but this one is
+  // fired from a WebView message and was never cancelled: switching article or
+  // language mid-translation let the PREVIOUS article's translated text land on
+  // the new screen, because the reset had just set translatedHtml back to null.
+  const genRef = useRef(0);
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
 
   useEffect(function() {
+    genRef.current++;            // invalidate any in-flight DOM translation
     setResolvedUrl(isGnewsUrl(url) ? null : url);
     setTranslatedHtml(null);
     setError(false);
+    setTranslating(false);
     domSentRef.current = false;
   }, [url, lang]);
 
@@ -143,6 +151,7 @@ export default function ArticleScreen({ route, navigation }) {
     abortRef.current = controller;
 
     setTranslating(true);
+    var myGen = genRef.current;
     var timer = setTimeout(function() { controller.abort(); }, TRANSLATE_TIMEOUT_MS);
 
     fetch(API_BASE + '/translate-article?url=' + encodeURIComponent(resolvedUrl) + '&lang=' + lang, {
@@ -154,11 +163,15 @@ export default function ArticleScreen({ route, navigation }) {
       })
       .then(function(html) {
         clearTimeout(timer);
+        if (myGen !== genRef.current) return;   // article/language changed
         setTranslatedHtml(function(prev) { return prev || html; });
         setTranslating(false);
       })
       .catch(function() {
         clearTimeout(timer);
+        // An abort from the cleanup lands AFTER the next effect already turned
+        // the spinner on — without this it cleared the new request's spinner.
+        if (myGen !== genRef.current) return;
         setTranslating(false);
       });
 
@@ -190,6 +203,7 @@ export default function ArticleScreen({ route, navigation }) {
     if (!data || !Array.isArray(data.items) || data.items.length < 2) return;
     domSentRef.current = true;
     setTranslating(true);
+    var myGen = genRef.current;
 
     // The message comes from a third-party page loaded in the WebView, so treat
     // every field as untrusted: cap the item count and keep only the fields we
@@ -210,8 +224,10 @@ export default function ArticleScreen({ route, navigation }) {
     })
       .then(function(r) { if (!r.ok) throw new Error('err'); return r.json(); })
       .then(function(res) {
+        if (myGen !== genRef.current) return;   // different article/language now
         var tr = res.texts || [];
-        if (tr.length < 3) return;
+        // Used to `return` here and leave the spinner running forever.
+        if (tr.length < 3) { setTranslating(false); return; }
         var isRtl = lang === 'he';
         var body = '';
         if (tr[0]) body += '<h1>' + escapeHtml(tr[0]) + '</h1>';
@@ -233,6 +249,7 @@ export default function ArticleScreen({ route, navigation }) {
         setTranslating(false);
       })
       .catch(function() {
+        if (myGen !== genRef.current) return;   // stale — the new article owns the spinner
         domSentRef.current = false;
         setTranslating(false);
       });

@@ -77,22 +77,30 @@ export default function WatchlistScreen({ navigation }) {
   const [loading,  setLoading]  = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
   const loadPricesRef = useRef(null);
+  // Race guard: only the LATEST load may write state. A stale response (old
+  // language) that resolves later can't reset the secondary currency/prices.
+  // Declared ABOVE the focus effect that uses it, so the dependency is obvious.
+  const reqIdRef = useRef(0);
   // HTML LANG_CURRENCY: he→ILS/₪, ru→RUB/₽, es→EUR/€, en→null
   const LANG_CURRENCY = { he: { code: 'ILS', symbol: '₪' }, ru: { code: 'RUB', symbol: '₽' }, es: { code: 'EUR', symbol: '€' } };
 
   useFocusEffect(useCallback(function() {
     if (watchlist.length) loadPrices();
-    else setPrices({});
+    else {
+      // Removing the LAST stock never called loadPrices, so nothing bumped the
+      // request token and nothing cleared the spinner: an in-flight load could
+      // still write its results back over the cleared map, and the header kept
+      // spinning forever above the "list is empty" message.
+      reqIdRef.current++;
+      setPrices({});
+      setLoading(false);
+    }
     // Auto-refresh every 90s while screen is focused (calls /analyze per ticker — heavier)
     const iv = setInterval(function() {
       if (loadPricesRef.current && watchlist.length) loadPricesRef.current();
     }, 90000);
     return function() { clearInterval(iv); };
   }, [watchlist, lang]));
-
-  // Race guard: only the LATEST load may write state. A stale response (old
-  // language) that resolves later can't reset the secondary currency/prices.
-  const reqIdRef = useRef(0);
 
   async function loadPrices() {
     const reqId = ++reqIdRef.current;
@@ -115,6 +123,21 @@ export default function WatchlistScreen({ navigation }) {
 
     const items = watchlist.slice();
     const newPrices = {};
+
+    // Commit MERGED, never replaced. Phase 1 knows price/name but not score;
+    // replacing the whole map with it would blank out every score already on
+    // screen. That is invisible on a cold open (nothing to lose) but on the
+    // 90s auto-refresh and on the manual refresh button it made the score and
+    // recommendation vanish from every row for a few seconds, on every cycle.
+    // Merging per ticker keeps the previous score visible until the fresh one
+    // replaces it.
+    function commit() {
+      setPrices(function(prev) {
+        const next = Object.assign({}, prev);
+        for (const k in newPrices) next[k] = Object.assign({}, prev[k], newPrices[k]);
+        return next;
+      });
+    }
 
     // ── Phase 1: one lightweight /quotes call for the WHOLE list ────────────
     // /analyze pulls full financial statements per ticker; waiting for all of
@@ -140,7 +163,7 @@ export default function WatchlistScreen({ navigation }) {
             price_currency: q.price_currency,
           };
         });
-        setPrices(Object.assign({}, newPrices));           // first paint
+        commit();                                          // first paint
       }
     } catch(e) { /* phase 2 will fill everything in */ }
 
@@ -168,7 +191,7 @@ export default function WatchlistScreen({ navigation }) {
         } catch(e) {}
       }));
       if (reqId !== reqIdRef.current) return;
-      setPrices(Object.assign({}, newPrices));  // commit this batch right away
+      commit();                                 // commit this batch right away
     }
     if (reqId !== reqIdRef.current) return; // stale — discard timestamp
     setLastUpdated(new Date());

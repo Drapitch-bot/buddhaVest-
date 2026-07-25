@@ -232,7 +232,11 @@ export default function MetricHistoryScreen({ route, navigation }) {
         setLoading(false);                      // stop spinner NOW
         clearTimeout(slowTimer.current);
         setSlowLoad(false);
-      }).catch(function() { setFallbackLoading(false); });
+      }).catch(function() {
+        // Guarded like the success path: a stale rejection must not clear the
+        // spinner that a newer load just turned on.
+        if (loadId.current === myId) setFallbackLoading(false);
+      });
     }
 
     // ── Backend request ───────────────────────────────────────────────────────
@@ -244,6 +248,12 @@ export default function MetricHistoryScreen({ route, navigation }) {
         signal: controller.signal,
       });
       clearTimeout(timeout);
+      // The two "try again" buttons call loadHistory() directly, so a second
+      // load can start while the first is still in flight. Only the newest
+      // generation may write: without this, a slow FAILED first attempt could
+      // land after a successful retry and replace the chart with an error
+      // screen (or the reverse — a stale success wiping a fresh error).
+      if (loadId.current !== myId) return;
       clearTimeout(slowTimer.current);
       setSlowLoad(false);
 
@@ -251,6 +261,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
         setError(true);
       } else {
         const json = await res.json();
+        if (loadId.current !== myId) return;   // stale — newer load owns the screen
         const isUsePrice = json?.use_price;
         const hasMetricData = isUsePrice
           ? (json?.price_history?.length > 1)
@@ -269,6 +280,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
       }
     } catch(e) {
       clearTimeout(timeout);
+      if (loadId.current !== myId) return;
       clearTimeout(slowTimer.current);
       setSlowLoad(false);
       setError(true);
