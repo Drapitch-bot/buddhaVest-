@@ -43,3 +43,6 @@ yarn-error.*
 # store upload artifacts (large binaries — keep local, not in git)
 Uplpoad-Final/
 *.aab
+
+# local tunneling binary (52MB) — keep local, not in git
+cloudflared.exe

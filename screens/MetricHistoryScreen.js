@@ -438,7 +438,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                   backgroundColor: (colors.accent || '#6366f1') + '15',
                   borderColor: (colors.accent || '#6366f1') + '40',
                 }]}>
-                  <Text style={[s.noDataText, { color: colors.textDim }, dirStyle]}>
+                  <Text style={[s.noDataText, { color: colors.textDim }, { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
                     {tileValue != null
                       ? (t.use_price_fallback_with_value || 'No historical series tracked for this metric. Current value: {v}. Showing stock price chart for reference.')
                           .replace('{v}', typeof tileValue === 'number'
@@ -510,7 +510,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                             borderColor: (colors.accent || '#6366f1') + '40',
                             marginBottom: 16,
                           }]}>
-                            <Text style={[s.noDataText, { color: colors.textDim }, dirStyle]}>
+                            <Text style={[s.noDataText, { color: colors.textDim }, { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
                               {t.no_history_for_metric || 'No historical series available for this metric. The value shown is the current reading from the latest financial report.'}
                             </Text>
                           </View>

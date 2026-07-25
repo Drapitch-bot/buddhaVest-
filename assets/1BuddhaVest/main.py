@@ -603,7 +603,10 @@ def privacy():
   <li><strong>Ticker symbols</strong> you search or view (e.g., "AAPL") — used to fetch market data and are not stored or linked to your identity.</li>
   <li><strong>Language preference</strong> — sent with analysis requests to translate content server-side. Not stored.</li>
 </ul>
-<p>We do not log IP addresses in any persistent way and do not build user profiles.</p>
+<p>We do not build user profiles and do not tie requests to your identity. As with any
+  web server, our hosting provider keeps standard technical logs (which can include the
+  requesting IP address and the URL requested) for a short period for security and
+  troubleshooting. We do not use these logs for advertising or profiling.</p>
 
 <h2>3. Third-Party Services</h2>
 <p>BuddhaVest retrieves market data and news from public financial data sources. Article translation is powered by Google Translate. These services have their own privacy policies:</p>
