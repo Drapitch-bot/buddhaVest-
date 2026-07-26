@@ -54,13 +54,6 @@ const PROXY_CHART = {
 // user sees one title above two different numbers, so we say so.
 const COMPUTED_DIFFERENTLY = new Set(['debt_to_equity', 'ev_to_ebitda', 'buyback', 'peg_ratio']);
 
-// Metrics where NEITHER direction nor level is a verdict we can justify.
-// A dividend or buyback YIELD falls both when the payout is cut (bad) and when
-// the share price outruns it (good) — Walmart raised its dividend every year
-// for 52 years and the yield still fell 3.2% -> 0.9%. The yield alone cannot
-// tell those apart, so the chart stays neutral rather than guess.
-const NEUTRAL_DIRECTION = new Set(['dividend', 'buyback']);
-
 // Metrics that are ratios/percentages — no $ sign in chart tooltip
 const RATIO_METRICS = new Set([
   'pe_ratio', 'forward_pe', 'peg_ratio',
@@ -362,11 +355,17 @@ export default function MetricHistoryScreen({ route, navigation }) {
   const isRtl = lang === 'he';
   const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
 
-  // One colour for this metric everywhere: tile, note box and chart line.
-  // Metrics with neither a score nor a threshold (revenue, EPS, dividend yield…)
-  // get a neutral blue — informational, never a verdict we cannot justify.
+  // ONE rule, no exceptions: the chart line carries the metric's own colour —
+  // the same one the tile showed. Amber tile, amber line. Green, green. Red, red.
+  // Blue ONLY when the metric has no verdict at all (no score and no threshold),
+  // e.g. revenue or operating cash flow: informational, never a judgement.
+  //
+  // Dividend and buyback used to be forced blue on the grounds that a falling
+  // yield is ambiguous. That reasoning was about the TREND — but the colour does
+  // not describe the trend, it echoes the metric's verdict. The line's shape
+  // already shows direction.
   const hasVerdict = tileSignal != null || tileScore != null;
-  const chartSignal = hasVerdict && !NEUTRAL_DIRECTION.has(metricKey)
+  const chartSignal = hasVerdict
     ? signalColor(tileSignal, tileScore, colors)
     : (colors.blue || '#60a5fa');
 
