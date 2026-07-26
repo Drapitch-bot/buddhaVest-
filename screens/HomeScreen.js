@@ -285,8 +285,16 @@ export default function HomeScreen({ navigation }) {
       <BrandHeader onRefresh={loadAll} greeting={t.greeting_home || 'Markets · Live'} />
 
       {/* ── Gentle "loading fresh data" note (only when a load runs slow) ── */}
+      {/* A spinner beside the text: a slow load must read as "working", not as
+          "frozen". Text alone left the banner looking stuck. `row-reverse` in
+          Hebrew keeps the spinner on the side the eye starts from. */}
       {wakingUp && (
-        <View style={{ backgroundColor: colors.cardAlt, paddingVertical: 6, paddingHorizontal: 10, alignItems: 'center' }}>
+        <View style={{
+          backgroundColor: colors.cardAlt, paddingVertical: 6, paddingHorizontal: 10,
+          flexDirection: isRtl ? 'row-reverse' : 'row',
+          alignItems: 'center', justifyContent: 'center', gap: 8,
+        }}>
+          <ActivityIndicator size="small" color={colors.accent} />
           <Text style={{ color: colors.textDimmer || colors.textDim, fontSize: 12 }}>
             {t.waking_up || 'Loading the latest data…'}
           </Text>

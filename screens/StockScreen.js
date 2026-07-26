@@ -390,6 +390,14 @@ export default function StockScreen({ route, navigation }) {
         <View style={s.loadWrap}>
           <ActivityIndicator size="large" color={colors.accent} />
           <Text style={[s.loadText, { color: colors.textDim }]}>{(t.analyzing || 'Analyzing') + ' ' + ticker + '...'}</Text>
+          {/* `wakingUp` was set after 4s and then rendered NOWHERE — dead state.
+              On a cold server this screen sat on "Analyzing…" for up to 40s with
+              nothing telling the user why. */}
+          {wakingUp ? (
+            <Text style={[s.loadText, { color: colors.textDimmer, fontSize: 12, marginTop: 6 }, dirStyle]}>
+              {t.waking_up || 'Loading the latest data…'}
+            </Text>
+          ) : null}
         </View>
       ) : error ? (
         <View style={s.errorWrap}>
