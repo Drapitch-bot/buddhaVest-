@@ -616,18 +616,25 @@ def privacy():
 
 <h2>1. Information We Collect</h2>
 <p>BuddhaVest does <strong>not</strong> require account registration and does <strong>not</strong> collect personal information such as your name, email address, or financial account details.</p>
-<p>The following data is stored <strong>locally on your device only</strong> (via AsyncStorage) and is never transmitted to our servers:</p>
+<p>The following data is <strong>stored only on your device</strong> (via AsyncStorage). We never
+  store it on our servers and never share it with anyone:</p>
 <ul>
   <li>Your watchlist (ticker symbols you save)</li>
-  <li>Your research journal entries</li>
+  <li>Your research journal entries — these <strong>never leave your device at all</strong></li>
   <li>App preferences: language, color theme, notification seen state</li>
 </ul>
+<p>To be precise about the watchlist: it is <em>saved</em> only on your device, but in order to
+  show you a price and a score for each entry, the app has to ask our server about those
+  ticker symbols. So the symbols themselves are sent with the request. They are used to fetch
+  market data, are not written to any database, and are not linked to you or to any identifier.
+  Your language setting is sent the same way, so the response comes back in your language.</p>
 
 <h2>2. Data We Process on Our Servers</h2>
 <p>When you use the app, our backend server processes the following to serve you data:</p>
 <ul>
-  <li><strong>Ticker symbols</strong> you search or view (e.g., "AAPL") — used to fetch market data and are not stored or linked to your identity.</li>
+  <li><strong>Ticker symbols</strong> you search, view, or keep in your watchlist (e.g., "AAPL") — used to fetch market data. Not stored, and not linked to your identity.</li>
   <li><strong>Language preference</strong> — sent with analysis requests to translate content server-side. Not stored.</li>
+  <li><strong>Article links</strong> you open with in-app translation enabled — the page address is sent so the article text can be fetched and translated. Not stored.</li>
 </ul>
 <p>We do not build user profiles and do not tie requests to your identity. As with any
   web server, our hosting provider keeps standard technical logs (which can include the
