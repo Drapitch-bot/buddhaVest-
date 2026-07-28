@@ -948,24 +948,29 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     # agorot) AND the currency field ("ILA"/"ILS") — belt and suspenders, since
     # Yahoo is inconsistent about which currency code it reports.
     _ticker_up = (result.get("ticker") or ticker or "").upper()
-    _ccy = (info.get("currency") or "").upper()
+    _ccy_raw = (info.get("currency") or "").strip()
+    _ccy = _ccy_raw.upper()
     _is_tase = _ticker_up.endswith(".TA") or _ccy in ("ILA", "ILS")
     if _is_tase:
         result["price_currency"] = "ILS"
         # agorot → shekel. Skip only if Yahoo explicitly says the quote is
         # already in shekel ("ILS"); every other TASE case is agorot.
         if _ccy != "ILS":
-            if result.get("current_price") is not None:
-                result["current_price"] = round(result["current_price"] / 100.0, 2)
-            _ov = result.get("overview") or {}
-            for _k in ("week52_low", "week52_high"):
-                if _ov.get(_k) is not None:
-                    _ov[_k] = round(_ov[_k] / 100.0, 2)
-            _h = result.get("history")
-            if _h and _h.get("prices"):
-                _h["prices"] = [round(p / 100.0, 2) for p in _h["prices"]]
+            _scale_price_fields(result, 100.0)
     else:
-        result["price_currency"] = "USD"
+        # Yahoo reports the real trading currency; using it means a German, UK
+        # or Japanese listing is no longer stamped with a dollar sign. The old
+        # rule was binary — TASE or "USD" — so DHER.DE (Delivery Hero, quoted in
+        # euro) came back as USD and the app printed "$37.95" for a €37.95 share.
+        #
+        # London and Johannesburg go one step further: they quote in the MINOR
+        # unit, so the number needs dividing as well as relabelling.
+        _minor = _minor_unit_for(_ccy_raw)
+        if _minor:
+            result["price_currency"] = _minor[0]
+            _scale_price_fields(result, _minor[1])
+        else:
+            result["price_currency"] = _ccy or "USD"
 
     # A company can TRADE in one currency and REPORT in another. Elbit Systems
     # (ESLT.TA) trades in shekels but publishes its statements in dollars, so
@@ -983,10 +988,75 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     return result
 
 
+# ── Minor-unit quotes ──
+# Several exchanges quote in a currency's MINOR unit (1/100 of the major one)
+# while marketCap / revenue / net income stay in the MAJOR unit. Yahoo signals
+# this in `info["currency"]`, and the signal is CASE-SENSITIVE: "GBp" is pence,
+# "GBP" is pounds. The old code ran `.upper()` before every comparison, which
+# collapsed the two — so a Shell share quoted at 2578.5 pence was published as
+# "£2578.50" instead of "£25.79", a 100x error on the headline number.
+#
+# Tel Aviv (agorot, "ILA") was already special-cased by ticker suffix; London
+# ("GBp"/"GBX") and Johannesburg ("ZAc") had no handling at all.
+_MINOR_UNIT = {
+    "GBp": ("GBP", 100.0),   # London — pence.  NOTE: "GBP" is NOT in this map.
+    "GBX": ("GBP", 100.0),   # same thing under its ISO-ish alias
+    "GBx": ("GBP", 100.0),
+    "ZAc": ("ZAR", 100.0),   # Johannesburg — cents
+    "ZAC": ("ZAR", 100.0),
+    "ILA": ("ILS", 100.0),   # Tel Aviv — agorot
+    "ILa": ("ILS", 100.0),
+}
+
+
+def _minor_unit_for(raw_ccy: str):
+    """Return (major_currency, divisor) when `raw_ccy` is a minor unit, else None."""
+    return _MINOR_UNIT.get((raw_ccy or "").strip())
+
+
+# Mirrors symbolFor() in StockScreen.js / WatchlistScreen.js — keep the two in
+# step, or the same stock shows one sign on the tile and another in an event.
+_CCY_SYMBOL = {"ILS": "₪", "ILA": "₪", "EUR": "€", "GBP": "£", "RUB": "₽", "JPY": "¥"}
+
+
+def _ccy_symbol(code: str) -> str:
+    return _CCY_SYMBOL.get((code or "").upper(), "$")
+
+
+def _scale_price_fields(result: dict, divisor: float) -> None:
+    """
+    Divide every PER-SHARE field by `divisor`, in place.
+
+    Deliberately does NOT touch market cap, revenue, net income or cash: those
+    are already reported in the major unit, so dividing them would introduce the
+    mirror image of the bug this fixes. Verified on Tel Aviv, where marketCap is
+    in shekel while the quote is in agorot.
+    """
+    if result.get("current_price") is not None:
+        result["current_price"] = round(result["current_price"] / divisor, 2)
+    _ov = result.get("overview") or {}
+    for _k in ("week52_low", "week52_high"):
+        if _ov.get(_k) is not None:
+            _ov[_k] = round(_ov[_k] / divisor, 2)
+    _h = result.get("history")
+    if _h and _h.get("prices"):
+        _h["prices"] = [round(p / divisor, 2) for p in _h["prices"]]
+
+
+# Exchanges whose quotes arrive in a MINOR unit while the financial statements
+# are in the MAJOR one. Suffix-based on purpose: this runs before stock.info is
+# read, and a false positive costs a chart (the screen falls back to the price
+# series) whereas a false negative publishes a number that is 100x wrong.
+_MINOR_UNIT_SUFFIXES = (".TA", ".L", ".JO")
+
+
 def _tase_price_mismatch(ticker: str) -> bool:
     """
-    True for Tel-Aviv listings, where a price-derived multiple computed here
-    CANNOT be trusted.
+    True for listings where a price-derived multiple computed here CANNOT be
+    trusted, because the quote and the financial statements use different units.
+
+    Tel Aviv (agorot), London (pence) and Johannesburg (cents) all quote in
+    1/100 of the reporting currency.
 
     Yahoo quotes TASE equities in agorot (1/100 ILS) while the financial
     statements are in shekels. Every multiple built from
@@ -1003,7 +1073,7 @@ def _tase_price_mismatch(ticker: str) -> bool:
     values. Until that is settled, these endpoints fall through to the price
     chart instead of publishing a number that is provably wrong.
     """
-    return (ticker or "").upper().endswith(".TA")
+    return (ticker or "").upper().endswith(_MINOR_UNIT_SUFFIXES)
 
 
 def _annual_from_monthly(series_q: list) -> list:
@@ -1631,8 +1701,26 @@ def ticker_events(ticker: str):
                     # wording is left to the client: this string used to be a
                     # hard-coded English "$X/share annually", which showed dollars
                     # for Israeli stocks and English text to Hebrew/Russian users.
-                    _ccy = (info.get("currency") or "").upper()
-                    _sym = "₪" if (ticker.upper().endswith(".TA") or _ccy in ("ILA", "ILS")) else "$"
+                    #
+                    # The sign now follows the SAME rule as the price tile
+                    # instead of being a two-way ₪/$ guess: a euro payer used to
+                    # be stamped with a dollar sign here while the header said €.
+                    # dividendRate is quoted in the listing currency, so a London
+                    # payer arrives in pence and needs the same /100 the price
+                    # gets — otherwise a 104p dividend reads "£104.00".
+                    _ccy_raw = (info.get("currency") or "").strip()
+                    _ccy = _ccy_raw.upper()
+                    _minor = _minor_unit_for(_ccy_raw)
+                    if ticker.upper().endswith(".TA") or _ccy in ("ILA", "ILS"):
+                        _code = "ILS"
+                        if _ccy != "ILS":
+                            div_rate = div_rate / 100.0
+                    elif _minor:
+                        _code = _minor[0]
+                        div_rate = div_rate / _minor[1]
+                    else:
+                        _code = _ccy or "USD"
+                    _sym = _ccy_symbol(_code)
                     events.append({
                         "type": "dividend",
                         "date": dt.strftime("%Y-%m-%d"),
@@ -2391,7 +2479,7 @@ def quotes_endpoint(symbols: str = ""):
         cached = _cache_get(cache_key)
         if cached is not None:
             return cached
-        price, change, name, ccy = None, None, None, ""
+        price, change, name, ccy, ccy_raw = None, None, None, "", ""
         try:
             info = get_quote(sym)["info"]
             price = info.get("currentPrice") or info.get("regularMarketPrice")
@@ -2403,7 +2491,8 @@ def quotes_endpoint(symbols: str = ""):
             # the name visibly flip ("ALPHABET INC-CL A" -> "Alphabet Inc.")
             # a second after the row appeared, in every language.
             name = info.get("longName") or info.get("shortName")
-            ccy = (info.get("currency") or "").upper()
+            ccy_raw = (info.get("currency") or "").strip()
+            ccy = ccy_raw.upper()
         except Exception:
             pass
         if price is None:  # Stooq fallback (Yahoo blocked / unknown symbol)
@@ -2420,11 +2509,19 @@ def quotes_endpoint(symbols: str = ""):
         # already converts; this endpoint must apply the SAME rule or the
         # watchlist's fast first paint would flash a 100x price (Delek showed
         # 8173 instead of 81.73) before the full analysis corrected it.
-        price_currency = "USD"
+        # Same rule as /analyze: real trading currency, with minor units (agorot,
+        # pence, SA cents) converted to the major unit.
+        price_currency = ccy or "USD"
         if sym.endswith(".TA") or ccy in ("ILA", "ILS"):
             price_currency = "ILS"
             if ccy != "ILS" and price is not None:
                 price = round(price / 100.0, 2)
+        else:
+            _minor = _minor_unit_for(ccy_raw)
+            if _minor:
+                price_currency = _minor[0]
+                if price is not None:
+                    price = round(price / _minor[1], 2)
 
         result = {
             "ticker": sym,

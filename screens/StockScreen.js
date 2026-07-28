@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import { openArticle } from '../utils/linkUtils';
+import { symbolFor, isUsd } from '../utils/currency';
 import ScoreGauge from '../components/ScoreGauge';
 import PriceChart from '../components/PriceChart';
 import MetricTile from '../components/MetricTile';
@@ -63,14 +64,6 @@ function metricValueDisplay(key, metric, cur) {
 // A company can trade in one currency and report in another. ESLT.TA trades in
 // shekels and reports in dollars, so every statement figure was stamped '₪'
 // while the number was USD.
-function symbolFor(code) {
-  if (code === 'ILS' || code === 'ILA') return '₪';
-  if (code === 'EUR') return '€';
-  if (code === 'GBP') return '£';
-  if (code === 'RUB') return '₽';
-  return '$';
-}
-
 function changeColor(pct, colors) {
   if (pct == null) return colors.textDimmer;
   return pct >= 0 ? colors.green : colors.red;
@@ -334,10 +327,9 @@ export default function StockScreen({ route, navigation }) {
   const ve  = (data && data.valuation_extra) || {};
   const history = data && data.history;
 
-  // Israeli stocks are already priced in shekel (server tags price_currency
-  // 'ILS'): show ₪ as the primary symbol and skip the USD→ILS second line.
-  const priceIsILS  = data && data.price_currency === 'ILS';
-  const priceSymbol = priceIsILS ? '₪' : '$';
+  // Not a binary choice: a listing can be quoted in EUR, GBP, JPY… The old
+  // `ILS ? ₪ : $` printed a dollar sign on Delivery Hero's euro price.
+  const priceSymbol = symbolFor(data && data.price_currency);
   // Statements can be published in a different currency from the share price.
   // Falls back to the price currency when the server doesn't say (older cache).
   const finSymbol = symbolFor((data && data.financial_currency) || (data && data.price_currency));
@@ -347,7 +339,10 @@ export default function StockScreen({ route, navigation }) {
   // left-to-right in Hebrew. Only the business summary handled direction.
   const isRtl = lang === 'he';
   const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
-  const showSecondaryCcy = !priceIsILS && secondaryCurrency != null;
+  // The secondary line converts with a USD→local rate, so it is only valid when
+  // the price itself is in USD. A "not shekel" test let a EUR listing through
+  // and multiplied euros by the dollar rate — €37.95 became "₪115.75".
+  const showSecondaryCcy = isUsd(data && data.price_currency) && secondaryCurrency != null;
 
   function incomeLabelFor() {
     const hasDiv = m.dividend && m.dividend.pays_dividend;

@@ -8,6 +8,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import { useFocusEffect } from '@react-navigation/native';
+// A watchlist can hold listings from any exchange, so the symbol cannot be a
+// two-way choice between shekel and dollar. Shared with StockScreen so the same
+// stock never shows one sign on its row and another on its page.
+import { symbolFor, isUsd } from '../utils/currency';
 import BrandHeader from '../components/BrandHeader';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Polygon } from 'react-native-svg';
@@ -33,6 +37,7 @@ const GRADIENTS = [
   ['#4ade80','#16a34a'], ['#fbbf24','#d97706'], ['#60a5fa','#2563eb'], ['#f97316','#ea580c'],
   ['#fb7185','#e11d48'], ['#34d399','#0d9488'], ['#f472b6','#db2777'], ['#38bdf8','#0284c7'],
 ];
+
 
 function recColor(color, colors) {
   switch (color) {
@@ -246,10 +251,12 @@ export default function WatchlistScreen({ navigation }) {
               <View style={styles.right}>
                 {p.price != null && (
                   <Text style={[styles.price, { color: colors.text }]}>
-                    {(p.price_currency === 'ILS' ? '₪' : '$') + p.price.toFixed(2)}
+                    {symbolFor(p.price_currency) + p.price.toFixed(2)}
                   </Text>
                 )}
-                {p.price != null && p.price_currency !== 'ILS' && secondaryCurrency != null && (
+                {/* Same rule as the stock screen: the rate is USD→local, so a non-USD
+                    listing must not be multiplied by it. */}
+                {p.price != null && isUsd(p.price_currency) && secondaryCurrency != null && (
                   <Text style={[styles.ils, { color: colors.textDimmer }]}>
                     {secondaryCurrency.symbol + (p.price * secondaryCurrency.rate).toFixed(2)}
                   </Text>
