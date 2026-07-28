@@ -208,7 +208,12 @@ export default function MetricHistoryScreen({ route, navigation }) {
   const { ticker, metricKey, label, tileNote, tileScore, tileValue, tileValueText, tileSignal } = route.params;
   // Currency of THIS stock ('₪' for TASE). Values here are the same figures the
   // tile showed, so they must carry the same symbol.
-  const cur = route.params.cur || '$';
+  // TWO currencies, because a company can trade in one and report in another
+  // (ESLT.TA trades in ILS, reports in USD). `cur` labels the metric's own
+  // figures; `priceCur` labels a PRICE fallback chart, which is always in the
+  // trading currency. Using one for both would print "$2512" on Elbit's price.
+  const cur      = route.params.cur || '$';
+  const priceCur = route.params.priceCur || cur;
   const { colors, t, lang } = useApp();
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState('quarterly');
@@ -548,7 +553,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                     data={chartData}
                     colors={colors}
                     height={220}
-                    currency={cur}
+                    currency={(usePrice || usingYahooFallback) ? priceCur : cur}
                     showCurrency={usePrice || usingYahooFallback || !RATIO_METRICS.has(metricKey)}
                     /* A price fallback chart is a PRICE — rising is good even
                        under a "lower is better" metric, so don't invert it. */

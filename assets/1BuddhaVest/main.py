@@ -967,6 +967,18 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     else:
         result["price_currency"] = "USD"
 
+    # A company can TRADE in one currency and REPORT in another. Elbit Systems
+    # (ESLT.TA) trades in shekels but publishes its statements in dollars, so
+    # the app stamped a shekel sign on $925M of cash and showed "₪925.27M" — a
+    # threefold error in the number the user reads. Yahoo exposes the reporting
+    # currency separately; pass it through so the client can label
+    # statement-derived figures (cash, cash flow, revenue, net income, cost of
+    # revenue) correctly, while price and market cap keep the trading currency.
+    _fin_ccy = (info.get("financialCurrency") or "").upper()
+    if _fin_ccy == "ILA":          # agorot is never a reporting currency
+        _fin_ccy = "ILS"
+    result["financial_currency"] = _fin_ccy or result["price_currency"]
+
     _cache_set(cache_key, result, CACHE_TTL["stock"])
     return result
 
