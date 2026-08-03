@@ -2697,8 +2697,13 @@ def market_overview():
         "VIX": "^VIX",
     }
 
-    overview = {}
-    for name, symbol in indices.items():
+    # S&P, Nasdaq, VIX and the USD/ILS rate were four more sequential fetches
+    # before the 15-stock table even started. All four are independent, so they
+    # run together — and together WITH the table, below.
+    from concurrent.futures import ThreadPoolExecutor as _MoverPool
+
+    def _one_index(item):
+        name, symbol = item
         try:
             data = get_quote(symbol)
             price = data["info"].get("currentPrice") or data["info"].get("regularMarketPrice")
@@ -2706,23 +2711,38 @@ def market_overview():
             change_pct = None
             if price is not None and prev_close:
                 change_pct = round((price - prev_close) / prev_close * 100, 2)
-            overview[name] = {"value": price, "change_pct": change_pct}
+            return name, {"value": price, "change_pct": change_pct}
         except Exception:
-            overview[name] = {"value": None, "change_pct": None}
+            return name, {"value": None, "change_pct": None}
 
-    try:
-        fx_data = get_quote("ILS=X")
-        usd_ils = fx_data["info"].get("currentPrice") or fx_data["info"].get("regularMarketPrice")
-    except Exception:
-        usd_ils = None
+    def _fx():
+        try:
+            d = get_quote("ILS=X")["info"]
+            return d.get("currentPrice") or d.get("regularMarketPrice")
+        except Exception:
+            return None
+
+    overview = {}
+    with _MoverPool(max_workers=4) as _ip:
+        fx_future = _ip.submit(_fx)
+        for name, val in _ip.map(_one_index, indices.items()):
+            overview[name] = val
+        usd_ils = fx_future.result()
     overview["usd_ils"] = usd_ils
 
     watchlist_symbols = [
         "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "TSLA", "META", "AMD",
         "JPM", "V", "JNJ", "WMT", "DIS", "NFLX", "KO",
     ]
-    movers = []
-    for symbol in watchlist_symbols:
+    # These 15 used to be fetched one after another, in a plain for-loop: fifteen
+    # sequential round trips to Yahoo before a single row could be sent. Each is
+    # a few hundred milliseconds on a good day, so the table took several seconds
+    # to appear and any one slow symbol held up all the rest — which is exactly
+    # how it looked on the phone: a table that filled in late and incompletely.
+    #
+    # /quotes already fetched in parallel; this endpoint simply never got the
+    # same treatment. Same worker count (8), same pattern.
+    def _one_mover(symbol):
         try:
             data = get_quote(symbol)
             info = data["info"]
@@ -2731,7 +2751,7 @@ def market_overview():
             change_pct = None
             if price is not None and prev_close:
                 change_pct = round((price - prev_close) / prev_close * 100, 2)
-            movers.append({
+            return {
                 "ticker": symbol,
                 "name": info.get("shortName", symbol),
                 "price": price,
@@ -2739,10 +2759,14 @@ def market_overview():
                 "volume": info.get("volume") or info.get("regularMarketVolume"),
                 "avg_volume": info.get("averageVolume"),
                 "market_cap": info.get("marketCap"),
-            })
+            }
         except Exception:
-            movers.append({"ticker": symbol, "name": symbol, "price": None, "change_pct": None,
-                            "volume": None, "avg_volume": None, "market_cap": None})
+            return {"ticker": symbol, "name": symbol, "price": None, "change_pct": None,
+                    "volume": None, "avg_volume": None, "market_cap": None}
+
+    with _MoverPool(max_workers=8) as _mp:
+        # ex.map preserves input order, so the table keeps its intended sequence.
+        movers = list(_mp.map(_one_mover, watchlist_symbols))
 
     overview["movers"] = movers
 
