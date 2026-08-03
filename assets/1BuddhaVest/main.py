@@ -1092,6 +1092,97 @@ def _tase_price_mismatch(ticker: str) -> bool:
     return (ticker or "").upper().endswith(_MINOR_UNIT_SUFFIXES)
 
 
+def _find_row(df, aliases):
+    """First matching row label in `df`, trying exact aliases then substring."""
+    if df is None or getattr(df, "empty", True):
+        return None
+    for alias in aliases:
+        if alias in df.index:
+            return alias
+    for alias in aliases:
+        low = alias.lower()
+        for idx in df.index:
+            if low in str(idx).lower():
+                return idx
+    return None
+
+
+def _row_series(df, aliases):
+    """Row from `df` as a clean, tz-naive, date-sorted float Series (or None)."""
+    row = _find_row(df, aliases)
+    if row is None:
+        return None
+    try:
+        s = df.loc[row].sort_index().dropna()
+        if hasattr(s.index, "tz") and s.index.tz:
+            s.index = s.index.tz_localize(None)
+        s = s.apply(float)
+        return s if len(s) else None
+    except Exception:
+        return None
+
+
+# Where a share count can be found, in order of preference. Outstanding shares
+# come first (they exclude treasury stock, which is what a per-share figure
+# needs); the averaged income-statement counts are a last resort.
+_SHARE_ROWS = ["Ordinary Shares Number", "Share Issued",
+               "Diluted Average Shares", "Basic Average Shares"]
+
+
+def _shares_lookup(info: dict, balance_q, balance_a, income_q, income_a):
+    """
+    Return `shares_at(date)` — the share count in effect at a given date — plus a
+    flag saying whether ANY source was found.
+
+    Why this exists as one shared function: the share count was read straight
+    from info["sharesOutstanding"] in TWO separate places, and Yahoo simply does
+    not return that field for every ticker. For AMD it is absent, so a single
+    `if not shares` wiped out the entire history of P/B, P/S, EV/EBITDA, Forward
+    P/E *and* buyback yield — while the tiles kept showing values, because those
+    come from Yahoo's own summary ratios and never needed a share count. A blank
+    chart with a populated tile is the worst possible failure: it looks like
+    missing data rather than a bug.
+
+    Every statement AMD publishes carries the number (Ordinary Shares Number =
+    1,630,410,843). Reading it per date is also more accurate than one current
+    count stretched across five years of prices, since buybacks change it.
+
+    Both call sites now use this, so the two copies cannot drift apart again.
+    """
+    sq = _row_series(balance_q, _SHARE_ROWS)
+    if sq is None:
+        sq = _row_series(income_q, _SHARE_ROWS)
+    sa = _row_series(balance_a, _SHARE_ROWS)
+    if sa is None:
+        sa = _row_series(income_a, _SHARE_ROWS)
+
+    static = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+    try:
+        static = float(static) if static else None
+    except (TypeError, ValueError):
+        static = None
+
+    def shares_at(date):
+        for s in (sq, sa):
+            if s is not None:
+                past = s[s.index <= date].tail(1)
+                if len(past) == 1:
+                    v = float(past.iloc[0])
+                    if v > 0:
+                        return v
+        # Before the earliest statement, fall back to the oldest known count
+        # rather than dropping the point entirely.
+        for s in (sq, sa):
+            if s is not None and len(s):
+                v = float(s.iloc[0])
+                if v > 0:
+                    return v
+        return static
+
+    have_any = (sq is not None) or (sa is not None) or (static is not None)
+    return shares_at, have_any
+
+
 def _annual_from_monthly(series_q: list) -> list:
     """
     Collapse a monthly series into one point per YEAR — the LAST month of each
@@ -1251,6 +1342,7 @@ def metric_history(ticker: str, metric: str):
         if metric not in METRIC_MAP and metric not in CALC_SPECIAL:
             # מדד ללא היסטוריה – החזר היסטוריית מחיר
             result_data["use_price"] = True
+            result_data["empty_reason"] = "metric_not_tracked"
         elif metric in ("pe_ratio", "peg_ratio"):
             try:
                 import pandas as pd, math as _math
@@ -1273,6 +1365,7 @@ def metric_history(ticker: str, metric: str):
 
                 if hist is None or hist.empty or (eps_q is None and eps_a is None):
                     result_data["use_price"] = True
+                    result_data["empty_reason"] = "no_eps_series"
                 else:
                     price_monthly = hist["Close"].resample("ME").last()
                     if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
@@ -1330,9 +1423,11 @@ def metric_history(ticker: str, metric: str):
                     result_data["annual"] = _annual_from_monthly(series_q)
                     if not series_q:
                         result_data["use_price"] = True
+                        result_data["empty_reason"] = "all_points_rejected"
 
             except Exception:
                 result_data["use_price"] = True
+                result_data["empty_reason"] = "exception"
         elif metric in ("calc_forward_pe", "calc_pb", "calc_ps", "calc_ev_ebitda",
                         "forward_pe", "price_to_book", "price_to_sales", "ev_to_ebitda") \
                 and not _tase_price_mismatch(ticker):
@@ -1341,7 +1436,9 @@ def metric_history(ticker: str, metric: str):
                 import math as _math
                 hist = stock.history(period=_HIST_PERIOD)
                 info = stock.info or {}
-                shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+                # NOTE: the share count is NOT read from info here. It comes from
+                # _shares_lookup below, which also reads the statements — see the
+                # docstring there for why relying on this field alone was wrong.
 
                 income_q  = _get_quarterly_income(stock)
                 income_a  = _get_annual_income(stock)
@@ -1385,34 +1482,15 @@ def metric_history(ticker: str, metric: str):
                             return float(past.iloc[0])
                     return None
 
-                # Share count, PER DATE, from the statements.
-                #
-                # This used to rely solely on info["sharesOutstanding"], and when
-                # Yahoo omitted that field the whole branch bailed out to
-                # use_price — which is why AMD showed no chart for P/B, P/S or
-                # EV/EBITDA while its tiles displayed 12.04 and 103.36 quite
-                # happily (those come from Yahoo's own summary ratios, which
-                # don't need a share count). Every statement AMD publishes has
-                # the number: Ordinary Shares Number 1,630,410,843.
-                #
-                # Reading it per date is also more correct than the old approach.
-                # A single current count applied to a five-year price history
-                # misprices every past point for any company that buys back
-                # stock — AMD repurchases every quarter.
-                shares_q = get_series(balance_q, ["Ordinary Shares Number", "Share Issued"]) \
-                        or get_series(income_q,  ["Diluted Average Shares", "Basic Average Shares"])
-                shares_a = get_series(balance_a, ["Ordinary Shares Number", "Share Issued"]) \
-                        or get_series(income_a,  ["Diluted Average Shares", "Basic Average Shares"])
+                # Share count per date — see _shares_lookup for why this is not
+                # read from info["sharesOutstanding"] alone.
+                shares_at, have_shares = _shares_lookup(info, balance_q, balance_a,
+                                                        income_q, income_a)
 
-                def shares_at(date):
-                    """Share count in effect at `date`; falls back to the static field."""
-                    v = last_at(shares_q, shares_a, date)
-                    if v and v > 0:
-                        return v
-                    return float(shares) if shares else None
-
-                if hist is None or hist.empty or not (shares or shares_q is not None or shares_a is not None):
+                if hist is None or hist.empty or not have_shares:
                     result_data["use_price"] = True
+                    result_data["empty_reason"] = ("no_price_history" if (hist is None or hist.empty)
+                                                   else "no_share_count")
                 else:
                     price_monthly = hist["Close"].resample("ME").last().dropna()
                     if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
@@ -1485,9 +1563,11 @@ def metric_history(ticker: str, metric: str):
                     result_data["annual"] = _annual_from_monthly(series_q)
                     if not series_q:
                         result_data["use_price"] = True
+                        result_data["empty_reason"] = "all_points_rejected"
 
             except Exception:
                 result_data["use_price"] = True
+                result_data["empty_reason"] = "exception"
 
         elif metric in CALC_SPECIAL:
             # ── buyback / dividend — calculated from cashflow / dividend history ──
@@ -1499,7 +1579,15 @@ def metric_history(ticker: str, metric: str):
                 if metric == "buyback":
                     # Buyback yield = TTM repurchases / market cap * 100
                     # Calculated per month using price history + quarterly cashflow
-                    shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+                    #
+                    # Same share-count trap as the multiples branch: reading only
+                    # info["sharesOutstanding"] silently emptied this chart for
+                    # every ticker Yahoo omits the field on, AMD included.
+                    shares_at, have_shares = _shares_lookup(
+                        info,
+                        _get_quarterly_balance(stock), _get_annual_balance(stock),
+                        _get_quarterly_income(stock),  _get_annual_income(stock),
+                    )
                     cf_q = _get_quarterly_cashflow(stock)
                     cf_a = _get_annual_cashflow(stock)
 
@@ -1526,10 +1614,13 @@ def metric_history(ticker: str, metric: str):
                     rep_q = _get_repurchase(cf_q)
                     rep_a = _get_repurchase(cf_a)
 
-                    if hist is None or hist.empty or not shares or (rep_q is None and rep_a is None):
+                    if hist is None or hist.empty or not have_shares or (rep_q is None and rep_a is None):
                         result_data["use_price"] = True
+                        result_data["empty_reason"] = (
+                            "no_price_history" if (hist is None or hist.empty)
+                            else "no_share_count" if not have_shares
+                            else "no_repurchase_rows")
                     else:
-                        shares_f = float(shares)
                         price_monthly = hist["Close"].resample("ME").last().dropna()
                         if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
                             price_monthly.index = price_monthly.index.tz_localize(None)
@@ -1555,6 +1646,9 @@ def metric_history(ticker: str, metric: str):
                                         ttm_rep = float(past.iloc[0])
                                 if not ttm_rep or ttm_rep <= 0:
                                     continue
+                                shares_f = shares_at(date)   # per-date, not one fixed count
+                                if not shares_f or shares_f <= 0:
+                                    continue
                                 market_cap = price * shares_f
                                 if market_cap <= 0:
                                     continue
@@ -1570,6 +1664,7 @@ def metric_history(ticker: str, metric: str):
                         result_data["annual"]    = _annual_from_monthly(series_q)
                         if not series_q:
                             result_data["use_price"] = True
+                            result_data["empty_reason"] = "all_points_rejected"
 
                 elif metric == "dividend":
                     # Dividend yield = trailing 12-month dividends / price * 100
@@ -1577,6 +1672,7 @@ def metric_history(ticker: str, metric: str):
                         divs = stock.dividends
                         if divs is None or divs.empty or hist is None or hist.empty:
                             result_data["use_price"] = True
+                            result_data["empty_reason"] = "no_dividend_history"
                         else:
                             if hasattr(divs.index, "tz") and divs.index.tz:
                                 divs.index = divs.index.tz_localize(None)
@@ -1609,11 +1705,14 @@ def metric_history(ticker: str, metric: str):
                             result_data["annual"]    = _annual_from_monthly(series_q)
                             if not series_q:
                                 result_data["use_price"] = True
+                                result_data["empty_reason"] = "all_points_rejected"
                     except Exception:
                         result_data["use_price"] = True
+                        result_data["empty_reason"] = "exception"
 
             except Exception:
                 result_data["use_price"] = True
+                result_data["empty_reason"] = "exception"
 
         else:
             source, field1, field2, calc = METRIC_MAP[metric]
@@ -1677,6 +1776,7 @@ def metric_history(ticker: str, metric: str):
 
             if not result_data["quarterly"] and not result_data["annual"]:
                 result_data["use_price"] = True
+                result_data["empty_reason"] = "no_statement_rows"
 
         if result_data["use_price"]:
             hist = stock.history(period=_HIST_PERIOD)
