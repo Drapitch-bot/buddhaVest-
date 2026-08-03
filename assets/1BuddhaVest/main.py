@@ -1385,10 +1385,35 @@ def metric_history(ticker: str, metric: str):
                             return float(past.iloc[0])
                     return None
 
-                if hist is None or hist.empty or not shares:
+                # Share count, PER DATE, from the statements.
+                #
+                # This used to rely solely on info["sharesOutstanding"], and when
+                # Yahoo omitted that field the whole branch bailed out to
+                # use_price — which is why AMD showed no chart for P/B, P/S or
+                # EV/EBITDA while its tiles displayed 12.04 and 103.36 quite
+                # happily (those come from Yahoo's own summary ratios, which
+                # don't need a share count). Every statement AMD publishes has
+                # the number: Ordinary Shares Number 1,630,410,843.
+                #
+                # Reading it per date is also more correct than the old approach.
+                # A single current count applied to a five-year price history
+                # misprices every past point for any company that buys back
+                # stock — AMD repurchases every quarter.
+                shares_q = get_series(balance_q, ["Ordinary Shares Number", "Share Issued"]) \
+                        or get_series(income_q,  ["Diluted Average Shares", "Basic Average Shares"])
+                shares_a = get_series(balance_a, ["Ordinary Shares Number", "Share Issued"]) \
+                        or get_series(income_a,  ["Diluted Average Shares", "Basic Average Shares"])
+
+                def shares_at(date):
+                    """Share count in effect at `date`; falls back to the static field."""
+                    v = last_at(shares_q, shares_a, date)
+                    if v and v > 0:
+                        return v
+                    return float(shares) if shares else None
+
+                if hist is None or hist.empty or not (shares or shares_q is not None or shares_a is not None):
                     result_data["use_price"] = True
                 else:
-                    shares = float(shares)
                     price_monthly = hist["Close"].resample("ME").last().dropna()
                     if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
                         price_monthly.index = price_monthly.index.tz_localize(None)
@@ -1412,6 +1437,9 @@ def metric_history(ticker: str, metric: str):
                     for date, price in price_monthly.items():
                         price = float(price)
                         val = None
+                        shares = shares_at(date)   # per-date, not one fixed count
+                        if not shares or shares <= 0:
+                            continue
                         try:
                             if metric == "forward_pe":
                                 # Forward P/E: אין היסטוריה אמיתית — נשתמש ב-trailing P/E (EPS TTM)
