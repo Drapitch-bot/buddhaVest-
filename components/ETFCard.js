@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
 
-export default function ETFCard({ ticker, colors, t, navigation }) {
+// `companyName` is only forwarded to the metric detail screen, so its header can
+// say which fund the number belongs to — the same context the stock tiles pass.
+export default function ETFCard({ ticker, companyName, colors, t, navigation }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -68,7 +70,7 @@ export default function ETFCard({ ticker, colors, t, navigation }) {
           <TouchableOpacity
             key={i}
             style={[s.tile, { backgroundColor: colors.cardAlt, borderColor: colors.cardBorder }]}
-            onPress={tile.pressable ? () => navigation.navigate('MetricHistory', { ticker, metricKey: 'price', label: tile.label }) : undefined}
+            onPress={tile.pressable ? () => navigation.navigate('MetricHistory', { ticker, companyName, metricKey: 'price', label: tile.label }) : undefined}
             activeOpacity={tile.pressable ? 0.7 : 1}>
             <Text style={[s.tileLabel, { color: colors.textDimmer }]}>{tile.label}</Text>
             <Text style={[s.tileValue, tile.small && s.tileValueSmall, { color: tile.color || colors.text }]}>{tile.value}</Text>

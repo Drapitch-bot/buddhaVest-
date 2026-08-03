@@ -94,7 +94,7 @@ function timeAgo(published, t) {
 }
 
 // ── MetricsGrid ───────────────────────────────────────────────────────────────
-function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t, cur, priceCur, rtl }) {
+function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, companyName, t, cur, priceCur, rtl }) {
   const pairs = metricKeys.filter(function(k) {
     const m = metrics[k];
     if (!m) return false;
@@ -129,6 +129,7 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, t, cur, 
                 tileValueText: metricValueDisplay(key, m, cur),
                 cur: cur,        // metric figures — reporting currency
                 priceCur: priceCur,  // a price fallback chart — trading currency
+                companyName: companyName,  // header line: WHICH stock this is
               });
             }}
           />
@@ -330,6 +331,10 @@ export default function StockScreen({ route, navigation }) {
   // Not a binary choice: a listing can be quoted in EUR, GBP, JPY… The old
   // `ILS ? ₪ : $` printed a dollar sign on Delivery Hero's euro price.
   const priceSymbol = symbolFor(data && data.price_currency);
+  // Passed down to the metric detail screen so its header says WHICH stock the
+  // number belongs to. Falls back to the name the caller navigated with, so the
+  // line is populated even before /analyze responds.
+  const companyName = (data && data.company_name) || name || null;
   // Statements can be published in a different currency from the share price.
   // Falls back to the price currency when the server doesn't say (older cache).
   const finSymbol = symbolFor((data && data.financial_currency) || (data && data.price_currency));
@@ -620,14 +625,14 @@ export default function StockScreen({ route, navigation }) {
           {(m.pe_ratio && m.pe_ratio.value != null) || (m.peg_ratio && m.peg_ratio.value != null) ? (
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <Text style={[s.cardTitle, { color: colors.text }]}>{'🏷️ ' + (t.valuation || 'Valuation')}</Text>
-              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
+              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
             </View>
           ) : null}
 
           {/* Profitability card */}
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[s.cardTitle, { color: colors.text }]}>{'📊 ' + (t.profitability || 'Profitability & Margins')}</Text>
-            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
+            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
           </View>
 
           {/* Balance card */}
@@ -640,7 +645,7 @@ export default function StockScreen({ route, navigation }) {
                 ...(m.cash_runway && m.cash_runway.value != null ? ['cash_runway'] : []),
                 'dividend','buyback',
               ]}
-              metrics={m} colors={colors} navigation={navigation} ticker={ticker} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
+              metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
           </View>
 
           {/* Price chart card */}
@@ -725,27 +730,27 @@ export default function StockScreen({ route, navigation }) {
                     note={t.forward_pe_note || 'P/E multiple based on future projections'}
                     valColor={ve.trailing_pe && ve.forward_pe < ve.trailing_pe ? colors.green : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: t.metric_names?.forward_pe || 'Forward P/E', tileNote: t.forward_pe_note || 'P/E multiple based on future projections', tileScore: null, tileValue: ve.forward_pe ?? null, tileSignal: (ve.trailing_pe && ve.forward_pe < ve.trailing_pe) ? 'green' : null , cur: finSymbol, priceCur: priceSymbol }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'forward_pe', label: t.metric_names?.forward_pe || 'Forward P/E', tileNote: t.forward_pe_note || 'P/E multiple based on future projections', tileScore: null, tileValue: ve.forward_pe ?? null, tileSignal: (ve.trailing_pe && ve.forward_pe < ve.trailing_pe) ? 'green' : null , cur: finSymbol, priceCur: priceSymbol, companyName: companyName }); }} />
                 ) : null}
                 {ve.price_to_book ? (
                   <ValTile label={t.metric_names?.price_to_book || 'P/B'} value={String(ve.price_to_book)}
                     note={t.pb_note || 'Price relative to net asset value'}
                     valColor={ve.price_to_book < 1 ? colors.green : ve.price_to_book > 5 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: t.metric_names?.price_to_book || 'P/B', tileNote: t.pb_note || 'Price relative to net asset value', tileScore: null, tileValue: ve.price_to_book ?? null, tileSignal: ve.price_to_book < 1 ? 'green' : ve.price_to_book > 5 ? 'red' : null , cur: finSymbol, priceCur: priceSymbol }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_book', label: t.metric_names?.price_to_book || 'P/B', tileNote: t.pb_note || 'Price relative to net asset value', tileScore: null, tileValue: ve.price_to_book ?? null, tileSignal: ve.price_to_book < 1 ? 'green' : ve.price_to_book > 5 ? 'red' : null , cur: finSymbol, priceCur: priceSymbol, companyName: companyName }); }} />
                 ) : null}
                 {ve.price_to_sales ? (
                   <ValTile label={t.metric_names?.price_to_sales || 'P/S'} value={String(ve.price_to_sales)}
                     note={t.ps_note || 'Price relative to revenue'}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: t.metric_names?.price_to_sales || 'P/S', tileNote: t.ps_note || 'Price relative to revenue', tileScore: null, tileValue: ve.price_to_sales ?? null, tileSignal: null , cur: finSymbol, priceCur: priceSymbol }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'price_to_sales', label: t.metric_names?.price_to_sales || 'P/S', tileNote: t.ps_note || 'Price relative to revenue', tileScore: null, tileValue: ve.price_to_sales ?? null, tileSignal: null , cur: finSymbol, priceCur: priceSymbol, companyName: companyName }); }} />
                 ) : null}
                 {ve.ev_to_ebitda ? (
                   <ValTile label={t.metric_names?.ev_to_ebitda || 'EV/EBITDA'} value={String(ve.ev_to_ebitda)}
                     note={t.ev_ebitda_note || 'Enterprise multiple'}
                     valColor={ve.ev_to_ebitda < 10 ? colors.green : ve.ev_to_ebitda > 25 ? colors.red : colors.text}
                     colors={colors}
-                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: t.metric_names?.ev_to_ebitda || 'EV/EBITDA', tileNote: t.ev_ebitda_note || 'Enterprise multiple', tileScore: null, tileValue: ve.ev_to_ebitda ?? null, tileSignal: ve.ev_to_ebitda < 10 ? 'green' : ve.ev_to_ebitda > 25 ? 'red' : null , cur: finSymbol, priceCur: priceSymbol }); }} />
+                    onPress={function() { navigation.navigate('MetricHistory', { ticker: ticker, metricKey: 'ev_to_ebitda', label: t.metric_names?.ev_to_ebitda || 'EV/EBITDA', tileNote: t.ev_ebitda_note || 'Enterprise multiple', tileScore: null, tileValue: ve.ev_to_ebitda ?? null, tileSignal: ve.ev_to_ebitda < 10 ? 'green' : ve.ev_to_ebitda > 25 ? 'red' : null , cur: finSymbol, priceCur: priceSymbol, companyName: companyName }); }} />
                 ) : null}
               </View>
               <Text style={[s.noteSmall, { color: colors.textDimmer }]}>
@@ -755,7 +760,7 @@ export default function StockScreen({ route, navigation }) {
           ) : null}
 
           {/* ETF card */}
-          <ETFCard ticker={ticker} colors={colors} t={t} navigation={navigation} />
+          <ETFCard ticker={ticker} companyName={companyName} colors={colors} t={t} navigation={navigation} />
 
           {/* Events card */}
           <EventsCard ticker={ticker} colors={colors} t={t} />
