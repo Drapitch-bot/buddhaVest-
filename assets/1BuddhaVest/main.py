@@ -336,13 +336,22 @@ async def _no_http_cache(request: Request, call_next):
     price_currency "ILS".
 
     The server keeps its own in-memory cache (that is what protects Yahoo from
-    load); this only stops COPIES of a response outliving a deploy. /privacy is
-    a static legal page and is left cacheable.
+    load); this only stops COPIES of a response outliving a deploy.
+
+    /privacy used to be excluded here, on the reasoning that a static legal page
+    is cheap to cache. That reasoning was backwards and it bit us: after the
+    privacy text was corrected, https://buddhavest.onrender.com/privacy still
+    served the PREVIOUS wording, while the same URL with an unused query string
+    served the new one — proving the body was a cached copy, not stale server
+    code. A privacy policy is the one page where a stale copy is most expensive:
+    Google Play compares it against the Data Safety declaration, and the old
+    copy said the watchlist "is never transmitted to our servers", which the
+    declaration contradicts. Correctness beats saving a few kilobytes, so there
+    is no longer an exception for any path.
     """
     response = await call_next(request)
-    if not request.url.path.startswith("/privacy"):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
     return response
 
 

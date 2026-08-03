@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<title>Play Console — צ׳קליסט</title>
+<style>
+ body{font-family:Segoe UI,Arial,sans-serif;max-width:900px;margin:0 auto;padding:28px 22px 80px;
+      line-height:1.75;color:#1c1f26;background:#fbfbfc}
+ h1{font-size:26px;border-bottom:3px solid #1a7340;padding-bottom:10px;margin-bottom:6px}
+ h2{font-size:19px;margin-top:34px;color:#1a7340;border-bottom:1px solid #dde;padding-bottom:6px}
+ h3{font-size:16px;margin-top:22px;color:#2c3e50}
+ table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;background:#fff}
+ th,td{border:1px solid #d6dae0;padding:8px 10px;text-align:right;vertical-align:top}
+ th{background:#1a7340;color:#fff;font-weight:600}
+ tr:nth-child(even) td{background:#f5f8f6}
+ code{background:#eef1f4;padding:2px 6px;border-radius:4px;font-size:13px;direction:ltr;
+      display:inline-block;font-family:Consolas,monospace}
+ strong{color:#0f2f1c}
+ hr{border:0;border-top:1px solid #dde;margin:30px 0}
+ blockquote{border-right:4px solid #f59e0b;background:#fff8e8;margin:14px 0;padding:10px 16px;
+            border-radius:0 6px 6px 0}
+ li{margin:5px 0}
+ .note{background:#fff;border:1px solid #d6dae0;border-radius:8px;padding:14px 18px;margin:18px 0}
+</style></head><body>
+<h1>Play Console — כל הטפסים שנותרו</h1>
+<p><code>App content</code> (תוכן האפליקציה) בתפריט הימני. גוגל לא תיתן להגיש עד שכולם ירוקים.</p>
+<hr />
+<h2>✅ מה שכבר עשית</h2>
+<table>
+<thead>
+<tr>
+<th>סעיף</th>
+<th>מצב</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>יצירת האפליקציה</td>
+<td>הושלם</td>
+</tr>
+<tr>
+<td>אימות החשבון</td>
+<td>הושלם</td>
+</tr>
+<tr>
+<td>הגנה אוטומטית</td>
+<td>מופעלת</td>
+</tr>
+<tr>
+<td><strong>בטיחות נתונים (Data safety)</strong></td>
+<td>הושלם — 5 סוגי נתונים</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>מה שנשאר — לפי סדר</h2>
+<h3>1. מדיניות פרטיות</h3>
+<p><strong>כתובת:</strong> <code>https://buddhavest.onrender.com/privacy</code></p>
+<p>⚠️ <strong>חייב לקרות אחרי ה־push הבא.</strong> ראה את הסעיף האחרון במסמך.</p>
+<hr />
+<h3>2. גישה לאפליקציה (App access)</h3>
+<p><strong>→ "כל הפונקציונליות זמינה ללא גישה מיוחדת"</strong></p>
+<p>אין מסך התחברות, אין קוד הזמנה, ואין תוכן נעול. הבודק של גוגל יכול להגיע לכל מסך מיד עם ההתקנה. אימות: אין קריאת רשת אחת ששולחת פרטי משתמש.</p>
+<hr />
+<h3>3. מודעות (Ads)</h3>
+<p><strong>→ "לא, האפליקציה לא מכילה מודעות"</strong></p>
+<p>נסרקו כל 19 התלויות ב-<code>package.json</code>: אין AdMob, אין Facebook Audience Network, אין שום SDK פרסומי. אין גם מזהה פרסום.</p>
+<hr />
+<h3>4. דירוג תוכן (Content rating)</h3>
+<p>שאלון שממלאים פעם אחת. התשובות:</p>
+<table>
+<thead>
+<tr>
+<th>שאלה</th>
+<th>תשובה</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>קטגוריה</td>
+<td><strong>Reference, News, or Educational</strong></td>
+</tr>
+<tr>
+<td>אלימות · תוכן מיני · שפה גסה · חומרים מסוכנים</td>
+<td>לא</td>
+</tr>
+<tr>
+<td>הימורים או הימורים מדומים</td>
+<td><strong>לא</strong> — האפליקציה לא מאפשרת להמר, לסחור או להשקיע</td>
+</tr>
+<tr>
+<td>רכישות דיגיטליות</td>
+<td>לא</td>
+</tr>
+<tr>
+<td>שיתוף מיקום · שיתוף בין משתמשים</td>
+<td>לא</td>
+</tr>
+<tr>
+<td>גישה לאינטרנט לא מסוננת</td>
+<td><strong>כן</strong> — ה-WebView פותח כתבות מאתרי חדשות חיצוניים</td>
+</tr>
+</tbody>
+</table>
+<p><strong>"גישה לאינטרנט לא מסוננת" היא היחידה שאומרים בה כן.</strong> אל תתפתה לענות לא: <code>ArticleScreen.js</code> טוען דפי אינטרנט של צד שלישי ב-WebView, וזו בדיוק ההגדרה.</p>
+<hr />
+<h3>5. קהל יעד וגיל (Target audience)</h3>
+<p><strong>→ 18 ומעלה בלבד</strong></p>
+<p>אל תסמן שום קבוצת גיל מתחת ל-18. הסיבה אינה שהתוכן פוגעני — היא שכל טווח גיל שכולל ילדים מפעיל את <strong>Families Policy</strong>, שדורש עמידה בדרישות עיצוב ופרטיות נפרדות ומזמין בדיקה מחמירה בהרבה. תוכן פיננסי גם לא מיועד לקטינים מלכתחילה, ומדיניות הפרטיות כבר מצהירה שהאפליקציה אינה מכוונת לילדים מתחת ל-13.</p>
+<p><strong>"האם האפליקציה מושכת ילדים באופן לא מכוון?"</strong> → לא.</p>
+<hr />
+<h3>6. תכונות פיננסיות (Financial features)</h3>
+<p><strong>→ "האפליקציה לא מספקת שום תכונה פיננסית"</strong></p>
+<p>⚠️ <strong>זו ההצהרה שהכי קל לטעות בה באפליקציה כמו שלך.</strong> הרשימה של גוגל מכסה: הלוואות, ניהול חובות, ארנקי וביטחונות קריפטו, ביטוח, ומסחר/השקעות <strong>בכסף אמיתי</strong>.</p>
+<p>BuddhaVest לא עושה אף אחד מהם. אין חיבור לברוקר, אין ביצוע פקודות, אין העברת כספים, ואין קריפטו. היא <strong>מציגה מידע ציבורי ומחשבת ציון בנוסחה קבועה</strong> — וזה לא "תכונה פיננסית" בהגדרת גוגל.</p>
+<p><strong>מה כן חשוב:</strong> הניסוח בדף החנות כבר נמנע ממילים כמו "המלצה", "ייעוץ" ו-"AI". שמור על זה. תיאור שמבטיח תשואות או מתחזה לייעוץ הוא מה שמפעיל בדיקה מחמירה, לא הקוד.</p>
+<hr />
+<h3>7. אפליקציית חדשות (News app)</h3>
+<p><strong>→ לא</strong></p>
+<p>יש בה מסך חדשות, אבל המטרה העיקרית היא מחקר מניות והחדשות הן תכונה תומכת. הצהרה כ"אפליקציית חדשות" מפעילה דרישות נפרדות לגבי מו"לות ובעלות על תוכן — שלא רלוונטיות לפיד מצטבר.</p>
+<p><strong>אם גוגל תחלוק על כך</strong>, הפתרון אינו לשנות את הקוד אלא למלא את הצהרת החדשות. אין בזה נזק.</p>
+<hr />
+<h3>8. שאר ההצהרות — כולן "לא"</h3>
+<table>
+<thead>
+<tr>
+<th>הצהרה</th>
+<th>תשובה</th>
+<th>למה</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>אפליקציות בריאות</td>
+<td>לא</td>
+<td>אין תכונות או נתוני בריאות</td>
+</tr>
+<tr>
+<td>שימוש ממשלתי</td>
+<td>לא</td>
+<td>אין</td>
+</tr>
+<tr>
+<td>COVID-19</td>
+<td>לא</td>
+<td>אין</td>
+</tr>
+<tr>
+<td>הרשאות רגישות (SMS / יומן שיחות)</td>
+<td>לא</td>
+<td>המניפסט מכיל רק <code>INTERNET</code> ו-<code>ACCESS_NETWORK_STATE</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>דף החנות (Store listing) — נפרד מ-App content</h2>
+<table>
+<thead>
+<tr>
+<th>פריט</th>
+<th>מצב</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>שם, תיאור קצר, תיאור מלא</td>
+<td>✅ מוכן ב-4 שפות ב-<code>store-listing.md</code>, כולם בתוך מגבלות התווים</td>
+</tr>
+<tr>
+<td>אייקון 512×512</td>
+<td>✅ קיים ב-1024×1024</td>
+</tr>
+<tr>
+<td>Feature graphic 1024×500</td>
+<td>✅ קיים בדיוק במידה</td>
+</tr>
+<tr>
+<td><strong>צילומי מסך</strong></td>
+<td>❌ <strong>חסר — זה הפער היחיד</strong></td>
+</tr>
+</tbody>
+</table>
+<p>גוגל דורשת <strong>לפחות 2</strong> צילומי טלפון, ומומלץ 4–8. יש מדריך מוכן: <code>מדריך-צילומי-מסך-לחנות.html</code>.</p>
+<hr />
+<h2>⚠️ מה שחייב לקרות לפני שגוגל תקרא את מדיניות הפרטיות</h2>
+<p>נמצא בביקורת הזו: הכתובת <code>https://buddhavest.onrender.com/privacy</code> החזירה <strong>נוסח ישן</strong>, בעוד שאותה כתובת עם פרמטר שאילתה שלא היה בשימוש החזירה את הנוסח המתוקן. כלומר הקוד בשרת תקין — התשובה נתקעה במטמון.</p>
+<p><strong>הסיבה:</strong> המידלוור שמונע מטמון החריג במפורש את <code>/privacy</code>, מתוך הנחה שדף משפטי סטטי כדאי לשמור במטמון. ההנחה היתה הפוכה: זה בדיוק הדף שבו עותק ישן הכי יקר — גוגל משווה אותו להצהרת Data Safety, והנוסח הישן טוען שרשימת המעקב "לעולם לא נשלחת לשרתים שלנו", בסתירה ישירה להצהרה שמילאת.</p>
+<p><strong>התיקון:</strong> החריג הוסר. כל נתיב מקבל <code>no-store</code>.</p>
+<p><strong>לכן:</strong> תריץ <code>push.bat</code>, המתן דקה לפריסה, וּודא ש-<code>https://buddhavest.onrender.com/privacy</code> (בלי פרמטרים) מציג את המשפט <em>"the symbols themselves are sent with the request"</em>. רק אז תזין את הכתובת בקונסולה.</p>
+</body></html>

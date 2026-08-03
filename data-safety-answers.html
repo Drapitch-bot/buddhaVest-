@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<title>Data Safety — תשובות למילוי</title>
+<style>
+ body{font-family:Segoe UI,Arial,sans-serif;max-width:900px;margin:0 auto;padding:28px 22px 80px;
+      line-height:1.75;color:#1c1f26;background:#fbfbfc}
+ h1{font-size:26px;border-bottom:3px solid #1a7340;padding-bottom:10px;margin-bottom:6px}
+ h2{font-size:19px;margin-top:34px;color:#1a7340;border-bottom:1px solid #dde;padding-bottom:6px}
+ h3{font-size:16px;margin-top:22px;color:#2c3e50}
+ table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px;background:#fff}
+ th,td{border:1px solid #d6dae0;padding:8px 10px;text-align:right;vertical-align:top}
+ th{background:#1a7340;color:#fff;font-weight:600}
+ tr:nth-child(even) td{background:#f5f8f6}
+ code{background:#eef1f4;padding:2px 6px;border-radius:4px;font-size:13px;direction:ltr;
+      display:inline-block;font-family:Consolas,monospace}
+ strong{color:#0f2f1c}
+ hr{border:0;border-top:1px solid #dde;margin:30px 0}
+ blockquote{border-right:4px solid #f59e0b;background:#fff8e8;margin:14px 0;padding:10px 16px;
+            border-radius:0 6px 6px 0}
+ li{margin:5px 0}
+ .note{background:#fff;border:1px solid #d6dae0;border-radius:8px;padding:14px 18px;margin:18px 0}
+</style></head><body>
+<h1>טופס Data Safety — תשובות מדויקות</h1>
+<p><strong>Play Console → App content → Data safety → Start</strong></p>
+<p>כל תשובה כאן נגזרה מקריאה בקוד, לא מהערכה. מקור כל קביעה מצוין בסוגריים.</p>
+<hr />
+<h2>שלב 2 מתוך 5 — איסוף נתונים ואבטחה</h2>
+<p>הקונסולה חושפת את השאלות <strong>בהדרגה</strong> — כל תשובה פותחת את הבאה. הן לא מופיעות יחד.</p>
+<h3>① "האם האפליקציה שלך אוספת או משתפת סוג כלשהו של נתוני משתמשים?"</h3>
+<p><strong>→ כן</strong></p>
+<p>סמלי המניות יוצאים מהמכשיר לשרת, ו־<code>expo-updates</code> שולח מזהה התקנה לשרתי Expo.</p>
+<h3>② "האם כל נתוני המשתמשים שנאספו מוצפנים בזמן ההעברה?"</h3>
+<p><strong>→ כן</strong></p>
+<p>כל שישה יעדי הרשת בקוד הם <code>https://</code> ללא יוצא מן הכלל:
+<code>buddhavest.onrender.com</code> · <code>query1.finance.yahoo.com</code> · <code>query2.finance.yahoo.com</code> ·
+<code>stooq.com</code> · <code>seekingalpha.com</code> · <code>translate.googleapis.com</code></p>
+<h3>③ "באילו מהשיטות הבאות ליצירת חשבונות האפליקציה תומכת?"</h3>
+<p><strong>→ לסמן רק: "האפליקציה שלי לא מאפשרת למשתמשים ליצור חשבון"</strong></p>
+<p>אין מסך התחברות, אין הרשמה, ואין שדה שמבקש אימייל או סיסמה. אף קריאת רשת לא שולחת
+פרטי משתמש.</p>
+<h3>④ שאלת מחיקת הנתונים</h3>
+<p><strong>→ לא</strong></p>
+<p><strong>זהו תיקון לגרסה קודמת של המסמך הזה, שאמרה "כן". זו היתה טעות.</strong></p>
+<p>ההיגוי המוטעה היה שכפתור "איפוס הכל" ב־More מהווה מנגנון מחיקה. הוא מוחק נתונים
+<strong>מקומיים</strong>, וגוגל לא מגדירה נתונים מקומיים כ"נאספים" מלכתחילה — ולכן הוא לא רלוונטי
+לשאלה.</p>
+<p>השאלה שואלת על מנגנון לבקש מחיקה של נתונים שכן נאספו. אצל BuddhaVest אין מה למחוק:
+השרת לא כותב סמלים לשום מסד נתונים, אין חשבון, ואין מזהה שאפשר לקשור אליו בקשה.
+"כן" היה מרמז על ערוץ בקשות שלא קיים.</p>
+<h3>תגים נוספים — לדלג על שניהם</h3>
+<table>
+<thead>
+<tr>
+<th>תג</th>
+<th>למה לא</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>בדיקת אבטחה עצמאית</td>
+<td>מחייב ביקורת בתשלום במעבדה מוסמכת מטעם גוגל. לא בוצעה</td>
+</tr>
+<tr>
+<td>ממשק תשלומים מאוחד (UPI)</td>
+<td>מערכת התשלומים של הודו. אין תשלומים באפליקציה בכלל</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>שלב 3 מתוך 5 — סוגי נתונים</h2>
+<h3>✅ לסמן — App activity</h3>
+<table>
+<thead>
+<tr>
+<th>תת־קטגוריה</th>
+<th>Collected</th>
+<th>Shared</th>
+<th>Ephemeral</th>
+<th>Required/Optional</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>App interactions</strong></td>
+<td>Yes</td>
+<td>No</td>
+<td><strong>No</strong></td>
+<td>Required</td>
+<td>App functionality</td>
+</tr>
+<tr>
+<td><strong>In-app search history</strong></td>
+<td>Yes</td>
+<td>No</td>
+<td><strong>No</strong></td>
+<td>Required</td>
+<td>App functionality</td>
+</tr>
+<tr>
+<td><strong>Other user-generated content</strong></td>
+<td>Yes</td>
+<td>No</td>
+<td><strong>No</strong></td>
+<td>Required</td>
+<td>App functionality</td>
+</tr>
+</tbody>
+</table>
+<p><strong>מה זה בפועל:</strong></p>
+<ul>
+<li><strong>In-app search history</strong> — מה שהקלדת בחיפוש נשלח כ־<code>/search?q=...</code> (<code>constants/api.js</code>)</li>
+<li><strong>App interactions</strong> — כל מניה שנפתחת נשלחת כ־<code>/analyze/&lt;ticker&gt;</code> (<code>StockScreen.js:253</code>)</li>
+<li><strong>Other user-generated content</strong> — רשימת המעקב. היא <em>נשמרת</em> רק במכשיר, אבל כדי להציג מחיר וציון לכל שורה הסמלים נשלחים לשרת: <code>watchlist.map(w =&gt; w.ticker).join(',')</code> (<code>BrandHeader.js:58</code>, <code>WatchlistScreen.js:159</code>)</li>
+</ul>
+<p><strong>למה Ephemeral = No:</strong> ספק האחסון (Render) שומר לוגי גישה שכוללים את כתובת ה־URL, ובה מופיע הסמל. זה חורג מ"עיבוד בזיכרון בלבד". עדיף להצהיר מאשר להסתמך על פטור שנוי במחלוקת.</p>
+<h3>✅ לסמן — Device or other IDs</h3>
+<table>
+<thead>
+<tr>
+<th>Collected</th>
+<th>Shared</th>
+<th>Ephemeral</th>
+<th>Required/Optional</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Yes</td>
+<td>No</td>
+<td>No</td>
+<td>Required</td>
+<td>App functionality</td>
+</tr>
+</tbody>
+</table>
+<p><code>expo-updates</code> מייצר <strong>מזהה התקנה אקראי</strong> ושולח אותו לשרתי Expo כדי לדעת אילו מכשירים כבר קיבלו עדכון. זה לא מזהה אישי ולא מזהה פרסומי, אבל הוא כן מזהה מכשיר — וגוגל דורשת להצהיר עליו.</p>
+<p><em>Shared = No</em> כי Expo היא ספק שירות שמעבד בשמך, וגוגל מחריגה העברה לספק שירות מהגדרת "שיתוף".</p>
+<hr />
+<h2>❌ מה לא לסמן — ולמה</h2>
+<table>
+<thead>
+<tr>
+<th>קטגוריה</th>
+<th>למה לא</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Personal info (שם, אימייל, טלפון, מזהי ממשלה)</td>
+<td>אין רישום, אין חשבון, אין שדה קלט כזה בשום מסך</td>
+</tr>
+<tr>
+<td>Financial info</td>
+<td><strong>שים לב:</strong> יומן המחקר יכול להכיל טקסט חופשי על עסקאות — אבל הוא <strong>אף פעם לא עוזב את המכשיר</strong>. אומת: <code>buddhavest_journal</code> מופיע רק ב־<code>getItem</code>/<code>setItem</code>/<code>removeItem</code>, אף פעם לא ב־<code>fetch</code></td>
+</tr>
+<tr>
+<td>Location</td>
+<td>אין הרשאת מיקום, ואין שימוש בכתובת IP להסקת מיקום</td>
+</tr>
+<tr>
+<td>Contacts · Photos · Audio · Files · Calendar · Messages · Health</td>
+<td>אין הרשאות כאלה. המניפסט מכיל <strong>רק</strong> <code>INTERNET</code> ו־<code>ACCESS_NETWORK_STATE</code></td>
+</tr>
+<tr>
+<td>Crash logs · Diagnostics</td>
+<td>אין Sentry, Crashlytics, Bugsnag או כל SDK דומה. נסרקו כל 19 התלויות ב־<code>package.json</code></td>
+</tr>
+<tr>
+<td>Advertising ID</td>
+<td>אין SDK פרסומי בכלל</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2>⚠️ החלטה אחת שצריכה את שיקול דעתך</h2>
+<p><strong>קישורי הכתבות.</strong> כשתרגום בתוך האפליקציה מופעל, כתובת הכתבה נשלחת לשרת שלנו כדי להביא ולתרגם את הטקסט (<code>ArticleScreen.js:166</code>).</p>
+<p>ההגדרה של גוגל ל־<strong>Web browsing history</strong> היא "מידע על אתרים שהמשתמש ביקר בהם" — וזה מתאים מילולית.</p>
+<p><strong>ההמלצה שלי: לסמן.</strong> Collected=Yes · Shared=No · Ephemeral=No · Required=Optional · Purpose=App functionality.</p>
+<p><strong>למה בכל זאת יש כאן ספק:</strong> המשתמש לא גולש בחופשיות — הוא פותח כתבות שהאפליקציה עצמה הציגה לו, וזו יותר אינטראקציה בתוך האפליקציה מאשר היסטוריית גלישה. אפליקציות חדשות רבות לא מצהירות על זה.</p>
+<p><strong>למה אני בכל זאת ממליץ לסמן:</strong> הצהרת יתר לא נענשת. הצהרת חסר היא עילה להסרה. Optional (ולא Required) מדויק כאן, כי התרגום ניתן לכיבוי בהגדרות.</p>
+<hr />
+<h2>אחרי המילוי</h2>
+<ol>
+<li><strong>Save</strong> בכל מסך, ואז <strong>Submit</strong> במסך הסיכום</li>
+<li>הקישור למדיניות הפרטיות: <code>https://buddhavest.onrender.com/privacy</code></li>
+<li>גוגל משווה בין הטופס למדיניות. שני המסמכים חייבים לומר אותו דבר.</li>
+</ol>
+<hr />
+<h2>תיקון שנעשה תוך כדי הכנת הטופס</h2>
+<p>מדיניות הפרטיות הכילה <strong>קביעה שגויה</strong>:</p>
+<blockquote>
+<p>"The following data is stored locally on your device only and is never transmitted to our servers: <strong>Your watchlist</strong>…"</p>
+</blockquote>
+<p>הקוד סותר את זה. <code>BrandHeader.js:58</code> ו־<code>WatchlistScreen.js:159</code> שולחים את סמלי רשימת המעקב ל־<code>/quotes</code>, ו־<code>WatchlistScreen.js:185</code> שולח כל סמל ל־<code>/analyze</code>.</p>
+<p><strong>התיקון מבדיל בין "נשמר" לבין "נשלח":</strong> הרשימה נשמרת רק במכשיר ולא נכתבת לשום מסד נתונים בשרת — אבל הסמלים כן נשלחים בכל בקשה, כי אחרת אי אפשר להציג מחיר. היומן, לעומת זאת, באמת לא עוזב את המכשיר, וזה נאמר עכשיו במפורש. נוסף גם סעיף על קישורי הכתבות, שלא הוזכר קודם כלל.</p>
+<p>זה חשוב כי טופס Data Safety שסותר את מדיניות הפרטיות הוא הפרת מדיניות בפני עצמה.</p>
+</body></html>
