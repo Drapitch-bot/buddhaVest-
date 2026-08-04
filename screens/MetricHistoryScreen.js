@@ -208,7 +208,17 @@ export default function MetricHistoryScreen({ route, navigation }) {
   const { ticker, metricKey, label, tileNote, tileScore, tileValue, tileValueText, tileSignal } = route.params;
   // Company name for the header line above the metric. Optional: a caller that
   // doesn't pass it still renders, showing the ticker alone.
-  const companyName = route.params.companyName || null;
+  //
+  // The caller often has nothing better than the ticker itself to pass — the
+  // search screen navigates with name === ticker, and /analyze may not have
+  // answered yet. That produced the header "AMZN · AMZN". Compare case- and
+  // space-insensitively and drop the duplicate half.
+  const _rawName = route.params.companyName || null;
+  const _sameAsTicker = _rawName && ticker &&
+    String(_rawName).trim().toLowerCase() === String(ticker).trim().toLowerCase();
+  const stockLabel = !ticker ? null
+                   : (_rawName && !_sameAsTicker) ? `${ticker} · ${_rawName}`
+                   : ticker;
   // Currency of THIS stock ('₪' for TASE). Values here are the same figures the
   // tile showed, so they must carry the same symbol.
   // TWO currencies, because a company can trade in one and report in another
@@ -412,13 +422,20 @@ export default function MetricHistoryScreen({ route, navigation }) {
         {/* WHICH stock this is, above the metric name. Without it the screen read
             "EV/EBITDA · 103.36" with nothing tying the number to a company — the
             reader loses the context the moment they tap through from the tile. */}
-        <View style={{ flex: 1 }}>
-          {ticker ? (
-            <Text numberOfLines={1} style={[s.stockLine, { color: colors.accent }]}>
-              {companyName ? `${ticker} · ${companyName}` : ticker}
+        <View style={{ flex: 1, paddingHorizontal: 4 }}>
+          {stockLabel ? (
+            <Text numberOfLines={1} ellipsizeMode="tail"
+                  style={[s.stockLine, { color: colors.accent }]}>
+              {stockLabel}
             </Text>
           ) : null}
-          <Text style={[s.title, { color: colors.text }]}>{t.metric_names?.[metricKey] || label || metricKey}</Text>
+          {/* adjustsFontSizeToFit shrinks a long metric name rather than
+              truncating it — "יחס התחייבויות להון עצמי" has to stay readable.
+              numberOfLines={2} gives it somewhere to go first. */}
+          <Text numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.75}
+                style={[s.title, { color: colors.text }]}>
+            {t.metric_names?.[metricKey] || label || metricKey}
+          </Text>
         </View>
         <View style={{ width: 30 }} />
       </View>
@@ -659,13 +676,20 @@ export default function MetricHistoryScreen({ route, navigation }) {
 
 const makeStyles = (c) => StyleSheet.create({
   container:    { flex: 1 },
-  header:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  // `alignItems: 'flex-start'` and not 'center': with a two-line column in the
+  // middle, centring the row let the taller column overflow the header's height
+  // and the metric name was clipped by the border. Starting at the top lets the
+  // header grow to whatever the text needs.
+  header:       { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between',
                   paddingBottom: 12, paddingHorizontal: 16, borderBottomWidth: 0.5 },
-  back:         { fontSize: 22 },
-  title:        { fontSize: 17, fontWeight: 'bold', flex: 1, textAlign: 'center' },
-  // Stock line sits ABOVE the metric name. No `flex: 1` here — inside the
-  // column it would stretch and push the metric name off-centre.
-  stockLine:    { fontSize: 13, fontWeight: '600', textAlign: 'center', marginBottom: 2 },
+  back:         { fontSize: 22, lineHeight: 26 },
+  // No `flex: 1` on the title any more — it is inside a column now, and a flex
+  // child of a column stretches VERTICALLY, which is what pushed it out of view.
+  // `lineHeight` is set explicitly so two stacked lines reserve real space
+  // instead of relying on the platform default.
+  title:        { fontSize: 16, fontWeight: 'bold', textAlign: 'center', lineHeight: 21 },
+  stockLine:    { fontSize: 12, fontWeight: '600', textAlign: 'center',
+                  lineHeight: 16, marginBottom: 1 },
 
   modeRow:      { flexDirection: 'row', padding: 10, gap: 10, borderBottomWidth: 0.5 },
   modeBtn:      { flex: 1, padding: 10, alignItems: 'center' },
