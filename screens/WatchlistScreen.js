@@ -136,10 +136,30 @@ export default function WatchlistScreen({ navigation }) {
     // recommendation vanish from every row for a few seconds, on every cycle.
     // Merging per ticker keeps the previous score visible until the fresh one
     // replaces it.
+    // Only fields that actually HAVE a value may be written.
+    //
+    // Object.assign happily copies `undefined` over a good value, and that is
+    // what emptied the watchlist: phase 1 fetched MRX at $64.11, then phase 2's
+    // /analyze returned no current_price for it, so `{ price: undefined }` was
+    // merged in and wiped the price that was already on screen. The row went
+    // from a real quote to a bare ticker — worse than never having loaded.
+    //
+    // Small or thinly-covered tickers are exactly where the heavy /analyze call
+    // comes back short while the light /quotes call succeeds, so the failure
+    // mode showed up on the stocks a user is most likely to have hand-picked.
+    function mergeDefined(target, patch) {
+      const out = Object.assign({}, target);
+      for (const k in patch) {
+        const v = patch[k];
+        if (v !== undefined && v !== null) out[k] = v;
+      }
+      return out;
+    }
+
     function commit() {
       setPrices(function(prev) {
         const next = Object.assign({}, prev);
-        for (const k in newPrices) next[k] = Object.assign({}, prev[k], newPrices[k]);
+        for (const k in newPrices) next[k] = mergeDefined(prev[k], newPrices[k]);
         return next;
       });
     }
@@ -234,7 +254,15 @@ export default function WatchlistScreen({ navigation }) {
         renderItem={function({ item, index }) {
           const p = prices[item.ticker] || {};
           const rColor   = recColor(p.recommendation_color, colors);
-          const displayName = p.company_name || item.name || '';
+          // When a stock is saved from search, `item.name` is often the ticker
+          // itself, and Yahoo returns no company name at all for thinly-covered
+          // symbols (MRX, DLO, INOD, OPRA all come back with company_name null)
+          // — so the row printed the ticker twice, "MRX" above "MRX". Show the
+          // second line only when it actually says something new.
+          const _rawName = p.company_name || item.name || '';
+          const displayName =
+            (_rawName && _rawName.trim().toLowerCase() !== String(item.ticker).trim().toLowerCase())
+              ? _rawName : '';
 
           return (
             <TouchableOpacity
