@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, RefreshControl,
-  ActivityIndicator,
+  ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import { openArticle } from '../utils/linkUtils';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,8 +12,29 @@ import { ENDPOINTS } from '../constants/api';
 import BrandHeader from '../components/BrandHeader';
 
 // Column widths (px) for horizontal-scroll market table
-const COL = { ticker: 80, price: 64, change: 60, volume: 60, avg: 60, cap: 66 };
-const TABLE_W = COL.ticker + COL.price + COL.change + COL.volume + COL.avg + COL.cap; // ~440
+// Column widths were fixed pixels totalling 390, inside a card that only leaves
+// (screen width - 24). On a 393dp phone that is 369 — so the last column, market
+// cap, was cut off by ~21px and rendered as "T" instead of "$4.52T". The table
+// sits in a horizontal ScrollView, but nothing signalled that it could scroll,
+// so it just looked broken.
+//
+// Widths are now a share of the space actually available, so every column fits
+// on any phone. A floor keeps them legible on very narrow screens; below that
+// the ScrollView takes over, which is what it was there for.
+const COL_SHARE = { ticker: 0.22, price: 0.17, change: 0.155, volume: 0.15, avg: 0.15, cap: 0.155 };
+const TABLE_MIN_W = 340;
+
+function computeCols(availableWidth) {
+  const w = Math.max(TABLE_MIN_W, availableWidth);
+  const c = {};
+  let used = 0;
+  const keys = Object.keys(COL_SHARE);
+  keys.forEach(function (k, i) {
+    if (i === keys.length - 1) { c[k] = w - used; }        // last column absorbs rounding
+    else { c[k] = Math.floor(w * COL_SHARE[k]); used += c[k]; }
+  });
+  return c;
+}
 
 const GRADIENTS = [
   ['#4ade80','#16a34a'], ['#fbbf24','#d97706'], ['#60a5fa','#2563eb'], ['#a78bfa','#7c3aed'],
@@ -91,6 +112,11 @@ function TickerAvatar({ ticker, idx, size = 32 }) {
 export default function HomeScreen({ navigation }) {
   const { colors, t, isDark, lang, langReady } = useApp();
   const insets = useSafeAreaInsets();
+  // Table columns are sized from the real screen width, not hard-coded pixels —
+  // see computeCols above. `s.card` has marginHorizontal: 12 on each side.
+  const { width: winWidth } = useWindowDimensions();
+  const COL = useMemo(function () { return computeCols(winWidth - 24); }, [winWidth]);
+  const TABLE_W = COL.ticker + COL.price + COL.change + COL.volume + COL.avg + COL.cap;
 
   const [baseIndices, setBaseIndices] = useState([]);   // S&P, Nasdaq, VIX only
   const [fxRates,     setFxRates]     = useState({});   // { ILS, RUB, EUR } — fetched once
@@ -469,27 +495,27 @@ export default function HomeScreen({ navigation }) {
                         onPress={function() { navigation.navigate('Stock', { ticker: m.ticker, name: m.name }); }}>
                         {/* Ticker + Name */}
                         <View style={{ width: COL.ticker, paddingHorizontal: 4 }}>
-                          <Text style={[s.tdTicker, { color: colors.text }]}>{m.ticker}</Text>
+                          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={[s.tdTicker, { color: colors.text }]}>{m.ticker}</Text>
                           <Text style={[s.tdName, { color: colors.textDimmer }]} numberOfLines={1}>{m.name}</Text>
                         </View>
                         {/* Price */}
-                        <Text style={[s.td, { width: COL.price, color: colors.text }]}>
+                        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[s.td, { width: COL.price, color: colors.text }]}>
                           {m.price != null ? '$' + m.price.toFixed(2) : '—'}
                         </Text>
                         {/* Change % */}
-                        <Text style={[s.td, { width: COL.change, color: m.change_pct != null ? cc(m.change_pct) : colors.textDim }]}>
+                        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[s.td, { width: COL.change, color: m.change_pct != null ? cc(m.change_pct) : colors.textDim }]}>
                           {m.change_pct != null ? (m.change_pct >= 0 ? '+' : '') + m.change_pct.toFixed(2) + '%' : '—'}
                         </Text>
                         {/* Volume */}
-                        <Text style={[s.td, { width: COL.volume, color: colors.textDim }]}>
+                        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[s.td, { width: COL.volume, color: colors.textDim }]}>
                           {m.volume != null ? fmtBig(m.volume).replace('$', '') : '—'}
                         </Text>
                         {/* Avg Volume */}
-                        <Text style={[s.td, { width: COL.avg, color: colors.textDim }]}>
+                        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[s.td, { width: COL.avg, color: colors.textDim }]}>
                           {m.avg_volume != null ? fmtBig(m.avg_volume).replace('$', '') : '—'}
                         </Text>
                         {/* Market Cap */}
-                        <Text style={[s.td, { width: COL.cap, color: colors.textDim }]}>
+                        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[s.td, { width: COL.cap, color: colors.textDim }]}>
                           {fmtBig(m.market_cap)}
                         </Text>
                       </TouchableOpacity>
