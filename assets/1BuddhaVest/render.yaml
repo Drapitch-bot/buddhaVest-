@@ -3,7 +3,8 @@ services:
     name: buddhavest
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    # Kept identical to the root render.yaml — see the note there.
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 30
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0

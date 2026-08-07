@@ -17,6 +17,57 @@ import urllib.parse
 import urllib.error
 import xml.etree.ElementTree as ET
 
+# ── Hard time limit on every Yahoo call ──────────────────────────────────────
+# There was none. yfinance's default session waits indefinitely, so when Yahoo
+# stopped answering, /analyze simply never returned — the phone sat on
+# "Analyzing AMD…" and a direct request to the endpoint was still open after
+# three minutes.
+#
+# On this deployment that is worse than one slow screen. uvicorn runs a single
+# worker, so a hung upstream call occupies it and never gives it back; a couple
+# of those and the whole server stops answering ANY route. That is exactly what
+# was observed: /status (which never touches Yahoo) replied instantly while
+# /quotes and /analyze both hung.
+#
+# A session with an explicit timeout turns "hang forever" into "raise after N
+# seconds", which every caller here already handles — each fetch is wrapped in
+# its own try/except and degrades to Stooq or to partial data.
+_YF_TIMEOUT = 12  # seconds per HTTP request to Yahoo
+
+
+def _make_session():
+    """A requests-compatible session that cannot wait forever."""
+    try:
+        from curl_cffi import requests as _cffi
+        s = _cffi.Session(impersonate="chrome", timeout=_YF_TIMEOUT)
+        return s
+    except Exception:
+        pass
+    try:
+        import requests as _rq
+
+        class _TimeoutSession(_rq.Session):
+            def request(self, *a, **kw):
+                kw.setdefault("timeout", _YF_TIMEOUT)
+                return super().request(*a, **kw)
+
+        return _TimeoutSession()
+    except Exception:
+        return None
+
+
+_SESSION = _make_session()
+
+
+def _ticker(symbol: str):
+    """yf.Ticker with the timeout-bounded session, falling back to the default."""
+    if _SESSION is not None:
+        try:
+            return yf.Ticker(symbol, session=_SESSION)
+        except Exception:
+            pass
+    return yf.Ticker(symbol)
+
 
 def _enrich_with_fast_info(stock, info: dict) -> dict:
     """
@@ -58,7 +109,7 @@ def get_quote(ticker: str) -> dict:
     מתאימה לרשימות כמו market-overview ושערי חליפין, שלא צריכות ניתוח מלא
     ולכן לא צריכות את כל הקריאות הכבדות שיש ב-get_stock_data.
     """
-    stock = yf.Ticker(ticker)
+    stock = _ticker(ticker)
     try:
         info = stock.info or {}
     except Exception:
@@ -77,7 +128,7 @@ def get_stock_data(ticker: str) -> dict:
     - history: היסטוריית מחיר לשנה אחרונה (DataFrame)
     - dividends: היסטוריית דיבידנדים (Series)
     """
-    stock = yf.Ticker(ticker)
+    stock = _ticker(ticker)
 
     history = stock.history(period="1y")
     if history is None or history.empty:
@@ -123,7 +174,7 @@ def get_news(ticker: str, limit: int = 10) -> list:
     מחזיר רשימה נקייה של dicts: title, publisher, link, published, thumbnail.
     עמיד מול שינויי פורמט בין גרסאות yfinance (לפעמים השדות מקוננים תחת "content").
     """
-    stock = yf.Ticker(ticker)
+    stock = _ticker(ticker)
     raw_items = stock.news or []
 
     cleaned = []

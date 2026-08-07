@@ -14,6 +14,8 @@ ticker_search.py
 """
 
 import yfinance as yf
+# Timeout-bounded Ticker — see data_fetcher._make_session
+from data_fetcher import _ticker as _df_ticker
 
 ALIASES = {
     # ── טכנולוגיה ──────────────────────────────────────────────
@@ -185,7 +187,7 @@ def search_tickers(query: str, max_results: int = 6) -> list:
     alias_ticker = resolve_alias(query)
     if alias_ticker:
         try:
-            info = yf.Ticker(alias_ticker).info
+            info = _df_ticker(alias_ticker).info
             return [{
                 "ticker": alias_ticker,
                 "name": info.get("longName") or info.get("shortName") or alias_ticker,

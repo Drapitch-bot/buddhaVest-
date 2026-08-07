@@ -28,6 +28,9 @@ import threading
 import httpx
 
 from data_fetcher import get_stock_data, get_quote, get_news, get_google_news
+# Timeout-bounded yf.Ticker. Without it a hung Yahoo call holds uvicorn's
+# single worker forever and every route stops answering — see data_fetcher.
+from data_fetcher import _ticker as _yf_ticker
 from analyzer import calculate_score
 from news_signals import analyze_signals
 from i18n_data import render_explanation, translate_signal_category
@@ -891,7 +894,7 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     # היסטוריה בסיסית של מדדים נפוצים – מהירה יותר מבקשות נפרדות
     try:
         import yfinance as yf
-        _stk = yf.Ticker(ticker)
+        _stk = _yf_ticker(ticker)
         fin = _get_quarterly_income(_stk)
         if fin is not None and not fin.empty:
             # שמות שורות מאומתים
@@ -1273,7 +1276,7 @@ def metric_history(ticker: str, metric: str):
     try:
         import yfinance as yf
         import pandas as pd
-        stock = yf.Ticker(ticker)
+        stock = _yf_ticker(ticker)
 
         # מיפוי מדדים לשדות ב-yfinance
         # שמות שורות מאומתים מ-yfinance האמיתי
@@ -1815,7 +1818,7 @@ def ticker_events(ticker: str):
     try:
         import yfinance as yf
         from datetime import datetime, timezone
-        stock = yf.Ticker(ticker)
+        stock = _yf_ticker(ticker)
         info = stock.info or {}
         events = []
 
@@ -1963,7 +1966,7 @@ def ticker_financials(ticker: str):
     try:
         import yfinance as yf
         import math
-        stock = yf.Ticker(ticker)
+        stock = _yf_ticker(ticker)
 
         def df_to_table(df):
             if df is None or df.empty:
@@ -2014,7 +2017,7 @@ def etf_info(ticker: str):
 
     try:
         import yfinance as yf
-        stock = yf.Ticker(ticker)
+        stock = _yf_ticker(ticker)
         info = stock.info or {}
 
         # בדוק שזה ETF

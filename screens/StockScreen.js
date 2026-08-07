@@ -247,15 +247,21 @@ export default function StockScreen({ route, navigation }) {
     const reqId = ++reqIdRef.current;
     setLoading(true); setError(null); setWakingUp(false); setSignals(null); setBizExpanded(false);
     const tryFetch = function(ms) {
-      // The timeout handle is cleared once the race settles, otherwise every
-      // request left a 20-40s timer pending in the background.
+      // Promise.race only stops us WAITING — the socket stayed open and the
+      // request kept running. So after the 20s attempt gave up, the 40s retry
+      // ran alongside a request that was still in flight, doubling the load on
+      // a server that was already struggling. AbortController actually cancels
+      // it, which is what MetricHistoryScreen has done all along.
+      const controller = new AbortController();
       let to;
       return Promise.race([
-        fetch(ENDPOINTS.analyze(ticker, lang)).then(function(r) {
+        fetch(ENDPOINTS.analyze(ticker, lang), { signal: controller.signal }).then(function(r) {
           if (!r.ok) throw new Error('Server error');
           return r.json();
         }),
-        new Promise(function(_, rej) { to = setTimeout(function() { rej(new Error('timeout')); }, ms || 20000); })
+        new Promise(function(_, rej) {
+          to = setTimeout(function() { controller.abort(); rej(new Error('timeout')); }, ms || 20000);
+        })
       ]).finally(function() { clearTimeout(to); });
     };
     // Time-based gentle note: only if the load drags past 4s, and only for the
