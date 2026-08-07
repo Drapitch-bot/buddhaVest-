@@ -901,7 +901,7 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
                 return None
             return round(f, 2) if f > 0 else None
 
-        result["valuation_extra"] = {
+        ve = {
             "forward_pe":     _pos(forward_pe),
             "trailing_pe":    _pos(trailing_pe),
             "price_to_book":  _pos(info.get("priceToBook")),
@@ -909,6 +909,62 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
             "ev_to_ebitda":   _pos(info.get("enterpriseToEbitda")),
             "sector": sector,
         }
+
+        # ── Fallback: compute from the financial statements ──
+        # All five of these come from stock.info, which is Yahoo's AUTHENTICATED
+        # endpoint. When Yahoo throttles a cloud IP that endpoint returns empty
+        # while the statement endpoints keep working — so the whole "Additional
+        # Valuation Multiples" card vanished at the same moment company names and
+        # volume did. One upstream failure, three parts of the UI blank.
+        #
+        # The statements carry everything needed for four of the five, and the
+        # historical charts already compute exactly this way. Only forward P/E
+        # cannot be derived (it needs an analyst estimate, not a reported figure).
+        #
+        # Used ONLY to fill a gap: a value Yahoo did provide is never replaced.
+        # Skipped for minor-unit listings (Tel Aviv, London, Johannesburg), where
+        # the quote and the statements are in different units — the same reason
+        # _tase_price_mismatch suppresses the historical charts.
+        try:
+            price = (info.get("currentPrice") or info.get("navPrice")
+                     or info.get("regularMarketPrice"))
+            if price and not _tase_price_mismatch(ticker):
+                price = float(price)
+                inc, bal = data.get("income"), data.get("balance")
+
+                def _latest(df, aliases):
+                    s = _row_series(df, aliases)
+                    if s is None or not len(s):
+                        return None
+                    v = float(s.iloc[-1])          # newest column
+                    return v if v == v else None   # drop NaN
+
+                shares = _latest(bal, _SHARE_ROWS) or _latest(inc, _SHARE_ROWS)
+                if shares and shares > 0:
+                    if ve.get("price_to_book") is None:
+                        eq = _latest(bal, ["Stockholders Equity", "Common Stock Equity"])
+                        if eq and eq > 0:
+                            ve["price_to_book"] = _pos(price / (eq / shares))
+                    if ve.get("price_to_sales") is None:
+                        rev = _latest(inc, ["Total Revenue", "Operating Revenue"])
+                        if rev and rev > 0:
+                            ve["price_to_sales"] = _pos(price / (rev / shares))
+                    if ve.get("ev_to_ebitda") is None:
+                        ebitda = _latest(inc, ["EBITDA", "Normalized EBITDA"])
+                        if ebitda and ebitda > 0:
+                            debt = _latest(bal, ["Total Debt",
+                                                 "Long Term Debt And Capital Lease Obligation"]) or 0
+                            cash = _latest(bal, ["Cash And Cash Equivalents",
+                                                 "Cash Cash Equivalents And Short Term Investments"]) or 0
+                            ve["ev_to_ebitda"] = _pos((price * shares + debt - cash) / ebitda)
+                if ve.get("trailing_pe") is None:
+                    eps = _latest(inc, ["Diluted EPS", "Basic EPS"])
+                    if eps and eps > 0:
+                        ve["trailing_pe"] = _pos(price / eps)
+        except Exception:
+            pass
+
+        result["valuation_extra"] = ve
     except Exception:
         result["valuation_extra"] = {}
 
