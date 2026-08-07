@@ -4,12 +4,15 @@ services:
     runtime: python
     rootDir: assets/1BuddhaVest
     buildCommand: pip install -r requirements.txt
-    # --workers 2: with a single worker, ONE slow upstream call blocked every
-    #   other request on the whole service. Seen live: /status (which never
-    #   touches Yahoo) answered instantly while /analyze and /quotes both hung.
-    #   A second worker keeps the app answering while the first is stuck.
+    # ONE worker, deliberately. Two would double memory on a 512MB instance
+    # (each Python process loads pandas + yfinance, ~150-250MB), and an OOM
+    # restart loop is worse than the problem it was meant to soften.
+    #
+    # The hang is fixed at the source instead: every Yahoo call is now bounded
+    # by _YF_TIMEOUT in data_fetcher.py, so no request can occupy the worker
+    # indefinitely. That is the actual fix; a second worker was only padding.
     # --timeout-keep-alive 30: don't hold idle sockets open on a small instance.
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2 --timeout-keep-alive 30
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 30
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
