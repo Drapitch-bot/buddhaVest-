@@ -395,6 +395,23 @@ export default function MetricHistoryScreen({ route, navigation }) {
     ? effectiveSeries[effectiveSeries.length - 1]?.value
     : null;
 
+  // The "provider figure vs our own calculation" note used to print on EVERY
+  // stock for these four metrics, including the majority where the two numbers
+  // agree. A caveat about a discrepancy that isn't there is just noise, and
+  // noise trains people to skip the notes that DO matter.
+  //
+  // Show it only when the headline number and the chart's latest point actually
+  // disagree by more than 3% — under that they round to the same story.
+  const showMethodNote = (function () {
+    if (!COMPUTED_DIFFERENTLY.has(metricKey)) return false;
+    const a = typeof tileValue === 'number' ? tileValue : null;
+    const b = typeof currentValue === 'number' ? currentValue : null;
+    if (a == null || b == null) return false;          // nothing to compare
+    const scale = Math.max(Math.abs(a), Math.abs(b));
+    if (scale === 0) return false;
+    return Math.abs(a - b) / scale > 0.03;
+  })();
+
   const chartData = (effectiveSeries.length > 1 && !suppressPriceChart)
     ? { prices: effectiveSeries.map(p => p.value), dates: effectiveSeries.map(p => p.date) }
     : null;
@@ -557,7 +574,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Chart */}
               {chartData ? (
                 <>
-                  {COMPUTED_DIFFERENTLY.has(metricKey) && t.chart_method_note ? (
+                  {showMethodNote && t.chart_method_note ? (
                     <View style={[s.noDataBanner, {
                       backgroundColor: colors.cardAlt,
                       borderColor: colors.cardBorder,
