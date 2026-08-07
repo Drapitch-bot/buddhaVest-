@@ -203,6 +203,19 @@ def _cache_get(key: str):
             return entry["data"]
         return None
 
+def _cache_get_stale(key: str):
+    """
+    The cached value even if its TTL has passed.
+
+    Used only as a last resort: when the upstream provider is unreachable, a
+    five-minute-old market snapshot is far more useful than a screen of dashes,
+    and it is labelled `stale: true` so the caller knows what it is holding.
+    """
+    with _cache_lock:
+        entry = _cache.get(key)
+        return entry["data"] if entry else None
+
+
 def _cache_set(key: str, data, ttl: int):
     with _cache_lock:
         _cache[key] = {"data": data, "expires": time.time() + ttl}
@@ -718,7 +731,10 @@ def analyze(ticker: str, lang: str = "he"):
 
     # Coalesce duplicate concurrent requests for this exact ticker+lang.
     _lk = _key_lock(cache_key)
-    _got = _lk.acquire(timeout=50)
+    # 28s, not 50: the fetch itself is now capped at 25s, so a waiter that blocks
+    # for 50 outlives the work it is waiting for and becomes a second way to hang
+    # past the client's own budget.
+    _got = _lk.acquire(timeout=28)
     try:
         if _got:
             # Someone may have filled the cache while we waited for the lock.
@@ -1308,6 +1324,12 @@ def _get_annual_cashflow(stock):
 
 @app.get("/metric-history/{ticker}/{metric}")
 def metric_history(ticker: str, metric: str):
+    # Time-bounded: see _with_deadline. An unbounded upstream call here can
+    # occupy uvicorn's single worker and take the whole service down.
+    return _with_deadline(lambda: _metric_history_uncached(ticker, metric), 20, default={"use_price": True, "quarterly": [], "annual": [], "empty_reason": "timeout"})
+
+
+def _metric_history_uncached(ticker: str, metric: str):
     """מחזיר היסטוריה של מדד פיננסי ספציפי ל-5 שנים רבעונית/שנתית"""
     ticker = _clean_ticker(ticker)
     metric = "".join(c for c in (metric or "")[:40] if c.isalnum() or c == "_")
@@ -1851,6 +1873,12 @@ def metric_history(ticker: str, metric: str):
 
 @app.get("/events/{ticker}")
 def ticker_events(ticker: str):
+    # Time-bounded: see _with_deadline. An unbounded upstream call here can
+    # occupy uvicorn's single worker and take the whole service down.
+    return _with_deadline(lambda: _events_uncached(ticker), 15, default={"events": []})
+
+
+def _events_uncached(ticker: str):
     """דוחות כספיים קרובים, דיבידנדים וסיפלטים"""
     ticker = _clean_ticker(ticker)
     cache_key = f"events_{ticker.upper()}"
@@ -1999,6 +2027,12 @@ def ticker_events(ticker: str):
 
 @app.get("/financials/{ticker}")
 def ticker_financials(ticker: str):
+    # Time-bounded: see _with_deadline. An unbounded upstream call here can
+    # occupy uvicorn's single worker and take the whole service down.
+    return _with_deadline(lambda: _financials_uncached(ticker), 20, default={"error": "timeout"})
+
+
+def _financials_uncached(ticker: str):
     """דוחות כספיים מלאים - Income Statement, Balance Sheet, Cash Flow"""
     ticker = _clean_ticker(ticker)
     cache_key = f"financials_{ticker.upper()}"
@@ -2051,6 +2085,12 @@ def ticker_financials(ticker: str):
 
 @app.get("/etf-info/{ticker}")
 def etf_info(ticker: str):
+    # Time-bounded: see _with_deadline. An unbounded upstream call here can
+    # occupy uvicorn's single worker and take the whole service down.
+    return _with_deadline(lambda: _etf_uncached(ticker), 15, default={"is_etf": False})
+
+
+def _etf_uncached(ticker: str):
     """נתונים ספציפיים ל-ETF"""
     ticker = _clean_ticker(ticker)
     cache_key = f"etf_{ticker.upper()}"
@@ -2618,6 +2658,12 @@ async def translate_batch_endpoint(request: Request):
 
 @app.get("/signals/{ticker}")
 def ticker_signals(ticker: str, lang: str = "he"):
+    # Time-bounded: see _with_deadline. An unbounded upstream call here can
+    # occupy uvicorn's single worker and take the whole service down.
+    return _with_deadline(lambda: _signals_uncached(ticker, lang), 15, default={"signals": []})
+
+
+def _signals_uncached(ticker: str, lang: str = "he"):
     """
     'דברים שכדאי לעקוב אחריהם' - סינון כותרות חדשות לפי מילות מפתח.
     """
@@ -2650,6 +2696,12 @@ def ticker_signals(ticker: str, lang: str = "he"):
 
 @app.get("/quotes")
 def quotes_endpoint(symbols: str = ""):
+    # Time-bounded: see _with_deadline. An unbounded upstream call here can
+    # occupy uvicorn's single worker and take the whole service down.
+    return _with_deadline(lambda: _quotes_uncached(symbols), 20, default={"quotes": []})
+
+
+def _quotes_uncached(symbols: str = ""):
     """
     מחיר + אחוז שינוי יומי לרשימת סימולים (מופרדים בפסיק).
     משמש את פאנל ההתראות — תזוזות במניות רשימת המעקב.
@@ -2732,6 +2784,31 @@ def quotes_endpoint(symbols: str = ""):
 
 @app.get("/market-overview")
 def market_overview():
+    """
+    Never hangs, never returns empty.
+
+    This endpoint makes 19 upstream calls. It had no time limit of any kind, so
+    when Yahoo stopped answering it stayed open indefinitely — measured still
+    running after 180 seconds — and since uvicorn runs one worker, that single
+    request took the whole service down with it.
+
+    Two guarantees now:
+      1. A hard 20s budget. Past that the caller gets an answer regardless.
+      2. On timeout, the last good snapshot is returned instead of nulls, so the
+         table shows slightly stale numbers rather than a screen of dashes.
+    """
+    fresh = _with_deadline(_market_overview_uncached, 20, default=None)
+    if fresh is not None:
+        return fresh
+    stale = _cache_get_stale("market_overview")
+    if stale is not None:
+        stale = dict(stale)
+        stale["stale"] = True
+        return stale
+    return {"movers": [], "usd_ils": None}
+
+
+def _market_overview_uncached():
     """תמונת מצב שוק - מדדים מרכזיים, שער דולר-שקל, ורשימת מניות לייב"""
     cached = _cache_get("market_overview")
     if cached is not None:
@@ -2769,7 +2846,11 @@ def market_overview():
             return None
 
     overview = {}
-    with _MoverPool(max_workers=4) as _ip:
+    # max_workers=3: a burst of 19 simultaneous requests is exactly what makes
+    # Yahoo throttle a cloud IP — the "faster" version was measurably slower in
+    # practice. Three at a time is still ~6x better than the original serial
+    # loop without looking like a scraper.
+    with _MoverPool(max_workers=3) as _ip:
         fx_future = _ip.submit(_fx)
         for name, val in _ip.map(_one_index, indices.items()):
             overview[name] = val
@@ -2810,7 +2891,7 @@ def market_overview():
             return {"ticker": symbol, "name": symbol, "price": None, "change_pct": None,
                     "volume": None, "avg_volume": None, "market_cap": None}
 
-    with _MoverPool(max_workers=8) as _mp:
+    with _MoverPool(max_workers=4) as _mp:
         # ex.map preserves input order, so the table keeps its intended sequence.
         movers = list(_mp.map(_one_mover, watchlist_symbols))
 
@@ -2839,7 +2920,10 @@ def market_overview():
             # Backfill volume from Stooq when Yahoo omitted it.
             if m.get("volume") is None and sq.get("volume") is not None:
                 m["volume"] = sq.get("volume")
-        with _TPE(max_workers=8) as ex:
+        # Same restraint as above: this only runs when Yahoo already failed, so
+        # hammering the fallback with 8 parallel requests is the last thing a
+        # throttled path needs.
+        with _TPE(max_workers=4) as ex:
             list(ex.map(_fill, missing))
 
     _STOOQ_INDEX = {"S&P 500": "^spx", "Nasdaq": "^ndq", "VIX": "^vix"}
