@@ -35,37 +35,22 @@ import xml.etree.ElementTree as ET
 _YF_TIMEOUT = 12  # seconds per HTTP request to Yahoo
 
 
-def _make_session():
-    """A requests-compatible session that cannot wait forever."""
-    try:
-        from curl_cffi import requests as _cffi
-        s = _cffi.Session(impersonate="chrome", timeout=_YF_TIMEOUT)
-        return s
-    except Exception:
-        pass
-    try:
-        import requests as _rq
-
-        class _TimeoutSession(_rq.Session):
-            def request(self, *a, **kw):
-                kw.setdefault("timeout", _YF_TIMEOUT)
-                return super().request(*a, **kw)
-
-        return _TimeoutSession()
-    except Exception:
-        return None
-
-
-_SESSION = _make_session()
-
-
+# ── REVERTED: do not pass a custom session to yf.Ticker ──────────────────────
+# The first attempt at the timeout handed yfinance its own curl_cffi session.
+# It did not raise — it silently degraded. `stock.info` came back empty for
+# EVERY ticker while `fast_info` kept working, so the app still showed prices
+# and looked fine, but company names, volume and average volume all went null:
+#
+#   before:  "name": "Apple Inc.",  "volume": 67778746,  "avg_volume": 56928358
+#   after:   "name": "AAPL",        "volume": null,      "avg_volume": null
+#
+# yfinance manages its own authenticated session (cookie + crumb). Replacing it
+# breaks the endpoints that need that auth while leaving the unauthenticated
+# ones intact — which is the worst kind of failure, because nothing errors.
+#
+# The timeout now lives at the REQUEST level instead (see _with_deadline in
+# main.py): yfinance keeps its own session, and the endpoint stops waiting.
 def _ticker(symbol: str):
-    """yf.Ticker with the timeout-bounded session, falling back to the default."""
-    if _SESSION is not None:
-        try:
-            return yf.Ticker(symbol, session=_SESSION)
-        except Exception:
-            pass
     return yf.Ticker(symbol)
 
 

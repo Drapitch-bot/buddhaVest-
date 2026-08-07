@@ -733,12 +733,24 @@ def analyze(ticker: str, lang: str = "he"):
 
 def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     """The expensive path — only ever entered by one caller per key at a time."""
+    # Hard ceiling on the whole fetch. Without it this call had no upper bound:
+    # /analyze/AMD was measured still open after 180 seconds while Yahoo was
+    # unresponsive, and because uvicorn runs one worker, that single stuck
+    # request stopped the server answering ANY route. The phone showed
+    # "Analyzing AMD…" indefinitely.
+    #
+    # 25s is comfortably above a healthy fetch (2-6s) and well under the
+    # client's own 20s/40s attempts, so the app sees a clean failure it already
+    # knows how to display instead of a silence it cannot interpret.
     try:
-        data = get_stock_data(ticker)
+        data = _with_deadline(lambda: get_stock_data(ticker), 25, default=None)
     except Exception as e:
         # Don't echo the raw exception to clients (internal detail leak).
         print(f"[analyze] fetch failed for {ticker}: {e}")
         raise HTTPException(status_code=502, detail="Could not fetch data for this ticker.")
+    if data is None:
+        print(f"[analyze] fetch timed out for {ticker}")
+        raise HTTPException(status_code=504, detail="Data provider did not respond in time.")
 
     # אם yfinance מחזיר info ריק - הסימול כנראה לא קיים (או שזו בעיית סיומת בורסה)
     if not data.get("info") or (
@@ -1093,6 +1105,37 @@ def _tase_price_mismatch(ticker: str) -> bool:
     chart instead of publishing a number that is provably wrong.
     """
     return (ticker or "").upper().endswith(_MINOR_UNIT_SUFFIXES)
+
+
+_DEADLINE_POOL = None
+
+
+def _with_deadline(fn, seconds, default=None):
+    """
+    Run `fn()` and give up waiting after `seconds`, returning `default`.
+
+    Why not a timeout inside yfinance: handing it a custom HTTP session broke
+    `stock.info` for every ticker while leaving `fast_info` working, so prices
+    still appeared but names, volume and average volume all went null — a
+    silent, invisible degradation. yfinance owns its session; we do not touch it.
+
+    This bounds the REQUEST instead. The worker thread may still be blocked on
+    Yahoo, but the endpoint returns, so the phone gets an answer rather than
+    sitting on "Analyzing…" forever, and uvicorn's worker is free again.
+    """
+    global _DEADLINE_POOL
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
+    if _DEADLINE_POOL is None:
+        # Bounded on purpose: abandoned threads cannot pile up without limit on
+        # a 512MB instance.
+        _DEADLINE_POOL = ThreadPoolExecutor(max_workers=8,
+                                            thread_name_prefix="yf-deadline")
+    try:
+        return _DEADLINE_POOL.submit(fn).result(timeout=seconds)
+    except _FTimeout:
+        return default
+    except Exception:
+        return default
 
 
 def _find_row(df, aliases):
