@@ -395,22 +395,6 @@ export default function MetricHistoryScreen({ route, navigation }) {
     ? effectiveSeries[effectiveSeries.length - 1]?.value
     : null;
 
-  // The "provider figure vs our own calculation" note used to print on EVERY
-  // stock for these four metrics, including the majority where the two numbers
-  // agree. A caveat about a discrepancy that isn't there is just noise, and
-  // noise trains people to skip the notes that DO matter.
-  //
-  // Show it only when the headline number and the chart's latest point actually
-  // disagree by more than 3% — under that they round to the same story.
-  const showMethodNote = (function () {
-    if (!COMPUTED_DIFFERENTLY.has(metricKey)) return false;
-    const a = typeof tileValue === 'number' ? tileValue : null;
-    const b = typeof currentValue === 'number' ? currentValue : null;
-    if (a == null || b == null) return false;          // nothing to compare
-    const scale = Math.max(Math.abs(a), Math.abs(b));
-    if (scale === 0) return false;
-    return Math.abs(a - b) / scale > 0.03;
-  })();
 
   const chartData = (effectiveSeries.length > 1 && !suppressPriceChart)
     ? { prices: effectiveSeries.map(p => p.value), dates: effectiveSeries.map(p => p.date) }
@@ -574,17 +558,6 @@ export default function MetricHistoryScreen({ route, navigation }) {
               {/* Chart */}
               {chartData ? (
                 <>
-                  {showMethodNote && t.chart_method_note ? (
-                    <View style={[s.noDataBanner, {
-                      backgroundColor: colors.cardAlt,
-                      borderColor: colors.cardBorder,
-                    }]}>
-                      <Text style={[s.noDataText, { color: colors.textDim },
-                                    { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
-                        {t.chart_method_note}
-                      </Text>
-                    </View>
-                  ) : null}
                   {PROXY_CHART[metricKey] && t[PROXY_CHART[metricKey]] ? (
                     <View style={[s.noDataBanner, {
                       backgroundColor: colors.cardAlt,
@@ -626,6 +599,20 @@ export default function MetricHistoryScreen({ route, navigation }) {
                         }
                         return v % 1 === 0 ? v.toString() : v.toFixed(2);
                       })()}
+                    </Text>
+                  ) : null}
+                  {/* Where the two numbers come from. This was four lines of prose
+                      in a bordered box ABOVE the chart, and it read like an error
+                      message on every stock. It appears on every stock because for
+                      these four metrics the provider's figure and our calculation
+                      essentially always differ — GOOGL: 24.42 against 20.1, an 18%
+                      gap. Gating it behind a threshold was the wrong fix: the
+                      statement is always true, so the answer is to make it small,
+                      not conditional. One dim line under the number. */}
+                  {COMPUTED_DIFFERENTLY.has(metricKey) && t.chart_method_note ? (
+                    <Text style={[s.methodNote, { color: colors.textDimmer },
+                                  { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
+                      {t.chart_method_note}
                     </Text>
                   ) : null}
                 </>
@@ -722,6 +709,8 @@ const makeStyles = (c) => StyleSheet.create({
   noDataText:   { fontSize: 13, textAlign: 'center' },
 
   currentValue: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', marginVertical: 14 },
+  // Small, dim, and under the number — a footnote, not a warning.
+  methodNote:   { fontSize: 11, textAlign: 'center', marginTop: 4, paddingHorizontal: 16 },
   noData:       { textAlign: 'center', fontSize: 14 },
 
   retryBtn:     { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 },
