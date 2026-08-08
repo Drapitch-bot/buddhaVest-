@@ -5,3 +5,5 @@ uvicorn[standard]
 httpx
 deep-translator
 beautifulsoup4
+slowapi>=0.1.9
+sentry-sdk[fastapi]>=2.0.0

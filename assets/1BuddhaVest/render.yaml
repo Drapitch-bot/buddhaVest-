@@ -15,3 +15,22 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      # Where the last-known-good market data is kept. It used to live in /tmp,
+      # which Render wipes on every deploy — so the safety net that fills missing
+      # volume and market-cap values was destroyed by each release, exactly when
+      # it was needed. Point this at a mounted disk to make it survive.
+      #
+      # Uncomment the `disk:` block below once on a paid plan ($0.25/GB/month).
+      # Until then the server logs "EPHEMERAL — wiped on every deploy" at startup
+      # so the limitation is visible rather than silent.
+      # - key: LKG_DIR
+      #   value: /var/data
+    # disk:
+    #   name: buddhavest-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    #
+    # Both blocks are commented together on purpose. Setting LKG_DIR without an
+    # actual mounted disk would point at an ordinary container directory that is
+    # ALSO wiped on deploy, while the startup log claimed "persistent" — a false
+    # reassurance, which is worse than the honest warning it replaces.

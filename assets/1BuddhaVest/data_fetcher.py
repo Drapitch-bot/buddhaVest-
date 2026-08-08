@@ -17,6 +17,11 @@ import urllib.parse
 import urllib.error
 import xml.etree.ElementTree as ET
 
+# `swallow` records a failure we deliberately continue past. Before this,
+# these sites were `except Exception: pass` — the failure left no trace at
+# all, so an empty card gave no way to tell which one had fired.
+from observability import report, swallow
+
 # ── Hard time limit on every Yahoo call ──────────────────────────────────────
 # There was none. yfinance's default session waits indefinitely, so when Yahoo
 # stopped answering, /analyze simply never returned — the phone sat on
@@ -82,9 +87,150 @@ def _enrich_with_fast_info(stock, info: dict) -> dict:
             if vol is not None:
                 info.setdefault("volume", int(vol))
                 info.setdefault("regularMarketVolume", int(vol))
-    except Exception:
-        pass
+    except Exception as _e:
+        swallow("data_fetcher:_enrich_with_fast_info", _e, notify=True)
     return info
+
+
+# ── Second source for the fields that vanish together ────────────────────────
+# `stock.info` comes from Yahoo's AUTHENTICATED quoteSummary endpoint (cookie +
+# crumb). `fast_info` comes from an unauthenticated one. When Yahoo throttles
+# this server's cloud IP it is specifically the authenticated endpoint that goes
+# quiet, and the symptom is unmistakable and was seen repeatedly: prices keep
+# working while the company name, volume, average volume and every valuation
+# multiple disappear at the same instant.
+#
+# `_enrich_with_fast_info` above already covers price, market cap and volume.
+# What it cannot supply is the NAME — fast_info has no such field — so a
+# throttled response left the app showing "AAPL" where "Apple Inc." belongs.
+#
+# This is the same v8 chart endpoint the app's own MetricHistory screen already
+# uses for its price fallback, so it is a path with a track record in this
+# codebase rather than a new dependency taken on faith. It is unauthenticated,
+# which is the entire point: it survives exactly the failure that kills
+# quoteSummary.
+#
+# Two hard rules, enforced by _merge_chart_meta below:
+#   1. It may only ADD. A value already present is never overwritten, so a
+#      second provider can never contradict a good first-provider reading.
+#   2. It may never raise. Every failure degrades to "no extra fields".
+_CHART_META_URL = ("https://query1.finance.yahoo.com/v8/finance/chart/"
+                   "{sym}?interval=1d&range=1d")
+_CHART_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36")
+
+
+def _merge_chart_meta(info: dict, meta: dict) -> dict:
+    """
+    Fold a v8 chart `meta` block into `info`, filling ONLY what is missing.
+
+    Split out from the fetch so it can be tested without a network: every
+    branch here is exercised against recorded and adversarial payloads in
+    test_chart_meta.py.
+    """
+    if not isinstance(meta, dict):
+        return info
+
+    def _num(v):
+        # Yahoo sends numbers as int, float, or occasionally a numeric string.
+        if isinstance(v, bool) or v is None:
+            return None
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f if f == f and f not in (float("inf"), float("-inf")) else None
+
+    out = dict(info)
+
+    name = meta.get("longName") or meta.get("shortName")
+    # A name equal to the symbol is not a name — that is the degraded state we
+    # are trying to escape, so accepting it would defeat the purpose.
+    if isinstance(name, str) and name.strip():
+        sym = str(meta.get("symbol") or out.get("symbol") or "").strip().upper()
+        if name.strip().upper() != sym:
+            out.setdefault("longName", name.strip())
+            out.setdefault("shortName", name.strip())
+
+    for src, dst in (("regularMarketPrice", "currentPrice"),
+                     ("regularMarketPrice", "regularMarketPrice"),
+                     ("chartPreviousClose", "previousClose"),
+                     ("previousClose", "previousClose")):
+        v = _num(meta.get(src))
+        if v is not None and out.get(dst) is None:
+            out[dst] = v
+
+    vol = _num(meta.get("regularMarketVolume"))
+    if vol is not None and vol >= 0:
+        if out.get("volume") is None:
+            out["volume"] = int(vol)
+        if out.get("regularMarketVolume") is None:
+            out["regularMarketVolume"] = int(vol)
+
+    # Currency matters more than it looks: "GBp" (pence) vs "GBP" (pounds) is a
+    # 100x price error, and the case is significant. Copied verbatim, never
+    # upper-cased, to match _MINOR_UNIT handling in main.py.
+    ccy = meta.get("currency")
+    if isinstance(ccy, str) and ccy.strip() and not out.get("currency"):
+        out["currency"] = ccy.strip()
+
+    exch = meta.get("fullExchangeName") or meta.get("exchangeName")
+    if isinstance(exch, str) and exch.strip() and not out.get("exchange"):
+        out["exchange"] = exch.strip()
+
+    return out
+
+
+def _fetch_chart_meta(ticker: str, timeout: int = 6):
+    """Return the v8 chart `meta` dict, or None. Never raises."""
+    import json
+    try:
+        req = urllib.request.Request(
+            _CHART_META_URL.format(sym=urllib.parse.quote(ticker, safe="^.-=")),
+            headers={"User-Agent": _CHART_UA, "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            # Bound the read: a wrong URL that returns HTML must not pull an
+            # unbounded body into a 512MB instance.
+            raw = resp.read(400_000)
+        payload = json.loads(raw.decode("utf-8", "replace"))
+        result = (((payload or {}).get("chart") or {}).get("result") or [])
+        return (result[0] or {}).get("meta") if result else None
+    except Exception as _e:
+        swallow("data_fetcher:_fetch_chart_meta", _e, ticker=ticker)
+        return None
+
+
+def _enrich_from_chart_meta(ticker: str, info: dict) -> dict:
+    """
+    Only runs when the primary source came back degraded — a missing NAME is the
+    signal, because that is the field nothing else can supply. On a healthy
+    response this costs zero extra requests.
+    """
+    name = info.get("longName") or info.get("shortName")
+    if isinstance(name, str) and name.strip() and name.strip().upper() != (ticker or "").strip().upper():
+        return info
+    # Guarded here as well as inside _fetch_chart_meta. Belt and braces on
+    # purpose: this runs un-try'd inside get_stock_data, so if the fetch layer
+    # ever stopped being total, the fallback for a degraded response would
+    # itself turn that response into a 502 — the failure mode it exists to
+    # prevent. Caught by the test that stubs the fetch with a raising function.
+    try:
+        meta = _fetch_chart_meta(ticker)
+        if not meta:
+            return info
+        merged = _merge_chart_meta(info, meta)
+    except Exception as _e:
+        swallow("data_fetcher:_enrich_from_chart_meta", _e, ticker=ticker)
+        return info
+    gained = sorted(k for k in merged if merged.get(k) is not None and info.get(k) is None)
+    if gained:
+        # A success worth knowing about, not a swallowed failure: it fires only
+        # when the primary source came back degraded, so it is the clearest
+        # signal available that Yahoo is throttling this server's IP.
+        report("provider_fallback_used", source="yahoo_v8_chart",
+               ticker=ticker, recovered=",".join(gained[:8]))
+    return merged
 
 
 def get_quote(ticker: str) -> dict:
@@ -97,9 +243,11 @@ def get_quote(ticker: str) -> dict:
     stock = _ticker(ticker)
     try:
         info = stock.info or {}
-    except Exception:
+    except Exception as _e:
+        swallow("data_fetcher:get_quote", _e, ticker=ticker, notify=True)
         info = {}
     info = _enrich_with_fast_info(stock, info)
+    info = _enrich_from_chart_meta(ticker, info)
     return {"ticker": ticker.upper(), "info": info}
 
 
@@ -121,14 +269,16 @@ def get_stock_data(ticker: str) -> dict:
         # "max" מחזיר את כל ההיסטוריה הקיימת, כמה שיש.
         try:
             history = stock.history(period="max")
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("data_fetcher:get_stock_data", _e, notify=True)
 
     try:
         info = stock.info or {}
-    except Exception:
+    except Exception as _e:
+        swallow("data_fetcher:get_stock_data", _e, ticker=ticker, notify=True)
         info = {}
     info = _enrich_with_fast_info(stock, info)
+    info = _enrich_from_chart_meta(ticker, info)
 
     # Each statement is fetched independently and may fail on its own (Yahoo
     # throttling, schema changes). Previously any single failure raised out of
@@ -139,7 +289,8 @@ def get_stock_data(ticker: str) -> dict:
     def _safe(getter):
         try:
             return getter()
-        except Exception:
+        except Exception as _e:
+            swallow("data_fetcher:get_stock_data.statement", _e, ticker=ticker)
             return None
 
     return {

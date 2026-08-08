@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { darkColors, lightColors } from '../constants/colors';
 import { getLang } from '../constants/i18n';
+import { captureError } from '../utils/monitoring';
 
 const AppContext = createContext();
 
@@ -37,7 +38,11 @@ export function AppProvider({ children }) {
       }
       if (savedTranslate !== null) setTranslateArticles(savedTranslate === 'true');
       if (savedLocalCurrency !== null) setShowLocalCurrency(savedLocalCurrency === 'true');
-    } catch (e) {}
+    } catch (e) {
+      // Continuing with defaults is right — but it means the user's language,
+      // theme and entire watchlist quietly reverted, and nothing said so.
+      captureError('settings_load', e);
+    }
     setLangReady(true);
   }
 
@@ -87,7 +92,15 @@ export function AppProvider({ children }) {
       return newList;
     });
     if (newList) {
-      try { await AsyncStorage.setItem('watchlist', JSON.stringify(newList)); } catch (e) {}
+      try {
+        await AsyncStorage.setItem('watchlist', JSON.stringify(newList));
+      } catch (e) {
+        // The user tapped the star, the UI showed it filled, and the write to
+        // disk failed. State already changed, so it looks saved until the app
+        // restarts and the stock is gone. Silence here meant that data loss
+        // was invisible to everyone.
+        captureError('watchlist_save', e, { ticker: ticker, size: newList.length });
+      }
     }
   }
 

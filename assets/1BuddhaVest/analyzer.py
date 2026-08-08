@@ -20,6 +20,11 @@ analyzer.py
 import math
 import pandas as pd
 
+# `swallow` records a failure we deliberately continue past. Before this,
+# these sites were `except Exception: pass` — the failure left no trace at
+# all, so an empty card gave no way to tell which one had fired.
+from observability import swallow
+
 
 # -----------------------------------------------------------
 # Helpers
@@ -296,8 +301,8 @@ def metric_net_income_trend(income):
     # ever flipped, the verdict would silently invert with no error to notice.
     try:
         series = series.sort_index(ascending=False)
-    except Exception:
-        pass
+    except Exception as _e:
+        swallow("analyzer:metric_net_income_trend", _e, notify=True)
     latest, previous = series.iloc[0], series.iloc[1]
     if latest > 0 and latest > previous:
         score, note, key = 100, "הרווחים חיוביים וצומחים משנה לשנה.", "nit_growing"
@@ -451,8 +456,8 @@ def metric_dividend(info, dividends):
     if dividends is not None and not dividends.empty:
         try:
             dividends = dividends.sort_index()
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("analyzer:metric_dividend", _e, notify=True)
 
     recent_dividend_paid = False
     if dividends is not None and not dividends.empty:

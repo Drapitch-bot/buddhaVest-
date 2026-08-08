@@ -25,6 +25,11 @@ import io
 import urllib.request
 import urllib.error
 
+# `swallow` records a failure we deliberately continue past. Before this,
+# these sites were `except Exception: pass` — the failure left no trace at
+# all, so an empty card gave no way to tell which one had fired.
+from observability import swallow
+
 # סיומות בורסה נפוצות שStooq משתמש בהן - מנסים את הסימול הגולמי, ואז את אלו,
 # כדי לתפוס מקרים שבהם הבעיה היחידה היא "סימול נכון, סיומת בורסה חסרה/שגויה"
 COMMON_SUFFIXES = ["", ".us", ".uk", ".de", ".fr", ".pl", ".jp", ".hk"]
@@ -135,8 +140,8 @@ def get_stooq_daily(ticker: str, stooq_symbol: str | None = None) -> dict | None
         # computed from the two OLDEST days — wrong, with nothing to signal it.
         try:
             rows.sort(key=lambda r: r.get("Date") or "")
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("stooq_fallback:get_stooq_daily", _e, notify=True)
         if rows:
             try:
                 price = float(rows[-1]["Close"])

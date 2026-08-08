@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../constants/AppContext';
 import BrandHeader from '../components/BrandHeader';
+import { captureError } from '../utils/monitoring';
 // Metro bundles JSON natively, so no extra dependency is needed.
 import appConfig from '../app.json';
 
@@ -208,6 +209,9 @@ function JournalScreen({ colors, t, lang, insets, onBack, initialTicker }) {
       setTicker('');
       setText('');
     } catch (e) {
+      // The user typed a journal entry, tapped save, and the write failed.
+      // The form cleared either way, so the note was gone with no message.
+      captureError('journal_save', e);
     } finally {
       savingRef.current = false;
     }

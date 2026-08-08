@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, TouchableOpacity, Modal } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
+import { captureIssue } from '../utils/monitoring';
 
 // Row label → explanation key in t.fin_explanations (see i18n.js).
 // Every IMPORTANT row has an entry, so every visible row is tappable.
@@ -42,14 +43,17 @@ const IMPORTANT_ROWS = new Set(Object.keys(FIN_KEYS));
 // Annual: "2024-12-31" → "2024" (just the year)
 function fmtColDate(col, period) {
   if (!col) return '';
-  const s = String(col).trim();
-  const m = s.match(/^(\d{4})-(\d{2})-\d{2}$/);
+  // Named `raw`, not `s`: `s` is this file's StyleSheet, and shadowing it here
+  // made `s.match(...)` indistinguishable from a style lookup — which forced
+  // the CI check for undefined style references to skip this entire file.
+  const raw = String(col).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})-\d{2}$/);
   if (m) {
     if (period === 'annual') return m[1]; // just the year
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return months[parseInt(m[2]) - 1] + "'" + m[1].slice(2);
   }
-  return s;
+  return raw;
 }
 
 export default function FinancialsCard({ ticker, colors, t, lang = 'en' }) {
@@ -74,7 +78,11 @@ export default function FinancialsCard({ ticker, colors, t, lang = 'en' }) {
       const json = await res.json();
       if (reqId !== reqIdRef.current) return; // stale
       setData(json);
-    } catch (e) {}
+    } catch (e) {
+      // Same shape as the ETF card: no data means the whole financial
+      // statements section silently vanishes from the stock screen.
+      captureIssue('financials_card_failed', { ticker: ticker, error: String(e && e.message).slice(0, 120) });
+    }
     if (reqId === reqIdRef.current) setLoading(false);
   }
 

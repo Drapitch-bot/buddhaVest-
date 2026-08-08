@@ -7,6 +7,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from './constants/AppContext';
+// Starts crash + quiet-failure reporting. No-op until a DSN is configured.
+import { initMonitoring } from './utils/monitoring';
 import FloatingThemeToggle from './components/FloatingThemeToggle';
 import SplashScreen from './screens/SplashScreen';
 import HomeScreen from './screens/HomeScreen';
@@ -19,6 +21,9 @@ import MetricHistoryScreen from './screens/MetricHistoryScreen';
 import ArticleScreen from './screens/ArticleScreen';
 
 I18nManager.allowRTL(true);
+
+// Before any screen mounts, so an error during the first render is caught too.
+initMonitoring();
 
 const Tab          = createBottomTabNavigator();
 const HomeStack      = createStackNavigator();
@@ -233,7 +238,10 @@ export default function App() {
         } else {
           await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
         }
-      } catch (e) {}
+      } catch (e) {
+        // Some Android builds reject an orientation lock. The app is fully
+        // usable in either orientation, so there is nothing to recover from.
+      }
     })();
   }, []);
 

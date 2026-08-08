@@ -46,3 +46,9 @@ Uplpoad-Final/
 
 # local tunneling binary (52MB) — keep local, not in git
 cloudflared.exe
+
+# Python bytecode. Committing it is worse than useless: a stale .pyc built from
+# an older main.py can be picked up on deploy and run instead of the source that
+# was actually pushed — a "my fix didn't take effect" bug with no visible cause.
+__pycache__/
+*.py[cod]

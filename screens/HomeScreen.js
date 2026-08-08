@@ -10,6 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import BrandHeader from '../components/BrandHeader';
+import { captureIssue } from '../utils/monitoring';
 
 // Column widths (px) for horizontal-scroll market table
 // Column widths were fixed pixels totalling 390, inside a card that only leaves
@@ -194,7 +195,11 @@ export default function HomeScreen({ navigation }) {
       if (RUB) rates.RUB = RUB;
       if (EUR) rates.EUR = EUR;
       if (Object.keys(rates).length) setFxRates(function(prev) { return { ...prev, ...rates }; });
-    } catch(e) {}
+    } catch(e) {
+      // Without rates the secondary-currency line under each price disappears.
+      // Degrading is correct; doing it invisibly is not.
+      captureIssue('fx_rates_failed', { error: String(e && e.message).slice(0, 120) });
+    }
   }
 
   async function loadMarket() {
@@ -242,7 +247,12 @@ export default function HomeScreen({ navigation }) {
     } catch(e) {
       try {
         applyData(await tryFetch(50000));
-      } catch(e2) {}
+      } catch(e2) {
+        // BOTH attempts failed — the entire market table is empty and the home
+        // screen looks broken. This was the single most visible failure in the
+        // app and it reported nowhere.
+        captureIssue('market_overview_failed', { error: String(e2 && e2.message).slice(0, 120) });
+      }
       finish();
     }
   }
@@ -258,7 +268,9 @@ export default function HomeScreen({ navigation }) {
       const data = await res.json();
       if (reqId !== newsReqIdRef.current) return; // stale — newer request took over
       setNews(Array.isArray(data.articles) ? data.articles.slice(0, 3) : []);
-    } catch(e) {}
+    } catch(e) {
+      captureIssue('home_news_failed', { lang: lang, error: String(e && e.message).slice(0, 120) });
+    }
   }
 
   const onRefresh = useCallback(async function() {

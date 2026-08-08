@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { ENDPOINTS } from '../constants/api';
+import { captureIssue } from '../utils/monitoring';
 
 // `companyName` is only forwarded to the metric detail screen, so its header can
 // say which fund the number belongs to — the same context the stock tiles pass.
@@ -22,7 +23,11 @@ export default function ETFCard({ ticker, companyName, colors, t, navigation }) 
       const json = await res.json();
       if (reqId !== reqIdRef.current) return; // stale
       setData(json);
-    } catch (e) {}
+    } catch (e) {
+      // The ETF card renders nothing when `data` is null, so this failure
+      // removed an entire section of the screen with no trace anywhere.
+      captureIssue('etf_card_failed', { ticker: ticker, error: String(e && e.message).slice(0, 120) });
+    }
     if (reqId === reqIdRef.current) setLoading(false);
   }
 
@@ -104,6 +109,11 @@ const s = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   tile: { width: '49%', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 0.5, minHeight: 76 },
   tileLabel: { fontSize: 12, marginBottom: 4 },
+  // `tileValue` was referenced on every ETF tile and never defined here, so it
+  // resolved to `undefined` and the numbers rendered as plain 14px body text —
+  // identical to `tileValueSmall`, which made the "small" variant do nothing.
+  // 17/600 matches the value type used by every other tile in the app.
+  tileValue: { fontSize: 17, fontWeight: '600' },
   tileValueSmall: { fontSize: 14 },
   holdingsTitle: { fontSize: 13, fontWeight: '700', textAlign: 'right', marginBottom: 8, marginTop: 4 },
   holdingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 0.5 },

@@ -45,7 +45,10 @@ export default function FloatingThemeToggle() {
           x: Math.max(0, Math.min(b.W - BTN, pos.x)),
           y: Math.max(0, Math.min(b.H - BTN, pos.y)),
         });
-      } catch(e) {}
+      } catch(e) {
+        // Saved button position unreadable — it stays at the default corner.
+        // Cosmetic and self-correcting on the next drag; not worth reporting.
+      }
     });
   }, []);
 

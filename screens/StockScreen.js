@@ -9,6 +9,8 @@ import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import { openArticle } from '../utils/linkUtils';
 import { symbolFor, isUsd } from '../utils/currency';
+import { captureIssue } from '../utils/monitoring';
+import { ERR, httpError, timeoutError, classifyError, canRetry, errorText } from '../utils/errors';
 import ScoreGauge from '../components/ScoreGauge';
 import PriceChart from '../components/PriceChart';
 import MetricTile from '../components/MetricTile';
@@ -256,11 +258,15 @@ export default function StockScreen({ route, navigation }) {
       let to;
       return Promise.race([
         fetch(ENDPOINTS.analyze(ticker, lang), { signal: controller.signal }).then(function(r) {
-          if (!r.ok) throw new Error('Server error');
+          // The status code IS the diagnosis: 404 = no such symbol, 429 = rate
+          // limit, 504 = Yahoo stalled. `new Error('Server error')` threw all
+          // of that away and every one of them reached the user as "check your
+          // internet connection".
+          if (!r.ok) throw httpError(r.status);
           return r.json();
         }),
         new Promise(function(_, rej) {
-          to = setTimeout(function() { controller.abort(); rej(new Error('timeout')); }, ms || 20000);
+          to = setTimeout(function() { controller.abort(); rej(timeoutError()); }, ms || 20000);
         })
       ]).finally(function() { clearTimeout(to); });
     };
@@ -280,7 +286,18 @@ export default function StockScreen({ route, navigation }) {
       setLoading(false);
     } catch(e) {
       if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; }
-      // First attempt failed — keep the gentle note and retry once, longer.
+      var code = classifyError(e);
+      // A symbol that does not exist will not exist eight seconds later, and a
+      // 429 only gets worse if we spend another request on it. The old code
+      // retried every failure identically: a typo cost the user 8s of waiting
+      // plus a second pointless round trip before the same error appeared.
+      if (!canRetry(code)) {
+        captureIssue('analyze_failed', { ticker: ticker, lang: lang, code: code });
+        setError(code);
+        clearTimeout(slowTimer); setWakingUp(false); setLoading(false);
+        return;
+      }
+      // Transient failure — keep the gentle note and retry once, longer.
       await new Promise(function(r) { setTimeout(r, 8000); });
       if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; }
       try {
@@ -291,7 +308,11 @@ export default function StockScreen({ route, navigation }) {
         fetchExchangeRate(reqId);
       } catch(e) {
         if (reqId !== reqIdRef.current) { clearTimeout(slowTimer); return; }
-        setError('connection_error');
+        // Both attempts failed. Without this the failure was invisible to
+        // everyone except the person holding the phone.
+        var code2 = classifyError(e);
+        captureIssue('analyze_failed', { ticker: ticker, lang: lang, code: code2 });
+        setError(code2);
       }
       clearTimeout(slowTimer); setWakingUp(false);
       setLoading(false);
@@ -423,18 +444,38 @@ export default function StockScreen({ route, navigation }) {
           ) : null}
         </View>
       ) : error ? (
-        <View style={s.errorWrap}>
-          <Text style={{ fontSize: 36, marginBottom: 8 }}>{'⚠️'}</Text>
-          <Text style={[s.errorTitle, { color: colors.text }]}>
-            {(t.cant_analyze || 'Cannot analyze') + ' ' + ticker}
-          </Text>
-          <Text style={[s.errorMsg, { color: colors.textDim }]}>
-            {t.cant_connect || "Couldn't connect to BuddhaVest's server."}
-          </Text>
-          <TouchableOpacity onPress={loadStock} style={[s.retryBtn, { backgroundColor: colors.accent }]}>
-            <Text style={{ color: '#fff', fontWeight: '700' }}>{t.retry || 'Try again'}</Text>
-          </TouchableOpacity>
-        </View>
+        (function() {
+          // One screen, six honest outcomes. It used to say "couldn't connect
+          // to the server" even when the server had answered perfectly and
+          // told us the symbol does not exist.
+          const et = errorText(error, t, { ticker: ticker });
+          const icon = error === ERR.NOT_FOUND ? '🔍'
+                     : error === ERR.RATE_LIMITED ? '⏳'
+                     : error === ERR.OFFLINE ? '📡' : '⚠️';
+          return (
+            <View style={s.errorWrap}>
+              <Text style={{ fontSize: 36, marginBottom: 8 }}>{icon}</Text>
+              <Text style={[s.errorTitle, { color: colors.text }, { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
+                {et.title || ((t.cant_analyze || 'Cannot analyze') + ' ' + ticker)}
+              </Text>
+              <Text style={[s.errorMsg, { color: colors.textDim }, { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
+                {et.msg || t.cant_connect || ''}
+              </Text>
+              {/* No "try again" on a symbol that does not exist — the button
+                  produced the identical 404 and looked like the app was broken
+                  rather than the input being wrong. */}
+              {canRetry(error) ? (
+                <TouchableOpacity onPress={loadStock} style={[s.retryBtn, { backgroundColor: colors.accent }]}>
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>{t.retry || 'Try again'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={function() { navigation.goBack(); }} style={[s.retryBtn, { backgroundColor: colors.accent }]}>
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>{t.back || 'Back'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })()
       ) : data && data.partial_data ? (
         /* partial_data — only price available, no fundamentals (matches HTML placeholder) */
         <ScrollView contentContainerStyle={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 }}>
@@ -790,6 +831,28 @@ export default function StockScreen({ route, navigation }) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   root: { flex: 1 },
+
+  // ── These nine were REFERENCED but never DEFINED ────────────────────────────
+  // s.loadWrap, s.loadText, s.errorWrap, s.errorTitle, s.errorMsg, s.retryBtn,
+  // s.loadRow, s.noData and s.noteSmall were all read from this StyleSheet and
+  // all came back `undefined`. React Native accepts `style={undefined}` without
+  // complaint, so nothing crashed and nothing warned — the elements simply
+  // rendered with NO styling at all.
+  //
+  // What that actually looked like: the "Analyzing AAPL..." spinner is the
+  // first thing shown on every single stock open, and `loadWrap` was supposed
+  // to centre it. Without flex/justifyContent it sat jammed in the top-left
+  // corner under the header. Same for the whole error screen — no centring, no
+  // padding, and the "Try again" button was a text-tight coloured rectangle.
+  loadWrap:   { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  loadText:   { fontSize: 13, marginTop: 10, textAlign: 'center' },
+  errorWrap:  { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28 },
+  errorTitle: { fontSize: 17, fontWeight: '600', textAlign: 'center', marginBottom: 8 },
+  errorMsg:   { fontSize: 13, lineHeight: 20, textAlign: 'center', marginBottom: 18 },
+  retryBtn:   { borderRadius: 10, paddingVertical: 10, paddingHorizontal: 22 },
+  loadRow:    { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
+  noData:     { fontSize: 12, lineHeight: 18, paddingVertical: 6 },
+  noteSmall:  { fontSize: 11, lineHeight: 16, marginTop: 4 },
 
   // Nav bar (.back-link + icon-btns)
   backLink:   { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },

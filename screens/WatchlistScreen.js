@@ -13,6 +13,7 @@ import { useFocusEffect } from '@react-navigation/native';
 // stock never shows one sign on its row and another on its page.
 import { symbolFor, isUsd } from '../utils/currency';
 import BrandHeader from '../components/BrandHeader';
+import { captureIssue } from '../utils/monitoring';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Polygon } from 'react-native-svg';
 
@@ -190,7 +191,11 @@ export default function WatchlistScreen({ navigation }) {
         });
         commit();                                          // first paint
       }
-    } catch(e) { /* phase 2 will fill everything in */ }
+    } catch(e) {
+      // Phase 1 is the fast bulk quote. Phase 2 fetches each ticker
+      // individually and reports its own failures, so a miss here costs a
+      // slower first paint, not missing data.
+    }
 
     // ── Phase 2: batched /analyze for scores + recommendations ──────────────
     // Still batched (a 15-stock list firing 15 heavy requests at once could
@@ -213,7 +218,11 @@ export default function WatchlistScreen({ navigation }) {
             company_name:        data.company_name,
             price_currency:      data.price_currency,  // 'ILS' for TASE stocks
           };
-        } catch(e) {}
+        } catch(e) {
+          // One ticker's analysis failed: that row keeps its phase-1 price but
+          // silently shows no score, no recommendation, no colour.
+          captureIssue('watchlist_analyze_failed', { ticker: item.ticker, error: String(e && e.message).slice(0, 120) });
+        }
       }));
       if (reqId !== reqIdRef.current) return;
       commit();                                 // commit this batch right away

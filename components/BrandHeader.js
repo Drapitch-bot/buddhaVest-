@@ -72,7 +72,11 @@ export default function BrandHeader({ onRefresh, greeting }) {
           const rawSeen = JSON.parse(await AsyncStorage.getItem('notif_first_seen'));
           // must be a plain object — an array/string here would make seen[key] junk
           if (rawSeen && typeof rawSeen === 'object' && !Array.isArray(rawSeen)) seen = rawSeen;
-        } catch (e) {}
+        } catch (e) {
+          // Expected on first run and after a storage format change: `seen`
+          // stays {} and every notification is treated as new. Harmless and
+          // self-correcting, so it is not worth reporting.
+        }
         if (!alive) return;
         const pruned = {};
         const nowTs = Date.now();

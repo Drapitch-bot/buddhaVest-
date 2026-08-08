@@ -1,0 +1,431 @@
+# Continuous checks for BuddhaVest.
+#
+# Why this exists: on 2026-08-03 a change shipped to production that silently
+# emptied `stock.info` for every ticker. It passed every static check that was
+# run by hand, and the failure was found by a person looking at a phone. There
+# was no gate between "I edited a file" and "users have it".
+#
+# This runs the same checks that were being run manually, on every push, before
+# anything reaches a device.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Server — compile, import, endpoints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install server dependencies
+        working-directory: assets/1BuddhaVest
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile every Python file
+        working-directory: assets/1BuddhaVest
+        run: python -m compileall -q .
+
+      - name: Import main.py
+        # Catches what compileall cannot: a decorator applied to a function with
+        # the wrong signature. Every rate-limited endpoint here would have failed
+        # at startup, and only an actual import surfaces that.
+        working-directory: assets/1BuddhaVest
+        env:
+          PORT: '8000'
+        run: |
+          python - <<'EOF'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("bvmain", "main.py")
+          m = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(m)
+          routes = [r.path for r in m.app.routes if hasattr(r, "path")]
+          assert len(routes) > 15, f"too few routes registered: {routes}"
+          print(f"OK — {len(routes)} routes, rate limiting: {m._RATE_LIMITING}")
+          EOF
+
+      - name: Second data provider behaves
+        # The fallback runs ONLY when the primary source has already failed, so
+        # it executes precisely when nobody is watching. These assert the two
+        # properties that make a second provider safe rather than dangerous: it
+        # can only ADD fields, and it can never raise.
+        working-directory: assets/1BuddhaVest
+        run: python test_chart_meta.py
+
+      - name: No silent exception swallowing
+        # There were 40 `except Exception: pass` handlers. Each erased the only
+        # evidence of a failure the user could see the consequences of — an
+        # empty card, a missing name, a multiple that vanished. They are now
+        # `swallow(where, exc)`, which records what happened and continues.
+        # Two are still silent, on purpose, and are listed here by name.
+        working-directory: assets/1BuddhaVest
+        run: |
+          python - <<'EOF'
+          import ast, glob, sys
+
+          # (file, enclosing function) pairs that may stay silent, with the reason.
+          ALLOWED = {
+            ('observability.py', '_to_sentry'):
+              'reporting a reporting failure would recurse',
+            ('main.py', '_validate_public_url'):
+              'except ValueError — a hostname that is not an IP literal is the normal case',
+          }
+
+          bad = []
+          for path in sorted(glob.glob('*.py')):
+              src = open(path, encoding='utf-8').read()
+              tree = ast.parse(src)
+              funcs = [(n.lineno, getattr(n, 'end_lineno', n.lineno), n.name)
+                       for n in ast.walk(tree)
+                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+              def owner(ln):
+                  best = None
+                  for a, b, nm in funcs:
+                      if a <= ln <= b and (best is None or a > best[0]):
+                          best = (a, nm)
+                  return best[1] if best else '<module>'
+              for node in ast.walk(tree):
+                  if not isinstance(node, ast.ExceptHandler):
+                      continue
+                  body = [b for b in node.body
+                          if not (isinstance(b, ast.Expr) and isinstance(b.value, ast.Constant))]
+                  if not (len(body) == 1 and isinstance(body[0], ast.Pass)):
+                      continue
+                  key = (path, owner(node.lineno))
+                  if key in ALLOWED:
+                      print(f'  allowed  {path}:{node.lineno} {key[1]}() — {ALLOWED[key]}')
+                      continue
+                  bad.append(f'{path}:{node.lineno} in {key[1]}()')
+                  # A bare `except:` is worse still — it eats KeyboardInterrupt.
+              for node in ast.walk(tree):
+                  if isinstance(node, ast.ExceptHandler) and node.type is None:
+                      bad.append(f'{path}:{node.lineno} bare `except:` — catches SystemExit too')
+
+          if bad:
+              print('\nFAIL — silent swallow(s); use swallow(where, exc) from observability.py:')
+              for b in bad:
+                  print('  ' + b)
+              sys.exit(1)
+          print('OK — no silent exception swallowing')
+          EOF
+
+      - name: Endpoints answer and rate limits hold
+        working-directory: assets/1BuddhaVest
+        env:
+          PORT: '8000'
+        run: |
+          python - <<'EOF'
+          import importlib.util, warnings
+          warnings.filterwarnings("ignore")
+          spec = importlib.util.spec_from_file_location("bvmain", "main.py")
+          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          from fastapi.testclient import TestClient
+          c = TestClient(m.app)
+
+          r = c.get("/status")
+          assert r.status_code == 200, r.status_code
+          assert r.json() == {"maintenance": False}, r.json()
+
+          r = c.get("/privacy")
+          assert r.status_code == 200 and "Privacy Policy" in r.text
+          assert "never transmitted to our servers" not in r.text, \
+              "privacy page still carries the withdrawn watchlist claim"
+
+          codes = [c.get("/financials/CITEST").status_code for _ in range(24)]
+          assert 429 not in codes[:20], "heavy limit fires too early"
+          assert codes[20] == 429, f"heavy limit not enforced: {codes}"
+          print("OK — endpoints answer, heavy limit enforced at 20/min")
+          EOF
+
+  javascript:
+    name: App — parse every source file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Parse every JS file
+        run: |
+          node - <<'EOF'
+          const parser = require('@babel/parser');
+          const fs = require('fs'), path = require('path');
+          const roots = ['screens', 'components', 'constants', 'utils'];
+          const files = ['App.js', 'index.js'];
+          for (const r of roots) {
+            if (!fs.existsSync(r)) continue;
+            for (const f of fs.readdirSync(r)) {
+              if (f.endsWith('.js')) files.push(path.join(r, f));
+            }
+          }
+          let bad = 0;
+          for (const f of files) {
+            try {
+              parser.parse(fs.readFileSync(f, 'utf8'),
+                           { sourceType: 'module', plugins: ['jsx'] });
+            } catch (e) {
+              bad++; console.error('FAIL', f, e.message);
+            }
+          }
+          if (bad) process.exit(1);
+          console.log(`OK — ${files.length} files parsed`);
+          EOF
+
+      - name: i18n parity across all four languages
+        # Parsed with Babel, not scraped with a regex. The first version of this
+        # check used indexOf/regex to slice each language block and reported 27
+        # false failures because a nested object closed the block early. A parser
+        # cannot be fooled that way, and a check that cries wolf gets disabled.
+        run: |
+          node - <<'EOF'
+          const parser = require('@babel/parser');
+          const fs = require('fs');
+          const ast = parser.parse(fs.readFileSync('constants/i18n.js', 'utf8'),
+                                   { sourceType: 'module' });
+          const LANGS = ['he', 'en', 'ru', 'es'];
+          let obj = null;
+          for (const n of ast.program.body) {
+            const d = (n.type === 'ExportNamedDeclaration' || n.type === 'ExportDefaultDeclaration')
+                      ? n.declaration : n;
+            if (!d || d.type !== 'VariableDeclaration') continue;
+            for (const dec of d.declarations) {
+              if (dec.init && dec.init.type === 'ObjectExpression') {
+                const names = dec.init.properties.map(p => p.key && (p.key.name || p.key.value));
+                if (LANGS.every(l => names.includes(l))) obj = dec.init;
+              }
+            }
+          }
+          if (!obj) { console.error('no object containing all four languages'); process.exit(1); }
+          const keysOf = (lang) => {
+            const p = obj.properties.find(p => (p.key.name || p.key.value) === lang);
+            return new Set(p.value.properties.map(x => x.key.name || x.key.value));
+          };
+          const sets = Object.fromEntries(LANGS.map(l => [l, keysOf(l)]));
+          const all = new Set(LANGS.flatMap(l => [...sets[l]]));
+          let bad = 0;
+          for (const k of all) {
+            const missing = LANGS.filter(l => !sets[l].has(k));
+            if (missing.length) { console.error(`${k} missing in: ${missing.join(', ')}`); bad++; }
+          }
+          if (bad) process.exit(1);
+          console.log(`OK — ${all.size} keys present in all 4 languages`);
+          EOF
+
+      - name: Every style reference resolves
+        # Found on 2026-08-07: StockScreen.js read nine keys from its
+        # StyleSheet that were never defined — including loadWrap/loadText,
+        # which style the "Analyzing…" spinner shown on EVERY stock open, and
+        # the entire error screen. React Native accepts `style={undefined}`
+        # silently, so nothing crashed, nothing warned, and the elements simply
+        # rendered unstyled. ETFCard had the same bug on its tile values.
+        # Nothing in the toolchain catches this, so it is caught here.
+        run: |
+          node - <<'EOF'
+          const parser = require('@babel/parser');
+          const fs = require('fs'), path = require('path');
+          const files = ['App.js'];
+          for (const r of ['screens','components','constants','utils']) {
+            if (!fs.existsSync(r)) continue;
+            for (const f of fs.readdirSync(r)) if (f.endsWith('.js')) files.push(path.join(r,f));
+          }
+          const walk = (n, fn) => {
+            if (!n || typeof n !== 'object') return;
+            if (n.type) fn(n);
+            for (const k in n) {
+              const v = n[k];
+              if (Array.isArray(v)) v.forEach(c => walk(c, fn));
+              else if (v && typeof v === 'object' && v.type) walk(v, fn);
+            }
+          };
+          let bad = 0;
+          for (const f of files) {
+            const ast = parser.parse(fs.readFileSync(f,'utf8'), { sourceType:'module', plugins:['jsx'] });
+            const sheets = {}, declCount = {}, sheetLine = {};
+            // Function PARAMETERS shadow too. Missing them made this check
+            // report `escapeHtml(s)` in ArticleScreen as a bare StyleSheet use.
+            walk(ast.program, n => {
+              if (!/Function(Declaration|Expression)|ArrowFunctionExpression/.test(n.type)) return;
+              for (const p of (n.params || [])) {
+                if (p.type === 'Identifier') declCount[p.name] = (declCount[p.name] || 0) + 1;
+              }
+            });
+            walk(ast.program, n => {
+              if (n.type !== 'VariableDeclarator' || !n.id || n.id.type !== 'Identifier') return;
+              declCount[n.id.name] = (declCount[n.id.name] || 0) + 1;
+              const i = n.init;
+              if (i && i.type === 'CallExpression' && i.callee.type === 'MemberExpression'
+                  && i.callee.object.name === 'StyleSheet' && i.callee.property.name === 'create'
+                  && i.arguments[0] && i.arguments[0].type === 'ObjectExpression') {
+                sheets[n.id.name] = new Set(i.arguments[0].properties.map(p => p.key && (p.key.name || p.key.value)));
+                sheetLine[n.id.name] = n.id.loc.start.line;
+              }
+            });
+            for (const name in sheets) {
+              // A name declared more than once is shadowed somewhere (e.g.
+              // `const s = String(x)` inside a helper), and `s.match` there is
+              // a string method, not a style. Skipping is honest; flagging it
+              // would be a false alarm, and a check that cries wolf gets muted.
+              if (declCount[name] > 1) { console.log(`skip ${f}: '${name}' is redeclared`); continue; }
+              // Pass 1 — `s.foo` where `foo` was never defined.
+              walk(ast.program, n => {
+                if (n.type !== 'MemberExpression' || n.computed) return;
+                if (!n.object || n.object.name !== name) return;
+                if (!n.property || n.property.type !== 'Identifier') return;
+                if (!sheets[name].has(n.property.name)) {
+                  console.error(`FAIL ${f}:${n.loc.start.line}  ${name}.${n.property.name} is not defined in the StyleSheet`);
+                  bad++;
+                }
+              });
+              // Pass 2 — the sheet used as a bare VALUE. A StyleSheet is only
+              // ever legitimately read as `s.something`. `return s` compiles,
+              // type-checks nowhere, and hands a style object to whatever
+              // expected a string. Caught exactly this in FinancialsCard while
+              // renaming a shadowing local: `return s` silently switched from
+              // "the trimmed date" to "the entire StyleSheet".
+              const members = new Set();
+              walk(ast.program, n => {
+                if (n.type === 'MemberExpression' && !n.computed && n.object && n.object.name === name) {
+                  members.add(n.object);
+                }
+              });
+              walk(ast.program, n => {
+                if (n.type !== 'Identifier' || n.name !== name) return;
+                if (members.has(n)) return;                       // it's the `s` in `s.foo`
+                if (n.loc.start.line === sheetLine[name]) return; // the declaration itself
+                console.error(`FAIL ${f}:${n.loc.start.line}  '${name}' (a StyleSheet) used as a bare value`);
+                bad++;
+              });
+            }
+          }
+          if (bad) process.exit(1);
+          console.log('OK — every style reference resolves');
+          EOF
+
+      - name: Every error code has text in all four languages
+        # utils/errors.js maps a failure to an i18n key. A key that exists in
+        # the map but not in i18n.js renders an EMPTY error box — worse than the
+        # wrong message it replaced.
+        run: |
+          node - <<'EOF'
+          const parser = require('@babel/parser');
+          const fs = require('fs');
+          const src = fs.readFileSync('utils/errors.js','utf8').replace(/^export /gm,'');
+          const { ERR, errorText } = new Function(src + '; return {ERR, errorText};')();
+
+          const ast = parser.parse(fs.readFileSync('constants/i18n.js','utf8'), { sourceType:'module' });
+          const LANGS = ['he','en','ru','es'];
+          let obj = null;
+          const walk = (n) => {
+            if (!n || typeof n !== 'object') return;
+            if (n.type === 'VariableDeclarator' && n.init && n.init.type === 'ObjectExpression') {
+              const names = n.init.properties.map(p => p.key && (p.key.name || p.key.value));
+              if (LANGS.every(l => names.includes(l))) obj = n.init;
+            }
+            for (const k in n) {
+              const v = n[k];
+              if (Array.isArray(v)) v.forEach(walk);
+              else if (v && typeof v === 'object' && v.type) walk(v);
+            }
+          };
+          walk(ast.program);
+          if (!obj) { console.error('i18n object not found'); process.exit(1); }
+
+          let bad = 0;
+          for (const lang of LANGS) {
+            const p = obj.properties.find(p => (p.key.name || p.key.value) === lang);
+            const t = Object.fromEntries(p.value.properties.map(x => [(x.key.name || x.key.value), x.value.value]));
+            for (const code of Object.values(ERR)) {
+              const { title, msg } = errorText(code, t, { ticker: 'XYZ' });
+              if (!title || !msg) { console.error(`FAIL ${lang}/${code}: empty error text`); bad++; }
+              if (/\{[a-z_]+\}/.test(title + msg)) { console.error(`FAIL ${lang}/${code}: unreplaced placeholder`); bad++; }
+            }
+          }
+          if (bad) process.exit(1);
+          console.log(`OK — ${Object.keys(ERR).length} error codes have text in all 4 languages`);
+          EOF
+
+      - name: No empty catch blocks
+        # Client counterpart to the server check. `catch (e) {}` is how a failed
+        # watchlist save looked like a success, and how the entire market table
+        # could come back empty with nothing recorded anywhere. A catch must
+        # either report or carry a written reason for staying quiet — a comment
+        # is enough, because the point is that someone made the decision on
+        # purpose and left it where the next reader can see it.
+        run: |
+          node - <<'EOF'
+          const parser = require('@babel/parser');
+          const fs = require('fs'), path = require('path');
+          const files = ['App.js', 'index.js'];
+          for (const r of ['screens','components','constants','utils']) {
+            if (!fs.existsSync(r)) continue;
+            for (const f of fs.readdirSync(r)) if (f.endsWith('.js')) files.push(path.join(r,f));
+          }
+          const walk = (n, fn) => {
+            if (!n || typeof n !== 'object') return;
+            if (n.type) fn(n);
+            for (const k in n) {
+              const v = n[k];
+              if (Array.isArray(v)) v.forEach(c => walk(c, fn));
+              else if (v && typeof v === 'object' && v.type) walk(v, fn);
+            }
+          };
+          let bad = 0;
+          for (const f of files) {
+            if (!fs.existsSync(f)) continue;
+            const src = fs.readFileSync(f, 'utf8');
+            const ast = parser.parse(src, { sourceType: 'module', plugins: ['jsx'] });
+            walk(ast.program, n => {
+              if (n.type !== 'CatchClause' || n.body.body.length !== 0) return;
+              // A catch containing only comments has an empty statement list but
+              // a non-empty source range — that counts as a stated reason.
+              const inner = src.slice(n.body.start + 1, n.body.end - 1).trim();
+              if (inner) return;
+              console.error(`FAIL ${f}:${n.loc.start.line}  empty catch — report it or write down why not`);
+              bad++;
+            });
+          }
+          if (bad) process.exit(1);
+          console.log('OK — no empty catch blocks');
+          EOF
+
+      - name: Release config sanity
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const app = JSON.parse(fs.readFileSync('app.json', 'utf8')).expo;
+          const eas = JSON.parse(fs.readFileSync('eas.json', 'utf8'));
+          const fail = [];
+          if (app.android.package !== 'com.buddhavest.app') fail.push('package name changed');
+          if (!Number.isInteger(app.android.versionCode)) fail.push('versionCode not an integer');
+          const perms = app.android.permissions || [];
+          const allowed = ['android.permission.INTERNET', 'android.permission.ACCESS_NETWORK_STATE'];
+          for (const p of perms) if (!allowed.includes(p)) fail.push('unexpected permission: ' + p);
+          if (eas.build.production.android.buildType !== 'app-bundle') fail.push('production build is not an app-bundle');
+          if (fail.length) { fail.forEach(f => console.error('FAIL', f)); process.exit(1); }
+          console.log(`OK — package ${app.android.package}, versionCode ${app.android.versionCode}, ${perms.length} permissions`);
+          EOF
+
+      - name: No secrets in the shipped bundle
+        run: |
+          if grep -rniE "(api[_-]?key|secret|password)[[:space:]]*[:=][[:space:]]*['\"][A-Za-z0-9_-]{12,}" \
+               screens components constants utils App.js index.js 2>/dev/null; then
+            echo "FAIL — hard-coded credential in client code"; exit 1
+          fi
+          echo "OK — no credentials in client source"

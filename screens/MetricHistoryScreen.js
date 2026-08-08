@@ -6,6 +6,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
+import { captureIssue } from '../utils/monitoring';
+import { httpError, classifyError, canRetry, errorText } from '../utils/errors';
 import PriceChart from '../components/PriceChart';
 import BrandHeader from '../components/BrandHeader';
 
@@ -106,7 +108,11 @@ async function fetchYahooPrices(ticker) {
         }))
         .filter(p => p.value != null);
       if (series.length > 1) return series;
-    } catch(e) { /* try next */ }
+    } catch(e) {
+      // One of several fallback price sources. Failure here is the normal case
+      // for most of them; the loop moves on and the caller reports if ALL of
+      // them came back empty.
+    }
   }
   return null;
 }
@@ -314,7 +320,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
       setSlowLoad(false);
 
       if (!res.ok) {
-        setError(true);
+        // Was `setError(true)` — the response carried 404 / 429 / 504 and all
+        // three rendered "Could not load data. Server may be starting up."
+        setError(classifyError(httpError(res.status)));
       } else {
         const json = await res.json();
         if (loadId.current !== myId) return;   // stale — newer load owns the screen
@@ -326,6 +334,9 @@ export default function MetricHistoryScreen({ route, navigation }) {
               : (json?.quarterly?.length > 1 || json?.annual?.length > 1);
 
         setData(json);
+        if (json && json.empty_reason) {
+          captureIssue('empty_chart', { ticker: ticker, metric: apiKey, reason: json.empty_reason });
+        }
 
         if (hasMetricData) {
           // Real metric series arrived — clear the fallback price chart.
@@ -339,7 +350,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
       if (loadId.current !== myId) return;
       clearTimeout(slowTimer.current);
       setSlowLoad(false);
-      setError(true);
+      setError(classifyError(e));
     }
 
     // Final stop: covers the case where the backend responded but the fallback
@@ -518,17 +529,36 @@ export default function MetricHistoryScreen({ route, navigation }) {
 
           {/* Error / no-data section */}
           {error && !usingYahooFallback ? (
-            <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 24 }}>
-              <Text style={[s.noData, { color: colors.textDimmer, marginBottom: 20 }]}>
-                {t.loadError || 'Could not load data. Server may be starting up.'}
-              </Text>
-              <TouchableOpacity
-                style={[s.retryBtn, { backgroundColor: colors.accent }]}
-                onPress={loadHistory}>
-                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>
-                  {t.retry || 'Retry'}
-                </Text>
-              </TouchableOpacity>
+            <View style={{ alignItems: 'center', paddingTop: 24, paddingBottom: 24, paddingHorizontal: 12 }}>
+              {(function() {
+                const et = errorText(error, t, { ticker: ticker });
+                return (
+                  <>
+                    {et.title ? (
+                      <Text style={[s.noData, {
+                        color: colors.text, fontWeight: '600', marginBottom: 6, textAlign: 'center',
+                        writingDirection: isRtl ? 'rtl' : 'ltr',
+                      }]}>{et.title}</Text>
+                    ) : null}
+                    <Text style={[s.noData, {
+                      color: colors.textDimmer, marginBottom: 20, textAlign: 'center',
+                      writingDirection: isRtl ? 'rtl' : 'ltr',
+                    }]}>
+                      {et.msg || t.loadError || 'Could not load data. Server may be starting up.'}
+                    </Text>
+                  </>
+                );
+              })()}
+              {/* Retrying a 404 or a 429 reproduces the same failure. */}
+              {canRetry(error) ? (
+                <TouchableOpacity
+                  style={[s.retryBtn, { backgroundColor: colors.accent }]}
+                  onPress={loadHistory}>
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>
+                    {t.retry || 'Retry'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ) : (
             <>

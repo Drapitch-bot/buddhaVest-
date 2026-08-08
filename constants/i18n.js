@@ -42,6 +42,21 @@ export const translations = {
     // errors
     errorLoad: 'לא ניתן לטעון', errorServer: 'לא ניתן להתחבר לשרת',
     cant_connect: 'לא ניתן להתחבר לשרת. בדקו חיבור לאינטרנט ונסו שוב.',
+    // Distinct failure states. Before this, 404 (bad symbol), 429 (rate
+    // limit) and 504 (provider stalled) all rendered as "check your
+    // internet connection" - see utils/errors.js.
+    err_offline_title: 'אין תגובה מהרשת',
+    err_offline_msg: 'לא קיבלנו תשובה מהרשת. בדקו חיבור ל-Wi-Fi או לרשת הסלולרית ונסו שוב.',
+    err_notfound_title: 'הסימול {ticker} לא נמצא',
+    err_notfound_msg: 'לא נמצאה מניה עם הסימול הזה. בדקו את האיות - למשל AAPL ולא APPLE. למניות מחוץ לארה"ב צריכה סיומת, כמו TEVA.TA או SHEL.L.',
+    err_rate_title: 'יותר מדי בקשות',
+    err_rate_msg: 'שלחתם הרבה בקשות בזמן קצר. המתינו דקה ונסו שוב.',
+    err_provider_title: 'ספק הנתונים לא מגיב',
+    err_provider_msg: 'השרת שלנו עובד, אבל מקור הנתונים (Yahoo Finance) לא החזיר תשובה בזמן. זה בדרכ כלל זמני - נסו שוב בעוד כמה דקות.',
+    err_server_title: 'תקלה בשרת',
+    err_server_msg: 'השרת נתקל בשגיאה בבניית הנתונים. נסו שוב, ואם זה חוזר - זו תקלה אצלנו.',
+    err_unknown_title: 'משהו השתבש',
+    err_unknown_msg: 'לא הצלחנו לטעון את הנתונים ולא הצלחנו לזהות את הסיבה. נסו שוב.',
     cant_load_market: 'לא ניתן לטעון נתוני שוק',
     // stock screen
     back: 'חזרה לשוק',
@@ -322,6 +337,21 @@ export const translations = {
     source_news: 'Articles source: Yahoo Finance and Google News',
     errorLoad: 'Unable to load', errorServer: 'Cannot connect to server',
     cant_connect: "Couldn't connect to the server. Check your internet connection and try again.",
+    // Distinct failure states. Before this, 404 (bad symbol), 429 (rate
+    // limit) and 504 (provider stalled) all rendered as "check your
+    // internet connection" - see utils/errors.js.
+    err_offline_title: 'No response from the network',
+    err_offline_msg: 'Nothing came back from the network. Check your Wi-Fi or mobile data and try again.',
+    err_notfound_title: 'Symbol {ticker} not found',
+    err_notfound_msg: 'No stock matches that symbol. Check the spelling - AAPL, not APPLE. Listings outside the US need a suffix, like TEVA.TA or SHEL.L.',
+    err_rate_title: 'Too many requests',
+    err_rate_msg: 'You sent a lot of requests in a short time. Wait a minute and try again.',
+    err_provider_title: 'The data provider is not responding',
+    err_provider_msg: 'Our server is up, but the data source (Yahoo Finance) did not answer in time. This is usually temporary - try again in a few minutes.',
+    err_server_title: 'Server error',
+    err_server_msg: 'The server hit an error building this data. Try again - if it keeps happening, the problem is on our side.',
+    err_unknown_title: 'Something went wrong',
+    err_unknown_msg: 'We could not load the data and could not identify why. Please try again.',
     cant_load_market: "Couldn't load market data",
     back: 'Back to Market',
     overview: 'Overview', valuation: 'Valuation',
@@ -600,6 +630,21 @@ export const translations = {
     source_news: 'Источник статей: Yahoo Finance и Google News',
     errorLoad: 'Не удалось загрузить', errorServer: 'Нет подключения к серверу',
     cant_connect: 'Не удалось подключиться к серверу. Проверьте подключение к интернету и попробуйте снова.',
+    // Distinct failure states. Before this, 404 (bad symbol), 429 (rate
+    // limit) and 504 (provider stalled) all rendered as "check your
+    // internet connection" - see utils/errors.js.
+    err_offline_title: 'Сеть не отвечает',
+    err_offline_msg: 'От сети не пришло ответа. Проверьте Wi-Fi или мобильный интернет и попробуйте снова.',
+    err_notfound_title: 'Тикер {ticker} не найден',
+    err_notfound_msg: 'Акция с таким тикером не найдена. Проверьте написание - AAPL, а не APPLE. Для бирж вне США нужен суффикс, например TEVA.TA или SHEL.L.',
+    err_rate_title: 'Слишком много запросов',
+    err_rate_msg: 'Вы отправили много запросов за короткое время. Подождите минуту и попробуйте снова.',
+    err_provider_title: 'Поставщик данных не отвечает',
+    err_provider_msg: 'Наш сервер работает, но источник данных (Yahoo Finance) не ответил вовремя. Обычно это временно - попробуйте через несколько минут.',
+    err_server_title: 'Ошибка сервера',
+    err_server_msg: 'Сервер столкнулся с ошибкой при подготовке данных. Попробуйте снова - если повторяется, проблема на нашей стороне.',
+    err_unknown_title: 'Что-то пошло не так',
+    err_unknown_msg: 'Не удалось загрузить данные, и причину определить не получилось. Попробуйте снова.',
     cant_load_market: 'Не удалось загрузить данные рынка',
     back: 'Назад к рынкам',
     overview: 'Обзор', valuation: 'Оценка стоимости',
@@ -875,6 +920,21 @@ export const translations = {
     source_news: 'Fuente de artículos: Yahoo Finance y Google News',
     errorLoad: 'No se pudo cargar', errorServer: 'No se puede conectar al servidor',
     cant_connect: 'No se pudo conectar al servidor. Comprueba tu conexión a internet e inténtalo de nuevo.',
+    // Distinct failure states. Before this, 404 (bad symbol), 429 (rate
+    // limit) and 504 (provider stalled) all rendered as "check your
+    // internet connection" - see utils/errors.js.
+    err_offline_title: 'La red no responde',
+    err_offline_msg: 'No llegó respuesta de la red. Comprueba el Wi-Fi o los datos móviles e inténtalo de nuevo.',
+    err_notfound_title: 'No se encontró el símbolo {ticker}',
+    err_notfound_msg: 'No hay ninguna acción con ese símbolo. Revisa la escritura: AAPL, no APPLE. Las cotizaciones fuera de EE. UU. necesitan sufijo, como TEVA.TA o SHEL.L.',
+    err_rate_title: 'Demasiadas solicitudes',
+    err_rate_msg: 'Enviaste muchas solicitudes en poco tiempo. Espera un minuto e inténtalo de nuevo.',
+    err_provider_title: 'El proveedor de datos no responde',
+    err_provider_msg: 'Nuestro servidor funciona, pero la fuente de datos (Yahoo Finance) no respondió a tiempo. Suele ser temporal: inténtalo en unos minutos.',
+    err_server_title: 'Error del servidor',
+    err_server_msg: 'El servidor tuvo un error al construir estos datos. Inténtalo de nuevo; si se repite, el problema es nuestro.',
+    err_unknown_title: 'Algo salió mal',
+    err_unknown_msg: 'No pudimos cargar los datos ni identificar el motivo. Inténtalo de nuevo.',
     cant_load_market: 'No se pudieron cargar los datos del mercado',
     back: 'Volver a los mercados',
     overview: 'Resumen general', valuation: 'Valoración',

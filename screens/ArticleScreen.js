@@ -7,6 +7,7 @@ import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { API_BASE } from '../constants/api';
+import { ERR, httpError, classifyError, errorText } from '../utils/errors';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
 const TRANSLATE_TIMEOUT_MS = 30000;
@@ -113,8 +114,11 @@ const CONSENT_JS = `
 true;
 `;
 
-function escapeHtml(s) {
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Parameter named `v`, not `s`: `s` is this file's StyleSheet, and shadowing it
+// here is the same footgun that turned `return s` in FinancialsCard into
+// "return the entire StyleSheet".
+function escapeHtml(v) {
+  return String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 export default function ArticleScreen({ route, navigation }) {
@@ -294,8 +298,11 @@ export default function ArticleScreen({ route, navigation }) {
 
       {error ? (
         <View style={s.errorWrap}>
-          <Text style={[s.errorText, { color: colors.textDim }]}>
+          <Text style={[s.errorText, { color: colors.text, fontWeight: '600', marginBottom: 6 }]}>
             {t.could_not_load || 'Could not load article'}
+          </Text>
+          <Text style={[s.errorText, { color: colors.textDim }]}>
+            {errorText(error, t).msg}
           </Text>
           <TouchableOpacity onPress={handleClose} style={[s.retryBtn, { borderColor: colors.cardBorder }]}>
             <Text style={{ color: colors.primary || '#f59e0b' }}>{t.back || 'Back'}</Text>
@@ -312,8 +319,14 @@ export default function ArticleScreen({ route, navigation }) {
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
-          thirdPartyCookiesEnabled={true}
-          sharedCookiesEnabled={true}
+          // Third-party and shared cookies are OFF. They were on, which let news
+          // sites set and read tracking cookies inside the app and share the
+          // device's system cookie jar with them. Nothing here needs that — the
+          // WebView only renders an article — and it was declared in neither the
+          // Data Safety form nor the privacy policy, so the app was doing
+          // something it had told nobody about.
+          thirdPartyCookiesEnabled={false}
+          sharedCookiesEnabled={false}
           startInLoadingState={true}
           allowsInlineMediaPlayback={true}
           userAgent="Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36"
@@ -324,8 +337,14 @@ export default function ArticleScreen({ route, navigation }) {
               </View>
             );
           }}
-          onError={function() { setError(true); }}
-          onHttpError={function(e) { if (e.nativeEvent.statusCode >= 500) setError(true); }}
+          // The WebView already knows whether it never reached the network or
+          // reached it and got a 5xx back. Both used to collapse into a single
+          // "Could not load article".
+          onError={function() { setError(ERR.OFFLINE); }}
+          onHttpError={function(e) {
+            const code = e && e.nativeEvent && e.nativeEvent.statusCode;
+            if (code >= 500) setError(classifyError(httpError(code)));
+          }}
         />
       )}
     </View>

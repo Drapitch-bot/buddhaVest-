@@ -41,6 +41,91 @@ from stooq_fallback import get_stooq_quote, get_stooq_daily
 # Never hardcode it: this file is in a public git repo.
 TIINGO_TOKEN = os.environ.get("TIINGO_TOKEN", "")
 
+# ── Error monitoring ─────────────────────────────────────────────────────────
+# There was none. Every problem found today — the 100x London price, the share
+# count that emptied every multiple, the custom session that silently blanked
+# stock.info, the request that hung past three minutes — was discovered because
+# a human looked at a screen and said "this is wrong". None of them raised
+# anywhere anyone could see.
+#
+# SENTRY_DSN is read from the environment. With no DSN these calls are inert,
+# so the server runs identically whether or not monitoring is configured — no
+# second code path to get out of sync.
+#
+# `report` and `swallow` live in observability.py rather than here because
+# main.py imports analyzer / data_fetcher / stooq_fallback, so those three
+# cannot import back from main.py without a cycle — and those three contain
+# some of the most damaging silent failures in the codebase.
+from observability import SENTRY_DSN, report, swallow
+
+
+# ─── Shared thread pools ──────────────────────────────────────────────────────
+# Eight separate `with ThreadPoolExecutor(...)` blocks were built and torn down
+# INSIDE request handlers. Every /quotes, every /market-overview, every article
+# translation created its own pool, spawned up to ten OS threads, and joined
+# them again — on a 0.5 vCPU instance with one uvicorn worker. At peak the
+# server could hold roughly forty short-lived threads whose only purpose was to
+# wait on the network.
+#
+# These are created once and reused. Counted honestly: the pools below total 33
+# threads (8 io + 6 translate + 3 index + 4 movers + 4 stooq + 8 deadline),
+# created lazily on first use and then kept — instead of up to 54 thread
+# creations and teardowns per full workload cycle. The win is the churn, not a
+# smaller steady-state number.
+#
+# Split by ROLE, not for tidiness: a task running in a pool must never block
+# waiting on a task in the SAME pool, or a saturated pool deadlocks. Endpoint
+# bodies run in the deadline pool and fan out into the I/O pool; translation has
+# its own so a burst of quote fetches cannot starve an article the user is
+# waiting to read.
+_POOLS: dict = {}
+_POOLS_LOCK = threading.Lock()
+
+
+def _pool(name: str, size: int):
+    p = _POOLS.get(name)
+    if p is not None:
+        return p
+    with _POOLS_LOCK:
+        p = _POOLS.get(name)
+        if p is None:
+            from concurrent.futures import ThreadPoolExecutor
+            p = ThreadPoolExecutor(max_workers=size, thread_name_prefix=name)
+            _POOLS[name] = p
+        return p
+
+
+def io_pool():
+    """Network fan-out inside an endpoint: quotes, movers, indices, Stooq, link resolution."""
+    return _pool("bv-io", 8)
+
+
+def translate_pool():
+    """Translation batches — kept separate so article reads are not queued behind market data."""
+    return _pool("bv-xlate", 6)
+
+
+# The three below keep their original, deliberately SMALL worker counts. Those
+# numbers are a politeness limit on Yahoo and Stooq, not a memory decision —
+# folding them into the shared I/O pool would have quietly tripled how many
+# requests hit the provider at once, which is the exact behaviour that gets this
+# server's IP throttled and empties `stock.info`.
+def index_pool():
+    """S&P / Nasdaq / VIX / FX — 3 at a time."""
+    return _pool("bv-index", 3)
+
+
+def movers_pool():
+    """The 15-symbol market table — 4 at a time."""
+    return _pool("bv-movers", 4)
+
+
+def fallback_pool():
+    """Stooq backfill — 4 at a time; a throttled path is the last one to hammer."""
+    return _pool("bv-stooq", 4)
+
+
+
 # ─── Translation ──────────────────────────────────────────────────────────────
 # Maps app lang codes → Google Translate target codes
 _TRANSLATE_LANG = {"he": "iw", "ru": "ru", "es": "es"}
@@ -71,8 +156,8 @@ try:
                 result = _GT(source="auto", target=target).translate(text)
                 if result:
                     return _rtl_wrap(result, lang)
-            except Exception:
-                pass
+            except Exception as _e:
+                swallow("main:_translate_text", _e)
             if attempt == 0:
                 time.sleep(0.5)
         return text
@@ -93,8 +178,7 @@ try:
             except Exception:
                 return txt
         try:
-            with ThreadPoolExecutor(max_workers=10) as ex:
-                return list(ex.map(_one, texts))
+            return list(translate_pool().map(_one, texts))
         except Exception:
             return texts
 except ImportError:
@@ -264,26 +348,59 @@ def _cache_clear_expired():
 # The LKG dicts (volume/market-cap backfill) live in the in-memory cache, which
 # dies on every Render restart/deploy — exactly when Yahoo is coldest and the
 # backfill is needed most. Mirror them to disk (best-effort) so they survive.
-_LKG_FILE = "/tmp/buddhavest_lkg.json"
+# ── Last-known-good store ────────────────────────────────────────────────────
+# This holds the most recent non-null volume, average volume and market cap for
+# each ticker. It is what keeps the market table populated when Yahoo answers
+# with a price but nothing else — a real and frequent condition.
+#
+# It lived in /tmp, which Render wipes on EVERY deploy. Six deploys in one
+# afternoon meant the safety net was destroyed six times, each time at the exact
+# moment it was needed. The file was doing its job perfectly and still helped
+# nobody, because it never survived long enough to be read.
+#
+# LKG_DIR points at a mounted disk when one exists; otherwise it falls back to
+# /tmp and says so at startup, so the limitation is visible in the log instead of
+# being discovered from a screenshot.
+_LKG_DIR = os.environ.get("LKG_DIR") or os.environ.get("RENDER_DISK_PATH") or "/tmp"
+try:
+    os.makedirs(_LKG_DIR, exist_ok=True)
+except Exception:
+    _LKG_DIR = "/tmp"
+_LKG_FILE = os.path.join(_LKG_DIR, "buddhavest_lkg.json")
+_LKG_PERSISTENT = not _LKG_FILE.startswith("/tmp")
+print(f"[startup] LKG store: {_LKG_FILE} "
+      f"({'persistent' if _LKG_PERSISTENT else 'EPHEMERAL — wiped on every deploy'})")
+
 _LKG_KEYS = ("mover_lkg", "analyze_overview_lkg")
 
 def _lkg_file_save():
+    # Written atomically: a deploy or an OOM kill mid-write used to be able to
+    # leave a truncated file that then failed to parse on the next boot, quietly
+    # discarding everything.
     try:
         data = {k: (_cache_get(k) or {}) for k in _LKG_KEYS}
-        with open(_LKG_FILE, "w") as f:
+        tmp = _LKG_FILE + ".tmp"
+        with open(tmp, "w") as f:
             json.dump(data, f)
-    except Exception:
-        pass
+        os.replace(tmp, _LKG_FILE)
+    except Exception as e:
+        report("lkg_save_failed", path=_LKG_FILE, error=str(e)[:120])
 
 def _lkg_file_load():
     try:
         with open(_LKG_FILE, "r") as f:
             data = json.load(f)
+        loaded = 0
         for k in _LKG_KEYS:
             if data.get(k):
                 _cache_set(k, data[k], 86400)
-    except Exception:
-        pass
+                loaded += len(data[k]) if isinstance(data[k], dict) else 1
+        print(f"[startup] LKG restored: {loaded} entries")
+    except FileNotFoundError:
+        print("[startup] LKG empty (first run on this volume)")
+    except Exception as e:
+        # A corrupt file must not stop the server from booting.
+        print(f"[startup] LKG unreadable, starting empty: {e}")
 
 _lkg_file_load()  # seed from disk on boot (no-op on first ever run)
 
@@ -300,11 +417,59 @@ threading.Thread(target=_cleanup_loop, daemon=True).start()
 
 app = FastAPI(title="BuddhaVest API")
 
-# מאפשר לאפליקציית הווב (frontend) לדבר עם השרת הזה גם אם הם "כתובות" שונות
+# ── Rate limiting ────────────────────────────────────────────────────────────
+# There was none. Every endpoint here fans out to Yahoo, /analyze pulls three
+# full financial statements, and the service runs one uvicorn worker on 0.5 vCPU
+# with 512MB. A single client in a loop could take the whole thing down — and
+# just as importantly, a burst from one IP is what gets the SERVER's IP throttled
+# by Yahoo, which empties the app for everyone at once. That happened today.
+#
+# Limits are per client IP and deliberately generous: a real user opening the app
+# and tapping through a few stocks stays far below them.
+_RATE_LIMITS = {
+    "heavy": "20/minute",    # /analyze, /financials, /metric-history — statements
+    "normal": "60/minute",   # /quotes, /market-overview, /events, /signals
+    "light": "120/minute",   # /status, /exchange-rate, /search
+}
+
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.middleware import SlowAPIMiddleware
+
+    limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
+    _RATE_LIMITING = True
+except Exception as _e:  # slowapi missing → run unlimited rather than not at all
+    print(f"[startup] rate limiting unavailable: {_e}")
+    limiter = None
+    _RATE_LIMITING = False
+
+
+def rate_limit(tier: str):
+    """
+    Decorator that applies a rate limit, and is a no-op if slowapi is absent.
+    Keeps the endpoint definitions readable and lets the app boot either way.
+    """
+    def deco(fn):
+        if limiter is None:
+            return fn
+        return limiter.limit(_RATE_LIMITS.get(tier, _RATE_LIMITS["normal"]))(fn)
+    return deco
+
+
+# CORS: the only client is the mobile app, which is not a browser and therefore
+# not subject to CORS at all. The wildcard is kept because /privacy is opened in
+# a browser and the docs page is useful, but it is no longer the ONLY thing
+# standing between an anonymous caller and the upstream provider — the rate
+# limiter above is what actually protects the service.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -447,8 +612,8 @@ def _decode_gnews_link(url: str) -> str:
             real = m2.group(1).replace("\\u003d", "=").replace("\\u0026", "&")
             if 'news.google.com' not in real:
                 return real
-    except Exception:
-        pass
+    except Exception as _e:
+        swallow("main:_decode_gnews_link", _e)
     return url
 
 
@@ -467,8 +632,8 @@ def _resolve_gnews_link(url: str) -> str:
         final = str(resp.url)
         if final and 'news.google.com' not in final and final.startswith('http'):
             return final
-    except Exception:
-        pass
+    except Exception as _e:
+        swallow("main:_resolve_gnews_link", _e)
     return url
 
 
@@ -480,19 +645,24 @@ def _resolve_gnews_articles(articles: list) -> list:
     if not gnews:
         return articles
     result = list(articles)
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_resolve_gnews_link, a['link']): (i, a) for i, a in gnews}
-        try:
-            for fut in as_completed(futures, timeout=15):
-                i, a = futures[fut]
-                try:
-                    real_url = fut.result()
-                    if real_url != a['link']:
-                        result[i] = dict(a, link=real_url)
-                except Exception:
-                    pass
-        except Exception:
-            pass  # timeout — keep whatever resolved so far
+    # No `with` block, deliberately. Exiting one calls shutdown(wait=True),
+    # which blocked until every link had resolved — so the timeout=15 below was
+    # only ever a timeout on the LOOP, not on the work. A slow link still held
+    # the request open past the deadline. On the shared pool the stragglers keep
+    # running detached and we return with whatever resolved in time.
+    ex = io_pool()
+    futures = {ex.submit(_resolve_gnews_link, a['link']): (i, a) for i, a in gnews}
+    try:
+        for fut in as_completed(futures, timeout=15):
+            i, a = futures[fut]
+            try:
+                real_url = fut.result()
+                if real_url != a['link']:
+                    result[i] = dict(a, link=real_url)
+            except Exception as _e:
+                swallow("main:_resolve_gnews_articles", _e)
+    except Exception as _e:
+        swallow("main:_resolve_gnews_articles", _e)  # timeout — keep whatever resolved so far
     return result
 
 
@@ -531,8 +701,8 @@ def _prewarm_articles(urls: list, lang: str):
                 try:
                     httpx.get(f"http://127.0.0.1:{port}/translate-article",
                               params={"url": u, "lang": lang}, timeout=30)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    swallow("main:_run", _e)
                 time.sleep(2)
         finally:
             _PREWARM_BUSY.discard(lang)
@@ -562,8 +732,8 @@ def _prewarm_news():
         for _lang in ["en", "he", "ru", "es"]:
             try:
                 general_news(_lang)
-            except Exception:
-                pass
+            except Exception as _e:
+                swallow("main:_prewarm_news", _e)
             time.sleep(10)   # spread the load instead of spiking it
     finally:
         _BOOTING = False     # from here on, normal request-driven prewarming
@@ -582,8 +752,8 @@ def _keepalive_loop():
         time.sleep(600)
         try:
             httpx.get(f"{url.rstrip('/')}/status", timeout=10)
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:_keepalive_loop", _e)
 
 if os.environ.get("RENDER"):  # only on Render, not when running locally
     threading.Thread(target=_keepalive_loop, daemon=True).start()
@@ -692,7 +862,8 @@ def privacy():
 
 
 @app.get("/search")
-def search(q: str):
+@rate_limit("light")
+def search(request: Request, q: str):
     """
     חיפוש סימול לפי שם חברה (עברית/אנגלית) או חלק משם - לדוגמה "אינטל" -> INTC.
     אם q הוא כבר סימול מדויק וקיים, עדיף לקרוא ל-/analyze/{ticker} ישירות -
@@ -720,7 +891,8 @@ def search(q: str):
 
 
 @app.get("/analyze/{ticker}")
-def analyze(ticker: str, lang: str = "he"):
+@rate_limit("heavy")
+def analyze(request: Request, ticker: str, lang: str = "he"):
     """מחזיר ניתוח מלא למנייה בודדת. lang: he/en/ru/es - שולט בשפת הטקסטים ההסברתיים."""
     ticker = _clean_ticker(ticker)
     lang = _clean_lang(lang)
@@ -762,10 +934,10 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         data = _with_deadline(lambda: get_stock_data(ticker), 25, default=None)
     except Exception as e:
         # Don't echo the raw exception to clients (internal detail leak).
-        print(f"[analyze] fetch failed for {ticker}: {e}")
+        report("analyze_fetch_failed", ticker=ticker, error=str(e)[:120])
         raise HTTPException(status_code=502, detail="Could not fetch data for this ticker.")
     if data is None:
-        print(f"[analyze] fetch timed out for {ticker}")
+        report("analyze_timeout", ticker=ticker)
         raise HTTPException(status_code=504, detail="Data provider did not respond in time.")
 
     # אם yfinance מחזיר info ריק - הסימול כנראה לא קיים (או שזו בעיית סיומת בורסה)
@@ -885,7 +1057,8 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         forward_pe = info.get("forwardPE")
         trailing_pe = info.get("trailingPE")
         sector = info.get("sector")
-        industry_pe = None  # yfinance לא מחזיר ממוצע סקטור ישירות
+        # (no industry/sector average: yfinance does not expose one, and the
+        # placeholder variable that used to sit here was never read)
         
         # A NEGATIVE multiple is not a cheap multiple — it means there are no
         # earnings (or no EBITDA, or negative equity) to divide by, so the ratio
@@ -961,8 +1134,8 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
                     eps = _latest(inc, ["Diluted EPS", "Basic EPS"])
                     if eps and eps > 0:
                         ve["trailing_pe"] = _pos(price / eps)
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:_analyze_uncached", _e, notify=True)
 
         result["valuation_extra"] = ve
     except Exception:
@@ -1016,7 +1189,14 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
                             val = round(v1, 4)
                         if math.isnan(val) or math.isinf(val): continue
                         rows.append({"date": col.strftime("%b %Y") if hasattr(col,"strftime") else str(col)[:7], "value": val})
-                    except: continue
+                    # `except Exception`, not a bare `except`: a bare one also
+                    # catches KeyboardInterrupt and SystemExit, so a shutdown
+                    # signal arriving mid-loop would be swallowed as "bad row".
+                    # Not logged per-row on purpose — a rejected row is normal
+                    # (NaN, missing field) and would spam a line per data point;
+                    # when EVERY row is rejected the caller already reports
+                    # empty_chart with reason="all_points_rejected".
+                    except Exception: continue
                 return list(reversed(rows))
             fin_annual = _get_annual_income(_stk)
             def make_entry(q_series, a_df, f1, f2=None, pct=False):
@@ -1179,9 +1359,6 @@ def _tase_price_mismatch(ticker: str) -> bool:
     return (ticker or "").upper().endswith(_MINOR_UNIT_SUFFIXES)
 
 
-_DEADLINE_POOL = None
-
-
 def _with_deadline(fn, seconds, default=None):
     """
     Run `fn()` and give up waiting after `seconds`, returning `default`.
@@ -1195,18 +1372,19 @@ def _with_deadline(fn, seconds, default=None):
     Yahoo, but the endpoint returns, so the phone gets an answer rather than
     sitting on "Analyzing…" forever, and uvicorn's worker is free again.
     """
-    global _DEADLINE_POOL
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
-    if _DEADLINE_POOL is None:
-        # Bounded on purpose: abandoned threads cannot pile up without limit on
-        # a 512MB instance.
-        _DEADLINE_POOL = ThreadPoolExecutor(max_workers=8,
-                                            thread_name_prefix="yf-deadline")
+    from concurrent.futures import TimeoutError as _FTimeout
+    # Bounded on purpose: abandoned threads cannot pile up without limit on a
+    # 512MB instance. Registered in the same pool table as the others so every
+    # long-lived thread in the process is created in one place — and so the
+    # deadline pool stays SEPARATE from the I/O pool it fans out into. A task
+    # here waiting on a task in the same pool would deadlock once saturated.
     try:
-        return _DEADLINE_POOL.submit(fn).result(timeout=seconds)
+        return _pool("bv-deadline", 8).submit(fn).result(timeout=seconds)
     except _FTimeout:
+        report("deadline_exceeded", seconds=seconds, fn=getattr(fn, "__name__", "lambda"))
         return default
-    except Exception:
+    except Exception as _e:
+        swallow("main:_with_deadline", _e, fn=getattr(fn, "__name__", "lambda"))
         return default
 
 
@@ -1324,7 +1502,8 @@ def _get_quarterly_income(stock):
         try:
             df = getattr(stock, attr)
             if df is not None and not df.empty: return df
-        except: pass
+        except Exception as _e:
+            swallow("main:_get_quarterly_income", _e)
     return None
 
 def _get_annual_income(stock):
@@ -1332,7 +1511,8 @@ def _get_annual_income(stock):
         try:
             df = getattr(stock, attr)
             if df is not None and not df.empty: return df
-        except: pass
+        except Exception as _e:
+            swallow("main:_get_annual_income", _e)
     return None
 
 def _get_quarterly_balance(stock):
@@ -1340,7 +1520,8 @@ def _get_quarterly_balance(stock):
         try:
             df = getattr(stock, attr)
             if df is not None and not df.empty: return df
-        except: pass
+        except Exception as _e:
+            swallow("main:_get_quarterly_balance", _e)
     return None
 
 def _get_annual_balance(stock):
@@ -1348,7 +1529,8 @@ def _get_annual_balance(stock):
         try:
             df = getattr(stock, attr)
             if df is not None and not df.empty: return df
-        except: pass
+        except Exception as _e:
+            swallow("main:_get_annual_balance", _e)
     return None
 
 def _get_quarterly_cashflow(stock):
@@ -1356,7 +1538,8 @@ def _get_quarterly_cashflow(stock):
         try:
             df = getattr(stock, attr)
             if df is not None and not df.empty: return df
-        except: pass
+        except Exception as _e:
+            swallow("main:_get_quarterly_cashflow", _e)
     return None
 
 def _get_annual_cashflow(stock):
@@ -1364,7 +1547,8 @@ def _get_annual_cashflow(stock):
         try:
             df = getattr(stock, attr)
             if df is not None and not df.empty: return df
-        except: pass
+        except Exception as _e:
+            swallow("main:_get_annual_cashflow", _e)
     return None
 
 # ── REMOVED: /debug-pe and /debug-rows ──
@@ -1379,7 +1563,8 @@ def _get_annual_cashflow(stock):
 # No client code ever called them. Re-add locally if needed for debugging.
 
 @app.get("/metric-history/{ticker}/{metric}")
-def metric_history(ticker: str, metric: str):
+@rate_limit("heavy")
+def metric_history(request: Request, ticker: str, metric: str):
     # Time-bounded: see _with_deadline. An unbounded upstream call here can
     # occupy uvicorn's single worker and take the whole service down.
     return _with_deadline(lambda: _metric_history_uncached(ticker, metric), 20, default={"use_price": True, "quarterly": [], "annual": [], "empty_reason": "timeout"})
@@ -1467,9 +1652,10 @@ def _metric_history_uncached(ticker: str, metric: str):
             # מדד ללא היסטוריה – החזר היסטוריית מחיר
             result_data["use_price"] = True
             result_data["empty_reason"] = "metric_not_tracked"
+            report("empty_chart", metric=metric, ticker=ticker, reason="metric_not_tracked")
         elif metric in ("pe_ratio", "peg_ratio"):
             try:
-                import pandas as pd, math as _math
+                import math as _math          # pandas already imported above
                 hist = stock.history(period=_HIST_PERIOD)
                 eps_q_df = _get_quarterly_income(stock)
                 eps_a_df = _get_annual_income(stock)
@@ -1490,6 +1676,7 @@ def _metric_history_uncached(ticker: str, metric: str):
                 if hist is None or hist.empty or (eps_q is None and eps_a is None):
                     result_data["use_price"] = True
                     result_data["empty_reason"] = "no_eps_series"
+                    report("empty_chart", metric=metric, ticker=ticker, reason="no_eps_series")
                 else:
                     price_monthly = hist["Close"].resample("ME").last()
                     if hasattr(price_monthly.index, "tz") and price_monthly.index.tz:
@@ -1548,10 +1735,12 @@ def _metric_history_uncached(ticker: str, metric: str):
                     if not series_q:
                         result_data["use_price"] = True
                         result_data["empty_reason"] = "all_points_rejected"
+                        report("empty_chart", metric=metric, ticker=ticker, reason="all_points_rejected")
 
             except Exception:
                 result_data["use_price"] = True
                 result_data["empty_reason"] = "exception"
+                report("empty_chart", metric=metric, ticker=ticker, reason="exception")
         elif metric in ("calc_forward_pe", "calc_pb", "calc_ps", "calc_ev_ebitda",
                         "forward_pe", "price_to_book", "price_to_sales", "ev_to_ebitda") \
                 and not _tase_price_mismatch(ticker):
@@ -1688,10 +1877,12 @@ def _metric_history_uncached(ticker: str, metric: str):
                     if not series_q:
                         result_data["use_price"] = True
                         result_data["empty_reason"] = "all_points_rejected"
+                        report("empty_chart", metric=metric, ticker=ticker, reason="all_points_rejected")
 
             except Exception:
                 result_data["use_price"] = True
                 result_data["empty_reason"] = "exception"
+                report("empty_chart", metric=metric, ticker=ticker, reason="exception")
 
         elif metric in CALC_SPECIAL:
             # ── buyback / dividend — calculated from cashflow / dividend history ──
@@ -1789,6 +1980,7 @@ def _metric_history_uncached(ticker: str, metric: str):
                         if not series_q:
                             result_data["use_price"] = True
                             result_data["empty_reason"] = "all_points_rejected"
+                            report("empty_chart", metric=metric, ticker=ticker, reason="all_points_rejected")
 
                 elif metric == "dividend":
                     # Dividend yield = trailing 12-month dividends / price * 100
@@ -1797,6 +1989,7 @@ def _metric_history_uncached(ticker: str, metric: str):
                         if divs is None or divs.empty or hist is None or hist.empty:
                             result_data["use_price"] = True
                             result_data["empty_reason"] = "no_dividend_history"
+                            report("empty_chart", metric=metric, ticker=ticker, reason="no_dividend_history")
                         else:
                             if hasattr(divs.index, "tz") and divs.index.tz:
                                 divs.index = divs.index.tz_localize(None)
@@ -1830,13 +2023,16 @@ def _metric_history_uncached(ticker: str, metric: str):
                             if not series_q:
                                 result_data["use_price"] = True
                                 result_data["empty_reason"] = "all_points_rejected"
+                                report("empty_chart", metric=metric, ticker=ticker, reason="all_points_rejected")
                     except Exception:
                         result_data["use_price"] = True
                         result_data["empty_reason"] = "exception"
+                        report("empty_chart", metric=metric, ticker=ticker, reason="exception")
 
             except Exception:
                 result_data["use_price"] = True
                 result_data["empty_reason"] = "exception"
+                report("empty_chart", metric=metric, ticker=ticker, reason="exception")
 
         else:
             source, field1, field2, calc = METRIC_MAP[metric]
@@ -1895,12 +2091,13 @@ def _metric_history_uncached(ticker: str, metric: str):
                 elif source == "cashflow":
                     result_data["quarterly"] = extract_series(_get_quarterly_cashflow(stock), field1, field2, calc, "Q")
                     result_data["annual"] = extract_series(_get_annual_cashflow(stock), field1, field2, calc, "A")
-            except Exception:
-                pass
+            except Exception as _e:
+                swallow("main:_metric_history_uncached", _e, notify=True)
 
             if not result_data["quarterly"] and not result_data["annual"]:
                 result_data["use_price"] = True
                 result_data["empty_reason"] = "no_statement_rows"
+                report("empty_chart", metric=metric, ticker=ticker, reason="no_statement_rows")
 
         if result_data["use_price"]:
             hist = stock.history(period=_HIST_PERIOD)
@@ -1928,7 +2125,8 @@ def _metric_history_uncached(ticker: str, metric: str):
 
 
 @app.get("/events/{ticker}")
-def ticker_events(ticker: str):
+@rate_limit("normal")
+def ticker_events(request: Request, ticker: str):
     # Time-bounded: see _with_deadline. An unbounded upstream call here can
     # occupy uvicorn's single worker and take the whole service down.
     return _with_deadline(lambda: _events_uncached(ticker), 15, default={"events": []})
@@ -1961,8 +2159,8 @@ def _events_uncached(ticker: str):
                         "label": "Earnings Report",
                         "detail": f"Q{(dt.month-1)//3+1} {dt.year}"
                     })
-            except Exception:
-                pass
+            except Exception as _e:
+                swallow("main:_events_uncached", _e, notify=True)
 
         # דיבידנד הבא
         ex_div = info.get("exDividendDate")
@@ -2002,8 +2200,8 @@ def _events_uncached(ticker: str):
                         "detail": f"{_sym}{div_rate:.2f}",
                         "detail_key": "div_per_share",   # client appends localised wording
                     })
-            except Exception:
-                pass
+            except Exception as _e:
+                swallow("main:_events_uncached", _e, notify=True)
 
         # היסטוריית דוחות אחרונים
         try:
@@ -2021,10 +2219,10 @@ def _events_uncached(ticker: str):
                                     "label": str(col),
                                     "detail": ""
                                 })
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as _e:
+                        swallow("main:_events_uncached", _e, notify=True)
+        except Exception as _e:
+            swallow("main:_events_uncached", _e, notify=True)
 
         # דוחות כספיים אחרונים מהיסטוריה רבעונית
         try:
@@ -2044,8 +2242,8 @@ def _events_uncached(ticker: str):
                                         try:
                                             if not math.isnan(float(v)):
                                                 return float(v)
-                                        except Exception:
-                                            pass
+                                        except Exception as _e:
+                                            swallow("main:_get_row", _e)
                             return None
                         rev  = _get_row(fin, "Total Revenue", "Operating Revenue")
                         ni   = _get_row(fin, "Net Income", "Net Income Common Stockholders")
@@ -2065,8 +2263,8 @@ def _events_uncached(ticker: str):
                         })
                     except Exception:
                         continue
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:_events_uncached", _e, notify=True)
 
         # מיין לפי תאריך
         events.sort(key=lambda x: x["date"], reverse=True)
@@ -2082,7 +2280,8 @@ def _events_uncached(ticker: str):
 
 
 @app.get("/financials/{ticker}")
-def ticker_financials(ticker: str):
+@rate_limit("heavy")
+def ticker_financials(request: Request, ticker: str):
     # Time-bounded: see _with_deadline. An unbounded upstream call here can
     # occupy uvicorn's single worker and take the whole service down.
     return _with_deadline(lambda: _financials_uncached(ticker), 20, default={"error": "timeout"})
@@ -2140,7 +2339,8 @@ def _financials_uncached(ticker: str):
 
 
 @app.get("/etf-info/{ticker}")
-def etf_info(ticker: str):
+@rate_limit("normal")
+def etf_info(request: Request, ticker: str):
     # Time-bounded: see _with_deadline. An unbounded upstream call here can
     # occupy uvicorn's single worker and take the whole service down.
     return _with_deadline(lambda: _etf_uncached(ticker), 15, default={"is_etf": False})
@@ -2176,8 +2376,8 @@ def _etf_uncached(ticker: str):
                     # אם הערך מה-API חריג מאוד (>10x שונה מהחישוב), השתמש בחישוב
                     if ytd_return is None or abs(ytd_return) > 10 or abs(ytd_return - ytd_calc) > 0.5:
                         ytd_return = round(ytd_calc, 4)
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:_etf_uncached", _e, notify=True)
 
         result = {
             "is_etf": True,
@@ -2218,7 +2418,8 @@ def _etf_uncached(ticker: str):
 
 
 @app.get("/price-history/{ticker}")
-def price_history(ticker: str):
+@rate_limit("heavy")
+def price_history(request: Request, ticker: str):
     """היסטוריית מחיר חודשית מ-Tiingo — מורשה לשימוש מסחרי, key מאובטח בשרת"""
     ticker = _clean_ticker(ticker)  # also guards the outbound Tiingo URL path
     cache_key = f"price_history_{ticker.upper()}"
@@ -2264,7 +2465,8 @@ def price_history(ticker: str):
 
 
 @app.get("/exchange-rate")
-def exchange_rate(currency: str = "ILS"):
+@rate_limit("light")
+def exchange_rate(request: Request, currency: str = "ILS"):
     # Whitelist: this value builds an outbound quote symbol ("{cur}=X") and a
     # cache key, so an arbitrary string must never reach either.
     currency = (currency or "").strip().upper()[:3]
@@ -2279,8 +2481,8 @@ def exchange_rate(currency: str = "ILS"):
         try:
             data = get_quote(f"{currency}=X")
             rate = data["info"].get("currentPrice") or data["info"].get("regularMarketPrice")
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:exchange_rate", _e)
         if rate is None:  # Stooq fallback when Yahoo blocks quote requests
             sq = get_stooq_daily(f"usd{currency.lower()}", stooq_symbol=f"usd{currency.lower()}")
             if sq and sq.get("price") is not None:
@@ -2324,8 +2526,8 @@ def _get_base_news() -> list:
             if item["title"] not in seen_titles:
                 seen_titles.add(item["title"])
                 all_news.append(item)
-    except Exception:
-        pass
+    except Exception as _e:
+        swallow("main:_get_base_news", _e)
 
     # מיון לפי תאריך פרסום (חדש ביותר ראשון) - אם קיים
     def sort_key(item):
@@ -2344,7 +2546,8 @@ def _get_base_news() -> list:
 
 
 @app.get("/news")
-def general_news(lang: str = "en"):
+@rate_limit("normal")
+def general_news(request: Request, lang: str = "en"):
     lang = _clean_lang(lang)   # whitelist: also keeps the cache key bounded
     cache_key = f"news_general_{lang}"
     cached = _cache_get(cache_key)
@@ -2370,7 +2573,8 @@ def general_news(lang: str = "en"):
 
 
 @app.get("/news/{ticker}")
-def ticker_news(ticker: str, lang: str = "en"):
+@rate_limit("normal")
+def ticker_news(request: Request, ticker: str, lang: str = "en"):
     """
     חדשות עבור מנייה ספציפית - ממוזג מ-Yahoo וגם מ-Google News (חינמי, בלי מפתח API),
     כך שמניות עם כיסוי דליל ב-Yahoo (חברות קטנות, לא-אמריקאיות) עדיין יקבלו כתבות.
@@ -2389,17 +2593,17 @@ def ticker_news(ticker: str, lang: str = "en"):
                 if item["title"] not in seen_titles:
                     seen_titles.add(item["title"])
                     all_articles.append(item)
-        except Exception:
+        except Exception as _e:
             # לא עוצרים כאן - אולי Google News עדיין ימצא משהו
-            pass
+            swallow("main:ticker_news", _e)
 
         try:
             for item in get_google_news(f"{ticker} stock", limit=6):
                 if item["title"] not in seen_titles:
                     seen_titles.add(item["title"])
                     all_articles.append(item)
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:ticker_news", _e)
 
         all_articles = _resolve_gnews_articles(all_articles)
         base = _filter_articles(all_articles)
@@ -2420,7 +2624,13 @@ def ticker_news(ticker: str, lang: str = "en"):
 
 
 @app.get("/translate-article")
-async def translate_article_endpoint(url: str, lang: str = "he"):
+# "light" and not "normal": the server calls this endpoint on ITSELF during
+# news pre-warm (127.0.0.1 -> /translate-article, up to 3 articles x 3
+# languages). Those loopback calls share one rate-limit key, so a tight limit
+# would throttle the app's own warm-up. 120/min leaves that far behind while
+# still capping an outside caller.
+@rate_limit("light")
+async def translate_article_endpoint(request: Request, url: str, lang: str = "he"):
     """
     Fetches an article URL server-side, extracts text, translates it, and returns
     clean RTL HTML. Used by the mobile app's in-app reader to avoid WebView proxy issues.
@@ -2474,8 +2684,8 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
             html = await _asyncio.wait_for(
                 loop.run_in_executor(None, _cffi_get), timeout=8
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:_fetch_url", _e)
         if html:
             return html
         # httpx fallback — native async, 8s timeout
@@ -2489,8 +2699,8 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 if _too_large(resp):
                     return None
                 html = resp.text[:_MAX_HTML_CHARS]
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:_fetch_url", _e)
         return html[:_MAX_HTML_CHARS] if html else html
 
     # Try original URL
@@ -2527,8 +2737,8 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                             if _too_large(cr):
                                 raise Exception("oversized")
                             raw_html = cr.text[:_MAX_HTML_CHARS]
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:translate_article_endpoint", _e)
 
     if not raw_html:
         return HTMLResponse(content="error", status_code=500)
@@ -2570,8 +2780,8 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                     if para.strip():
                         items.append(("p", para.strip()))
                     break
-            except Exception:
-                pass
+            except Exception as _e:
+                swallow("main:translate_article_endpoint", _e)
 
         # Strategy B: HTML tags
         if not items:
@@ -2608,7 +2818,11 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
         if any(mk in joined for mk in _BLOCK_MARKERS):
             return HTMLResponse(content="error", status_code=500)
 
-    except Exception as e:
+    except Exception as _e:
+        # Was `except Exception as e:` with the exception discarded unused — the
+        # article failed to extract, the user got a 500, and the reason was
+        # thrown away at the moment it was caught.
+        swallow("main:translate_article_endpoint.extract", _e, notify=True)
         return HTMLResponse(content="error", status_code=500)
 
     # 3. Translate — every paragraph in PARALLEL.
@@ -2623,8 +2837,7 @@ async def translate_article_endpoint(url: str, lang: str = "he"):
                 return _translate_text(txt[:4500], lang)
             except Exception:
                 return txt
-        with ThreadPoolExecutor(max_workers=10) as ex:
-            return list(ex.map(_one, texts))
+        return list(translate_pool().map(_one, texts))
 
     raw_texts = [t for _, t in items]
     # Run in a thread so the (blocking) translation doesn't stall the event loop
@@ -2703,17 +2916,17 @@ async def translate_batch_endpoint(request: Request):
                 return _translate_text(txt, lang)
             except Exception:
                 return txt
-        # 4 workers, not 10: several concurrent article opens used to spawn
-        # 10 threads each on a small instance.
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            return list(ex.map(_one, texts))
+        # Shared 6-worker translation pool. This used to build a fresh 4-thread
+        # pool per article open; several concurrent opens meant several pools.
+        return list(translate_pool().map(_one, texts))
 
     translated = await _asyncio.get_event_loop().run_in_executor(None, _run)
     return {"texts": translated}
 
 
 @app.get("/signals/{ticker}")
-def ticker_signals(ticker: str, lang: str = "he"):
+@rate_limit("normal")
+def ticker_signals(request: Request, ticker: str, lang: str = "he"):
     # Time-bounded: see _with_deadline. An unbounded upstream call here can
     # occupy uvicorn's single worker and take the whole service down.
     return _with_deadline(lambda: _signals_uncached(ticker, lang), 15, default={"signals": []})
@@ -2751,7 +2964,8 @@ def _signals_uncached(ticker: str, lang: str = "he"):
 
 
 @app.get("/quotes")
-def quotes_endpoint(symbols: str = ""):
+@rate_limit("normal")
+def quotes_endpoint(request: Request, symbols: str = ""):
     # Time-bounded: see _with_deadline. An unbounded upstream call here can
     # occupy uvicorn's single worker and take the whole service down.
     return _with_deadline(lambda: _quotes_uncached(symbols), 20, default={"quotes": []})
@@ -2791,8 +3005,8 @@ def _quotes_uncached(symbols: str = ""):
             name = info.get("longName") or info.get("shortName")
             ccy_raw = (info.get("currency") or "").strip()
             ccy = ccy_raw.upper()
-        except Exception:
-            pass
+        except Exception as _e:
+            swallow("main:_one", _e, notify=True)
         if price is None:  # Stooq fallback (Yahoo blocked / unknown symbol)
             try:
                 sq = get_stooq_daily(sym)
@@ -2800,8 +3014,8 @@ def _quotes_uncached(symbols: str = ""):
                     price = sq["price"]
                     if sq.get("prev_close"):
                         change = round((sq["price"] - sq["prev_close"]) / sq["prev_close"] * 100, 2)
-            except Exception:
-                pass
+            except Exception as _e:
+                swallow("main:_one", _e, notify=True)
 
         # Tel Aviv stocks are quoted by Yahoo in agorot (1/100 ILS). /analyze
         # already converts; this endpoint must apply the SAME rule or the
@@ -2832,14 +3046,13 @@ def _quotes_uncached(symbols: str = ""):
             _cache_set(cache_key, result, CACHE_TTL["quote"])
         return result
 
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        results = list(ex.map(_one, syms))
+    results = list(io_pool().map(_one, syms))
     return {"quotes": results}
 
 
 @app.get("/market-overview")
-def market_overview():
+@rate_limit("normal")
+def market_overview(request: Request):
     """
     Never hangs, never returns empty.
 
@@ -2879,7 +3092,6 @@ def _market_overview_uncached():
     # S&P, Nasdaq, VIX and the USD/ILS rate were four more sequential fetches
     # before the 15-stock table even started. All four are independent, so they
     # run together — and together WITH the table, below.
-    from concurrent.futures import ThreadPoolExecutor as _MoverPool
 
     def _one_index(item):
         name, symbol = item
@@ -2906,11 +3118,14 @@ def _market_overview_uncached():
     # Yahoo throttle a cloud IP — the "faster" version was measurably slower in
     # practice. Three at a time is still ~6x better than the original serial
     # loop without looking like a scraper.
-    with _MoverPool(max_workers=3) as _ip:
-        fx_future = _ip.submit(_fx)
-        for name, val in _ip.map(_one_index, indices.items()):
-            overview[name] = val
-        usd_ils = fx_future.result()
+    # Still three at a time — the limit is about not looking like a scraper to
+    # Yahoo, not about saving threads. `.result()` is called explicitly because
+    # there is no `with` block left to join on.
+    _ip = index_pool()
+    fx_future = _ip.submit(_fx)
+    for name, val in _ip.map(_one_index, indices.items()):
+        overview[name] = val
+    usd_ils = fx_future.result()
     overview["usd_ils"] = usd_ils
 
     watchlist_symbols = [
@@ -2947,16 +3162,14 @@ def _market_overview_uncached():
             return {"ticker": symbol, "name": symbol, "price": None, "change_pct": None,
                     "volume": None, "avg_volume": None, "market_cap": None}
 
-    with _MoverPool(max_workers=4) as _mp:
-        # ex.map preserves input order, so the table keeps its intended sequence.
-        movers = list(_mp.map(_one_mover, watchlist_symbols))
+    # map() preserves input order, so the table keeps its intended sequence.
+    movers = list(movers_pool().map(_one_mover, watchlist_symbols))
 
     overview["movers"] = movers
 
     # ── Stooq fallback ──
     # Yahoo's quote API periodically blocks cloud IPs (all prices come back
     # null). Fill anything missing from Stooq so the table never shows empty.
-    from concurrent.futures import ThreadPoolExecutor as _TPE
 
     # Trigger the Stooq fallback when EITHER the price or the volume is missing.
     # Yahoo often returns a live price but a null volume when throttling cloud
@@ -2979,8 +3192,7 @@ def _market_overview_uncached():
         # Same restraint as above: this only runs when Yahoo already failed, so
         # hammering the fallback with 8 parallel requests is the last thing a
         # throttled path needs.
-        with _TPE(max_workers=4) as ex:
-            list(ex.map(_fill, missing))
+        list(fallback_pool().map(_fill, missing))
 
     _STOOQ_INDEX = {"S&P 500": "^spx", "Nasdaq": "^ndq", "VIX": "^vix"}
     idx_missing = [(n, s) for n, s in _STOOQ_INDEX.items()
@@ -2995,8 +3207,7 @@ def _market_overview_uncached():
                     change = round(
                         (sq["price"] - sq["prev_close"]) / sq["prev_close"] * 100, 2)
                 overview[name] = {"value": sq["price"], "change_pct": change}
-        with _TPE(max_workers=3) as ex:
-            list(ex.map(_fill_idx, idx_missing))
+        list(fallback_pool().map(_fill_idx, idx_missing))
 
     if overview.get("usd_ils") is None:
         sq = get_stooq_daily("usdils", stooq_symbol="usdils")
