@@ -862,7 +862,23 @@ def status():
     כדי להפעיל/לכבות מצב תחזוקה: ליצור/למחוק את הקובץ MAINTENANCE.flag בתיקייה.
     """
     flag_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "MAINTENANCE.flag")
-    return {"maintenance": os.path.exists(flag_path)}
+    # `build` and `lkg` exist because on 2026-08-08 a fix was pushed, the code
+    # was confirmed committed, and the live server kept returning the old
+    # behaviour — and there was no way to tell from outside whether the deploy
+    # had happened, whether the process had restarted, or whether the fix was
+    # simply wrong. Guessing between those three wasted a round trip each time.
+    #
+    # `build` is Render's commit SHA, so "is my fix live?" becomes one request.
+    # `lkg` reports which storage backend is actually in use, so the same
+    # question about Upstash does not require reading the startup log.
+    #
+    # Neither leaks anything: a short commit hash and a backend name. No
+    # credentials, no host, no token.
+    return {
+        "maintenance": os.path.exists(flag_path),
+        "build": (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:7],
+        "lkg": "redis" if _LKG_REDIS else ("disk" if _LKG_PERSISTENT else "ephemeral"),
+    }
 
 
 @app.get("/privacy")

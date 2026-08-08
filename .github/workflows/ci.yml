@@ -154,7 +154,17 @@ jobs:
 
           r = c.get("/status")
           assert r.status_code == 200, r.status_code
-          assert r.json() == {"maintenance": False}, r.json()
+          body = r.json()
+          assert body["maintenance"] is False, body
+          # build + lkg answer "is my fix live?" and "is persistence on?" in one
+          # request. Without them, confirming a deploy meant reading the log by
+          # hand and guessing.
+          assert "build" in body and "lkg" in body, body
+          assert body["lkg"] in ("redis", "disk", "ephemeral"), body
+          # No credential may ever appear here.
+          blob = str(body).lower()
+          for leak in ("upstash.io", "token", "bearer", "password", "secret"):
+              assert leak not in blob, f"/status leaks {leak}: {body}"
 
           r = c.get("/privacy")
           assert r.status_code == 200 and "Privacy Policy" in r.text
