@@ -160,7 +160,10 @@ jobs:
           # request. Without them, confirming a deploy meant reading the log by
           # hand and guessing.
           assert "build" in body and "lkg" in body, body
-          assert body["lkg"] in ("redis", "disk", "ephemeral"), body
+          # "redis" must mean redis is WORKING, not merely configured. A live
+          # deploy once reported "redis" while every call was returning 401.
+          assert body["lkg"] in ("redis", "redis-failing", "redis-rejected",
+                                 "redis-untested", "disk", "ephemeral"), body
           # No credential may ever appear here.
           blob = str(body).lower()
           for leak in ("upstash.io", "token", "bearer", "password", "secret"):

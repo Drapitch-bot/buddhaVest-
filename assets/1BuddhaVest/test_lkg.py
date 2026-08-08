@@ -64,7 +64,10 @@ print("\n── backend 1: Upstash Redis ──")
 env = {"UPSTASH_REDIS_REST_URL": "http://127.0.0.1:%d/" % port,
        "UPSTASH_REDIS_REST_TOKEN": "tok_secret"}
 m, log = load(env)
-check("startup log says Redis + persistent", "Upstash Redis" in log and "persistent" in log,
+# It must NOT claim persistence before a single call has been made — that claim
+# is what hid a 401 in production.
+check("startup names Redis but does not yet claim persistence",
+      "Upstash Redis configured" in log and "survives deploys" not in log,
       [l for l in log.split('\n') if 'LKG store' in l][0])
 check("_LKG_PERSISTENT is True", m._LKG_PERSISTENT is True)
 check("boot issued a GET", any(c[0]=='GET' for c in CALLS))
@@ -111,6 +114,46 @@ check("but it DID flush", len(writes) >= 1)
 before = len(writes)
 _t.sleep(0.6)
 check("idle period writes nothing", len(writes) == before, "%d -> %d" % (before, len(writes)))
+
+print("\n── a REJECTED token must not be reported as working ──")
+# Reproduces the live 401 from 2026-08-08: env vars set, credentials refused.
+# /status said lkg="redis" anyway, which is a false claim about the one
+# guarantee this store exists to provide.
+class Reject401(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.send_response(401); self.send_header('Content-Length','0'); self.end_headers()
+    def log_message(self, *a): pass
+
+srv2 = socketserver.TCPServer(("127.0.0.1", 0), Reject401)
+port2 = srv2.server_address[1]
+threading.Thread(target=srv2.serve_forever, daemon=True).start()
+env401 = {"UPSTASH_REDIS_REST_URL": "http://127.0.0.1:%d/" % port2,
+          "UPSTASH_REDIS_REST_TOKEN": "wrong_token"}
+m401, log401 = load(env401)
+check("startup does NOT claim persistence up front",
+      "persistent — survives deploys" not in log401)
+check("startup names the 401 explicitly", "REJECTED the token (401)" in log401,
+      [l for l in log401.split('\n') if '401' in l][:1])
+check("/status says redis is NOT working",
+      m401.lkg_backend() == "redis-failing", m401.lkg_backend())
+check("server still booted", hasattr(m401, "app"))
+
+print("\n── after repeated failures it falls back instead of retrying forever ──")
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    for _ in range(5):
+        m401._lkg_file_save()
+check("stops calling redis", m401._lkg_use_redis() is False,
+      "_lkg_use_redis()=%s fails=%d" % (m401._lkg_use_redis(), m401._LKG_REDIS_FAILS))
+check("/status reports 'rejected', not 'redis'",
+      m401.lkg_backend() == "redis-rejected", m401.lkg_backend())
+check("said it was giving up", "lkg_redis_giving_up" in buf.getvalue())
+import os as _os
+check("wrote to the local file instead", _os.path.exists(m401._LKG_FILE))
+srv2.shutdown()
+
+print("\n── a WORKING redis still reports 'redis' ──")
+check("healthy backend", m2.lkg_backend() == "redis", m2.lkg_backend())
 
 print()
 if FAIL:

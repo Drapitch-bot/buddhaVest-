@@ -389,7 +389,11 @@ _LKG_REDIS_KEY = "buddhavest:lkg"
 
 if _LKG_REDIS:
     _LKG_PERSISTENT = True
-    print("[startup] LKG store: Upstash Redis (persistent — survives deploys)")
+    # Deliberately does NOT say "persistent" yet — nothing has been proven at
+    # this point. The load below is the first real call, and it is what decides
+    # whether the credentials work. Claiming success before testing it is how
+    # the 401 went unnoticed.
+    print("[startup] LKG store: Upstash Redis configured — verifying...")
 else:
     # Path comparison, not a string prefix. `startswith("/tmp")` also matches
     # "/tmpdata" and "/tmp_disk", so a genuinely mounted disk at such a path
@@ -403,6 +407,23 @@ else:
 _LKG_KEYS = ("mover_lkg", "analyze_overview_lkg")
 
 
+# Configured is not the same as working. The first deploy with Upstash wired up
+# logged "LKG store: Upstash Redis (persistent — survives deploys)" and then, on
+# the very next line, a 401 from Upstash — and /status still cheerfully reported
+# lkg="redis" because it only looked at whether the env vars existed. That is a
+# false reassurance about the one thing this store exists to guarantee, and it
+# is exactly the failure mode the comment in render.yaml warns about.
+#
+# None = not tried yet. True/False = what actually happened on the last call.
+_LKG_REDIS_OK = None
+_LKG_REDIS_FAILS = 0
+# After this many consecutive failures, stop calling Redis on every flush and
+# use the local file instead. A rejected token does not fix itself, and retrying
+# it once a minute forever burns a request and writes a log line each time while
+# the safety net stays empty. The file is ephemeral, but ephemeral beats nothing.
+_LKG_REDIS_MAX_FAILS = 3
+
+
 def _upstash(command: list, timeout: int = 5):
     """
     One Upstash REST call. Returns the decoded `result`, or raises.
@@ -411,10 +432,38 @@ def _upstash(command: list, timeout: int = 5):
     redis client dependency — httpx is already here. Keeping the dependency
     count at zero matters on a 512MB instance.
     """
-    r = httpx.post(_UPSTASH_URL, json=command, timeout=timeout,
-                   headers={"Authorization": f"Bearer {_UPSTASH_TOKEN}"})
-    r.raise_for_status()
-    return r.json().get("result")
+    global _LKG_REDIS_OK, _LKG_REDIS_FAILS
+    try:
+        r = httpx.post(_UPSTASH_URL, json=command, timeout=timeout,
+                       headers={"Authorization": f"Bearer {_UPSTASH_TOKEN}"})
+        r.raise_for_status()
+        _LKG_REDIS_OK, _LKG_REDIS_FAILS = True, 0
+        return r.json().get("result")
+    except Exception:
+        _LKG_REDIS_OK = False
+        _LKG_REDIS_FAILS += 1
+        raise
+
+
+def _lkg_use_redis() -> bool:
+    """Redis is configured AND has not failed repeatedly."""
+    return _LKG_REDIS and _LKG_REDIS_FAILS < _LKG_REDIS_MAX_FAILS
+
+
+def lkg_backend() -> str:
+    """
+    What the store is ACTUALLY doing right now — for /status.
+
+    Distinguishes "configured and working" from "configured and rejected",
+    because those two look identical from outside and mean opposite things.
+    """
+    if not _LKG_REDIS:
+        return "disk" if _LKG_PERSISTENT else "ephemeral"
+    if _LKG_REDIS_OK is True:
+        return "redis"
+    if _LKG_REDIS_OK is False:
+        return "redis-failing" if _lkg_use_redis() else "redis-rejected"
+    return "redis-untested"
 
 
 # ── Writes are coalesced, not immediate ──────────────────────────────────────
@@ -453,9 +502,14 @@ def _lkg_file_save():
     try:
         data = {k: (_cache_get(k) or {}) for k in _LKG_KEYS}
         blob = json.dumps(data)
-        if _LKG_REDIS:
+        if _lkg_use_redis():
             _upstash(["SET", _LKG_REDIS_KEY, blob])
             return
+        if _LKG_REDIS:
+            # Redis was configured but has failed repeatedly (a rejected token
+            # is the common case). Keep the safety net working locally instead
+            # of writing nowhere at all.
+            report("lkg_redis_giving_up", fails=_LKG_REDIS_FAILS, falling_back_to=_LKG_FILE)
         tmp = _LKG_FILE + ".tmp"
         with open(tmp, "w") as f:
             f.write(blob)
@@ -467,7 +521,7 @@ def _lkg_file_save():
 
 def _lkg_file_load():
     try:
-        if _LKG_REDIS:
+        if _lkg_use_redis():
             raw = _upstash(["GET", _LKG_REDIS_KEY])
             if not raw:
                 print("[startup] LKG empty (first run against this Redis)")
@@ -481,14 +535,24 @@ def _lkg_file_load():
             if data.get(k):
                 _cache_set(k, data[k], 86400)
                 loaded += len(data[k]) if isinstance(data[k], dict) else 1
-        print(f"[startup] LKG restored: {loaded} entries")
+        print(f"[startup] LKG restored: {loaded} entries (backend: {lkg_backend()})")
     except FileNotFoundError:
         print("[startup] LKG empty (first run on this volume)")
     except Exception as e:
         # Neither a corrupt file nor an unreachable Redis may stop the server
         # from booting. An empty safety net is a degraded start; no start at all
         # is an outage.
-        print(f"[startup] LKG unreadable, starting empty: {e}")
+        # Spelled out, because a 401 here is a configuration mistake the
+        # operator can fix in thirty seconds — and the previous wording buried
+        # it as "unreadable" next to a line claiming persistence was on.
+        if _LKG_REDIS and "401" in str(e):
+            report("lkg_redis_unauthorized", url=_UPSTASH_URL)
+            print("[startup] LKG: Upstash REJECTED the token (401). "
+                  "Check UPSTASH_REDIS_REST_TOKEN — it must be the token that "
+                  "belongs to this database, and not the read-only one. "
+                  "Falling back to a local file until it is fixed.")
+        else:
+            print(f"[startup] LKG unreadable, starting empty: {e}")
 
 _lkg_file_load()  # seed from disk on boot (no-op on first ever run)
 
@@ -877,7 +941,7 @@ def status():
     return {
         "maintenance": os.path.exists(flag_path),
         "build": (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:7],
-        "lkg": "redis" if _LKG_REDIS else ("disk" if _LKG_PERSISTENT else "ephemeral"),
+        "lkg": lkg_backend(),
     }
 
 
