@@ -203,12 +203,28 @@ def _fetch_chart_meta(ticker: str, timeout: int = 6):
 
 def _enrich_from_chart_meta(ticker: str, info: dict) -> dict:
     """
-    Only runs when the primary source came back degraded — a missing NAME is the
-    signal, because that is the field nothing else can supply. On a healthy
-    response this costs zero extra requests.
+    Only runs when the primary source came back degraded. On a healthy response
+    this costs zero extra requests.
+
+    The first version of this used a missing NAME as the sole signal, and that
+    was wrong in a way that made the whole fallback useless in practice.
+    Yahoo's quoteSummary does not fail all-or-nothing — it degrades field by
+    field. Measured live on 2026-08-08, /quotes returned "Apple Inc." while
+    /market-overview returned "AAPL" with a null volume, from the same server in
+    the same minute: `longName` had come through, `shortName` and `volume` had
+    not. The name test saw a good name, returned early, and the fallback that
+    exists precisely to refill volume never ran once.
     """
     name = info.get("longName") or info.get("shortName")
-    if isinstance(name, str) and name.strip() and name.strip().upper() != (ticker or "").strip().upper():
+    has_name = (isinstance(name, str) and name.strip()
+                and name.strip().upper() != (ticker or "").strip().upper())
+    # Both name FIELDS matter, not just "some name": _one_mover in main.py reads
+    # shortName specifically, so longName alone still leaves that table showing
+    # bare tickers.
+    has_both_names = bool(info.get("longName")) and bool(info.get("shortName"))
+    has_volume = (info.get("volume") is not None
+                  or info.get("regularMarketVolume") is not None)
+    if has_name and has_both_names and has_volume:
         return info
     # Guarded here as well as inside _fetch_chart_meta. Belt and braces on
     # purpose: this runs un-try'd inside get_stock_data, so if the fetch layer

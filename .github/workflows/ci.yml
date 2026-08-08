@@ -56,6 +56,14 @@ jobs:
           print(f"OK — {len(routes)} routes, rate limiting: {m._RATE_LIMITING}")
           EOF
 
+      - name: Partial provider degradation is handled
+        # Yahoo's quoteSummary degrades field by field, not all at once. Every
+        # assumption of the form "if the name is present the response is fine"
+        # was false, and one of them made the second-provider fallback dead code
+        # in exactly the situation it was written for.
+        working-directory: assets/1BuddhaVest
+        run: python test_partial_degradation.py
+
       - name: LKG store survives a deploy
         # H4 was reported "done" once before while the deployed behaviour was
         # completely unchanged — the code was ready but the storage was still

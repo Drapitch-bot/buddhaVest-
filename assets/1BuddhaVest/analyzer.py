@@ -317,12 +317,69 @@ def metric_net_income_trend(income):
             "explanation_parts": [(key, {})], "score": score}
 
 
-def metric_pe_ratio(info):
+def _eps_from_income(income):
+    """
+    Latest reported diluted (or basic) EPS, or None.
+
+    Used only to tell two very different situations apart when the provider
+    omits trailingPE: a company with no earnings, versus a company with plenty
+    of earnings whose P/E field simply did not come back.
+    """
+    if income is None:
+        return None
+    try:
+        if getattr(income, "empty", True):
+            return None
+        for label in ("Diluted EPS", "Basic EPS"):
+            for idx in income.index:
+                if str(idx).strip().lower() == label.lower():
+                    row = income.loc[idx]
+                    for v in list(row):
+                        try:
+                            f = float(v)
+                        except (TypeError, ValueError):
+                            continue
+                        if f == f:          # not NaN
+                            return f
+    except Exception as _e:
+        swallow("analyzer:_eps_from_income", _e)
+    return None
+
+
+def metric_pe_ratio(info, income=None):
     pe = _safe_info(info, "trailingPE")
-    # P/E שלילי (yfinance מחזיר ערך שלילי ולא None כשהרווח התפעולי שלילי) פירושו
-    # שהחברה לא רווחית - בדיוק כמו מקרה ה-None. בלי הבדיקה הזו, "-15.2 <= 15" היה
-    # מסווג חברה לא רווחית כ"זולה" עם ציון 90 - הפוך לחלוטין מהמשמעות האמיתית.
-    if pe is None or pe <= 0:
+    computed = False
+
+    # The provider omitted the field. That is NOT the same as "no earnings",
+    # and treating them alike produced a flat falsehood: on 2026-08-08 the app
+    # told users Apple "isn't profitable yet" on a screen that simultaneously
+    # showed 26.9% net margin and $112B of rising net income, because
+    # trailingPE happened to be missing from a partially degraded response.
+    #
+    # When the earnings are right there in the income statement, compute the
+    # multiple instead of inventing a verdict about the business.
+    if pe is None:
+        price = _safe_info(info, "currentPrice") or _safe_info(info, "regularMarketPrice")
+        eps = _eps_from_income(income)
+        if price and eps and eps > 0:
+            pe = price / eps
+            computed = True
+        elif eps is not None and eps <= 0:
+            # Genuinely no earnings — the original message is correct here.
+            return {"value": None, "label": "P/E Ratio",
+                    "explanation": "אין מכפיל רווח - החברה עדיין לא רווחית.",
+                    "explanation_parts": [("pe_not_profitable", {})], "score": None}
+        else:
+            # We cannot tell. Say so instead of guessing, in either direction.
+            return {"value": None, "label": "P/E Ratio",
+                    "explanation": "מכפיל הרווח לא זמין כרגע ממקור הנתונים.",
+                    "explanation_parts": [("pe_not_reported", {})], "score": None}
+
+    # A NEGATIVE multiple means there are no earnings to divide by. yfinance
+    # returns a negative number rather than None, and without this check
+    # "-15.2 <= 15" scored an unprofitable company as "cheap" with 90 — the
+    # exact opposite of the truth.
+    if pe <= 0:
         return {"value": None, "label": "P/E Ratio", "explanation": "אין מכפיל רווח - החברה עדיין לא רווחית.",
                 "explanation_parts": [("pe_not_profitable", {})], "score": None}
 
@@ -335,13 +392,29 @@ def metric_pe_ratio(info):
     else:
         score, note, key = 20, "יקר - הרבה צמיחה עתידית כבר מתומחרת במחיר.", "pe_expensive"
 
+    parts = [(key, {})]
+    if computed:
+        # The user is entitled to know this number was derived here rather than
+        # reported by the source — the two can differ.
+        parts.append(("pe_computed", {}))
     return {"value": round(pe, 1), "label": "P/E Ratio", "explanation": note,
-            "explanation_parts": [(key, {})], "score": score}
+            "explanation_parts": parts, "score": score}
 
 
-def metric_peg_ratio(info):
+def metric_peg_ratio(info, income=None):
     pe = _safe_info(info, "trailingPE")
     growth = _safe_info(info, "earningsGrowth")
+    if pe is None:
+        # Same fix as P/E above: fall back to the computed multiple so a missing
+        # provider field does not masquerade as a fact about the company.
+        price = _safe_info(info, "currentPrice") or _safe_info(info, "regularMarketPrice")
+        eps = _eps_from_income(income)
+        if price and eps and eps > 0:
+            pe = price / eps
+        elif growth is not None and growth > 0:
+            return {"value": None, "label": "PEG Ratio",
+                    "explanation": "אין מספיק נתונים לחישוב - מכפיל הרווח לא זמין ממקור הנתונים.",
+                    "explanation_parts": [("peg_pe_unavailable", {})], "score": None}
     # אותה בעיה כמו ב-P/E: pe שלילי חייב להיפסל כאן גם, אחרת peg שלילי (pe שלילי
     # חלקי growth חיובי) היה מסתכל כמו "peg <= 1" ומקבל ציון 90 ("תמחור הוגן"),
     # כשבפועל זו חברה לא רווחית שאין לה PEG משמעותי כלל.
@@ -691,8 +764,8 @@ def calculate_score(data: dict) -> dict:
         "net_margin": metric_net_margin(info, income),
         "net_income_trend": metric_net_income_trend(income),
         "moat": metric_moat(info, income),
-        "pe_ratio": metric_pe_ratio(info),
-        "peg_ratio": metric_peg_ratio(info),
+        "pe_ratio": metric_pe_ratio(info, income),
+        "peg_ratio": metric_peg_ratio(info, income),
         "free_cash_flow": metric_free_cash_flow(cashflow),
         "operating_cash_flow": metric_operating_cash_flow(cashflow),
         "cash_position": metric_cash_position(info, balance),

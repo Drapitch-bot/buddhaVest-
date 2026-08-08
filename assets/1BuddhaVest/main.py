@@ -3240,7 +3240,13 @@ def _market_overview_uncached():
                 change_pct = round((price - prev_close) / prev_close * 100, 2)
             return {
                 "ticker": symbol,
-                "name": info.get("shortName", symbol),
+                # longName first, then shortName — the same order /quotes and
+                # /analyze already used. This line alone read shortName, so when
+                # the provider returned longName without shortName (which it
+                # does; measured live) this table fell back to bare tickers
+                # while every other screen showed "Apple Inc." from the same
+                # response.
+                "name": info.get("longName") or info.get("shortName") or symbol,
                 "price": price,
                 "change_pct": change_pct,
                 "volume": info.get("volume") or info.get("regularMarketVolume"),

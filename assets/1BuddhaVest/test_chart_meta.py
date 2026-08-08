@@ -143,14 +143,27 @@ merge(original, HEALTHY)
 check("caller's dict unchanged", original, snapshot)
 
 print("\n── _enrich_from_chart_meta skips the fetch entirely when healthy ──")
+# "Healthy" means every field the callers actually read is present: BOTH name
+# fields (main.py's _one_mover reads shortName, /quotes reads longName) and a
+# volume. This fixture used to be {longName, currentPrice} only and was called
+# healthy — which is precisely the partially degraded shape measured live on
+# 2026-08-08, and precisely why the fallback never fired when it was needed.
+COMPLETE = {"longName": "Apple Inc.", "shortName": "Apple Inc.",
+            "currentPrice": 227.52, "volume": 42217700}
 calls = []
 real_fetch = df._fetch_chart_meta
 df._fetch_chart_meta = lambda t, timeout=6: (calls.append(t), HEALTHY)[1]
 try:
-    df._enrich_from_chart_meta("AAPL", {"longName": "Apple Inc.", "currentPrice": 227.52})
-    check("healthy info -> zero extra requests", calls, [])
-    df._enrich_from_chart_meta("AAPL", {"longName": "AAPL"})
-    check("name==ticker -> one request", calls, ["AAPL"])
+    df._enrich_from_chart_meta("AAPL", dict(COMPLETE))
+    check("complete info -> zero extra requests", calls, [])
+    df._enrich_from_chart_meta("AAPL", dict(COMPLETE, longName=None, shortName=None))
+    check("no name -> one request", calls, ["AAPL"])
+    calls.clear()
+    df._enrich_from_chart_meta("AAPL", dict(COMPLETE, shortName=None))
+    check("longName but no shortName -> one request", calls, ["AAPL"])
+    calls.clear()
+    df._enrich_from_chart_meta("AAPL", dict(COMPLETE, volume=None))
+    check("names but no volume -> one request", calls, ["AAPL"])
     calls.clear()
     df._enrich_from_chart_meta("AAPL", {})
     check("empty info -> one request", calls, ["AAPL"])

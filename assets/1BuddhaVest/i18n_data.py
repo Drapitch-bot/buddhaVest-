@@ -345,6 +345,32 @@ EXPLANATIONS = {
         "ru": "Нет коэффициента P/E - компания пока не прибыльна.",
         "es": "Sin ratio P/E - la empresa aún no es rentable.",
     },
+    # Split out from "not profitable" on 2026-08-08. The provider had stopped
+    # returning trailingPE for AAPL while every profitability figure on the same
+    # screen was strongly positive — net margin 26.9%, net income $112B and
+    # rising — and the app stated flatly that Apple "isn't profitable yet".
+    # A missing field is not a finding about the business.
+    "pe_not_reported": {
+        "he": "מכפיל הרווח לא זמין כרגע ממקור הנתונים.",
+        "en": "The P/E ratio isn't available from the data source right now.",
+        "ru": "Коэффициент P/E сейчас недоступен из источника данных.",
+        "es": "El ratio P/E no está disponible desde la fuente de datos ahora.",
+    },
+    # Computed here from price and reported earnings per share, because the
+    # provider omitted it. Said out loud rather than presented as if it came
+    # from the source.
+    "pe_computed": {
+        "he": "מחושב ממחיר המניה והרווח למניה המדווח (המקור לא סיפק את המכפיל).",
+        "en": "Computed from the share price and reported earnings per share (the source did not supply it).",
+        "ru": "Рассчитано из цены акции и заявленной прибыли на акцию (источник его не предоставил).",
+        "es": "Calculado a partir del precio y las ganancias por acción declaradas (la fuente no lo proporcionó).",
+    },
+    "peg_pe_unavailable": {
+        "he": "אין מספיק נתונים לחישוב - מכפיל הרווח לא זמין ממקור הנתונים.",
+        "en": "Not enough data - the P/E ratio isn't available from the data source.",
+        "ru": "Недостаточно данных - коэффициент P/E недоступен из источника.",
+        "es": "Datos insuficientes: el ratio P/E no está disponible desde la fuente.",
+    },
     "pe_cheap": {
         "he": "זול יחסית לרווחים.",
         "en": "Cheap relative to earnings.",
