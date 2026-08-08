@@ -56,6 +56,19 @@ jobs:
           print(f"OK — {len(routes)} routes, rate limiting: {m._RATE_LIMITING}")
           EOF
 
+      - name: Dividend span vs interruption
+        # A 64-year payment span with a three-year hole in it is not the track
+        # record the span implies. Disney, measured live on 2026-08-08.
+        working-directory: assets/1BuddhaVest
+        run: python test_dividend_gap.py
+
+      - name: Sentry reports one event per problem
+        # Sentry's free tier is 5,000 errors a month. A Yahoo outage produces
+        # ~900 identical reports an hour, so six hours would burn the quota on
+        # one repeated fact and drop the next real bug.
+        working-directory: assets/1BuddhaVest
+        run: python test_sentry_throttle.py
+
       - name: Rate-limited endpoints are never called as functions
         # Found in production on 2026-08-08, from the log line:
         #   [swallowed] at=main:_prewarm_news err=Exception: parameter `request`

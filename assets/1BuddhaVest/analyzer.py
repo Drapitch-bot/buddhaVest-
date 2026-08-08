@@ -573,6 +573,36 @@ def metric_dividend(info, dividends):
     if dividends is not None and not dividends.empty:
         years_paying = round((dividends.index[-1] - dividends.index[0]).days / 365, 1)
 
+    # The longest INTERRUPTION inside that span.
+    #
+    # `years_paying` measures first payment to last payment and says nothing
+    # about what happened in between. Disney showed exactly why that matters:
+    # the app reported "payment history spanning about 64.3 years" and scored it
+    # 85, while the company had actually suspended its dividend in May 2020 and
+    # only reinstated it in late 2023 — a three-year hole that ended barely two
+    # years ago. The span was arithmetically true and the impression it left was
+    # wrong, which for an investor is the worst combination.
+    #
+    # 550 days ≈ 18 months: comfortably longer than any normal schedule
+    # (annual payers included) so a routine cadence is never flagged.
+    gap_years = None
+    gap_ended = None
+    if dividends is not None and len(dividends) > 1:
+        try:
+            idx = dividends.index
+            biggest = 0
+            for i in range(1, len(idx)):
+                d = (idx[i] - idx[i - 1]).days
+                if d > biggest:
+                    biggest, gap_ended = d, idx[i]
+            if biggest > 550:
+                gap_years = round(biggest / 365, 1)
+            else:
+                gap_ended = None
+        except Exception as _e:
+            swallow("analyzer:metric_dividend.gap", _e)
+            gap_years, gap_ended = None, None
+
     # אם בכל זאת לא הצלחנו לחשב תשואה מספרית (מקרה קצה נדיר - אין גם info
     # וגם אין מחיר נוכחי לחישוב מקורב) - עדיין מודיעים שיש דיבידנד, בלי מספר.
     if yield_pct is None:
@@ -596,6 +626,20 @@ def metric_dividend(info, dividends):
             # history, not proof of uninterrupted payments — so don't claim it.
             consistency_note = f" היסטוריית תשלומי דיבידנד של כ-{years_paying} שנים."
             parts.append(("div_consistent", {"years": years_paying}))
+            if gap_years is not None:
+                # A long span with a hole in it is not the same track record as
+                # a long span without one, and the score must not pretend it is.
+                # The more recent the interruption, the more it matters.
+                try:
+                    _now = pd.Timestamp.now(tz=gap_ended.tz) if gap_ended.tzinfo else pd.Timestamp.now()
+                    since = (_now - gap_ended).days / 365
+                except Exception:
+                    since = 99
+                score = 55 if since < 5 else 70
+                consistency_note += (f" שים לב: התשלומים הופסקו לתקופה של כ-{gap_years} שנים,"
+                                     f" וחודשו ב-{gap_ended.strftime('%m/%Y')}.")
+                parts.append(("div_gap", {"years": gap_years,
+                                          "resumed": gap_ended.strftime("%m/%Y")}))
         else:
             score = 60
             consistency_note = f" ההיסטוריה קצרה (כ-{years_paying} שנים) - מסלול ההוכחה עדיין נבנה."

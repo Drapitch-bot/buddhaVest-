@@ -350,6 +350,15 @@ EXPLANATIONS = {
     # screen was strongly positive — net margin 26.9%, net income $112B and
     # rising — and the app stated flatly that Apple "isn't profitable yet".
     # A missing field is not a finding about the business.
+    # A long payment span with a multi-year hole in it is not the track record
+    # the span implies. Disney: 64.3-year span, three-year suspension that ended
+    # in Dec 2023. Stated plainly rather than left to the fine print.
+    "div_gap": {
+        "he": "שים לב: התשלומים הופסקו לתקופה של כ-{years} שנים, וחודשו ב-{resumed}.",
+        "en": "Note: payments were interrupted for about {years} years and resumed in {resumed}.",
+        "ru": "Обратите внимание: выплаты прерывались примерно на {years} лет и возобновились в {resumed}.",
+        "es": "Ten en cuenta: los pagos se interrumpieron durante unos {years} años y se reanudaron en {resumed}.",
+    },
     "pe_not_reported": {
         "he": "מכפיל הרווח לא זמין כרגע ממקור הנתונים.",
         "en": "The P/E ratio isn't available from the data source right now.",
