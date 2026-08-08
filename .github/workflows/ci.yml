@@ -56,6 +56,52 @@ jobs:
           print(f"OK — {len(routes)} routes, rate limiting: {m._RATE_LIMITING}")
           EOF
 
+      - name: Rate-limited endpoints are never called as functions
+        # Found in production on 2026-08-08, from the log line:
+        #   [swallowed] at=main:_prewarm_news err=Exception: parameter `request`
+        #   must be an instance of starlette.requests.Request
+        #
+        # Adding @rate_limit to the endpoints also added `request: Request` as
+        # their first parameter. Any code that still called one of them directly
+        # (the boot-time news warm-up did) now fails twice over: slowapi rejects
+        # a non-Request first argument, and even without the decorator the
+        # arguments are shifted by one, so `lang` silently becomes the default.
+        #
+        # Neither failure is visible from outside — the endpoint keeps working
+        # over HTTP. Only a direct caller breaks, and it breaks quietly.
+        working-directory: assets/1BuddhaVest
+        run: |
+          python - <<'EOF'
+          import ast, sys
+
+          src = open('main.py', encoding='utf-8').read()
+          tree = ast.parse(src)
+
+          limited = set()
+          for node in ast.walk(tree):
+              if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                  continue
+              for d in node.decorator_list:
+                  f = d.func if isinstance(d, ast.Call) else d
+                  if isinstance(f, ast.Name) and f.id == 'rate_limit':
+                      limited.add(node.name)
+
+          bad = []
+          for node in ast.walk(tree):
+              if not isinstance(node, ast.Call):
+                  continue
+              if isinstance(node.func, ast.Name) and node.func.id in limited:
+                  bad.append(f'{node.func.id}() called directly at main.py:{node.lineno}')
+
+          if bad:
+              print('FAIL - a rate-limited endpoint is being called as a plain function.')
+              print('       Extract the body into a _..._uncached() helper and call that.')
+              for b in bad:
+                  print('  ' + b)
+              sys.exit(1)
+          print(f'OK - {len(limited)} rate-limited endpoints, none called directly')
+          EOF
+
       - name: Partial provider degradation is handled
         # Yahoo's quoteSummary degrades field by field, not all at once. Every
         # assumption of the form "if the name is present the response is fine"

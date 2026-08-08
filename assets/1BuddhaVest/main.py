@@ -885,9 +885,11 @@ def _prewarm_news():
         time.sleep(15)  # let the server settle before doing any real work
         for _lang in ["en", "he", "ru", "es"]:
             try:
-                general_news(_lang)
+                # The implementation, not the HTTP endpoint — see the note on
+                # _general_news_uncached.
+                _general_news_uncached(_lang)
             except Exception as _e:
-                swallow("main:_prewarm_news", _e)
+                swallow("main:_prewarm_news", _e, lang=_lang, notify=True)
             time.sleep(10)   # spread the load instead of spiking it
     finally:
         _BOOTING = False     # from here on, normal request-driven prewarming
@@ -2722,6 +2724,28 @@ def _get_base_news() -> list:
 @app.get("/news")
 @rate_limit("normal")
 def general_news(request: Request, lang: str = "en"):
+    return _general_news_uncached(lang)
+
+
+def _general_news_uncached(lang: str = "en"):
+    """
+    The body, callable from Python as well as over HTTP.
+
+    Split out because the boot-time warm-up called `general_news(_lang)`
+    directly and that broke twice over when rate limiting was added:
+
+      1. slowapi's decorator rejects a call whose first argument is not a real
+         starlette Request — "parameter `request` must be an instance of ...".
+      2. Even without the decorator, `_lang` would have bound to `request` and
+         `lang` would have stayed "en", so the warm-up would have warmed English
+         four times and none of the other three languages at all.
+
+    The failure was invisible: it sat inside `except Exception: pass` until that
+    was replaced with `swallow()`, and the first user to open the news screen
+    after every deploy paid for a cold fetch instead of a warmed cache.
+
+    Same `_uncached` split every other heavy endpoint in this file already uses.
+    """
     lang = _clean_lang(lang)   # whitelist: also keeps the cache key bounded
     cache_key = f"news_general_{lang}"
     cached = _cache_get(cache_key)
