@@ -361,35 +361,121 @@ def _cache_clear_expired():
 # LKG_DIR points at a mounted disk when one exists; otherwise it falls back to
 # /tmp and says so at startup, so the limitation is visible in the log instead of
 # being discovered from a screenshot.
+# ── Where it is stored ───────────────────────────────────────────────────────
+# Three backends, tried in this order. Only the FIRST actually survives a
+# deploy, which is the entire point:
+#
+#   1. Upstash Redis   — UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN.
+#                        Free tier, lives outside the container, so a deploy
+#                        cannot touch it. This is the configured path.
+#   2. A mounted disk  — LKG_DIR / RENDER_DISK_PATH, if one is ever attached.
+#   3. /tmp            — works, but Render erases it on every single deploy.
+#
+# Deliberately ONE save/load implementation with a swappable backend rather than
+# two parallel paths. A second code path here would be exercised only in the
+# configuration nobody is looking at, which is how the /tmp problem stayed
+# invisible for so long.
+_UPSTASH_URL = (os.environ.get("UPSTASH_REDIS_REST_URL") or "").rstrip("/")
+_UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN") or ""
+_LKG_REDIS = bool(_UPSTASH_URL and _UPSTASH_TOKEN)
+
 _LKG_DIR = os.environ.get("LKG_DIR") or os.environ.get("RENDER_DISK_PATH") or "/tmp"
 try:
     os.makedirs(_LKG_DIR, exist_ok=True)
 except Exception:
     _LKG_DIR = "/tmp"
 _LKG_FILE = os.path.join(_LKG_DIR, "buddhavest_lkg.json")
-_LKG_PERSISTENT = not _LKG_FILE.startswith("/tmp")
-print(f"[startup] LKG store: {_LKG_FILE} "
-      f"({'persistent' if _LKG_PERSISTENT else 'EPHEMERAL — wiped on every deploy'})")
+_LKG_REDIS_KEY = "buddhavest:lkg"
+
+if _LKG_REDIS:
+    _LKG_PERSISTENT = True
+    print("[startup] LKG store: Upstash Redis (persistent — survives deploys)")
+else:
+    # Path comparison, not a string prefix. `startswith("/tmp")` also matches
+    # "/tmpdata" and "/tmp_disk", so a genuinely mounted disk at such a path
+    # would have been labelled EPHEMERAL — and this label is the only thing
+    # telling anyone whether the safety net actually survives a deploy.
+    _abs = os.path.abspath(_LKG_DIR)
+    _LKG_PERSISTENT = not (_abs == "/tmp" or _abs.startswith("/tmp" + os.sep))
+    print(f"[startup] LKG store: {_LKG_FILE} "
+          f"({'persistent' if _LKG_PERSISTENT else 'EPHEMERAL — wiped on every deploy'})")
 
 _LKG_KEYS = ("mover_lkg", "analyze_overview_lkg")
+
+
+def _upstash(command: list, timeout: int = 5):
+    """
+    One Upstash REST call. Returns the decoded `result`, or raises.
+
+    Upstash's REST API takes the Redis command as a JSON array, which means no
+    redis client dependency — httpx is already here. Keeping the dependency
+    count at zero matters on a 512MB instance.
+    """
+    r = httpx.post(_UPSTASH_URL, json=command, timeout=timeout,
+                   headers={"Authorization": f"Bearer {_UPSTASH_TOKEN}"})
+    r.raise_for_status()
+    return r.json().get("result")
+
+
+# ── Writes are coalesced, not immediate ──────────────────────────────────────
+# `_lkg_file_save()` is called from inside /analyze, which runs on every cache
+# miss. Against a local file that was a cheap syscall. Against Redis it is a
+# network round trip on the request path — inside the 25s deadline — and at the
+# rate limit's ceiling (20 heavy requests/minute) it would be ~28,800 writes a
+# day, well past Upstash's 10,000/day free tier.
+#
+# So callers now only mark the store dirty; one background thread flushes at
+# most once every 60s. That bounds writes to ~1,440/day no matter the traffic,
+# takes the network call out of the request path entirely, and is strictly
+# cheaper than the file version was. Losing up to 60s of updates on a hard kill
+# is acceptable: this is a best-effort backfill cache, not a source of record.
+_LKG_DIRTY = threading.Event()
+_LKG_FLUSH_SECONDS = 60
+
+
+def _lkg_mark_dirty():
+    _LKG_DIRTY.set()
+
+
+def _lkg_flush_loop():
+    while True:
+        time.sleep(_LKG_FLUSH_SECONDS)
+        if _LKG_DIRTY.is_set():
+            _LKG_DIRTY.clear()
+            _lkg_file_save()
+
 
 def _lkg_file_save():
     # Written atomically: a deploy or an OOM kill mid-write used to be able to
     # leave a truncated file that then failed to parse on the next boot, quietly
-    # discarding everything.
+    # discarding everything. Redis has the same property for free — SET is
+    # atomic, so a half-written value is not representable.
     try:
         data = {k: (_cache_get(k) or {}) for k in _LKG_KEYS}
+        blob = json.dumps(data)
+        if _LKG_REDIS:
+            _upstash(["SET", _LKG_REDIS_KEY, blob])
+            return
         tmp = _LKG_FILE + ".tmp"
         with open(tmp, "w") as f:
-            json.dump(data, f)
+            f.write(blob)
         os.replace(tmp, _LKG_FILE)
     except Exception as e:
-        report("lkg_save_failed", path=_LKG_FILE, error=str(e)[:120])
+        report("lkg_save_failed",
+               backend="redis" if _LKG_REDIS else _LKG_FILE, error=str(e)[:120])
+
 
 def _lkg_file_load():
     try:
-        with open(_LKG_FILE, "r") as f:
-            data = json.load(f)
+        if _LKG_REDIS:
+            raw = _upstash(["GET", _LKG_REDIS_KEY])
+            if not raw:
+                print("[startup] LKG empty (first run against this Redis)")
+                return
+            data = json.loads(raw)
+        else:
+            with open(_LKG_FILE, "r") as f:
+                data = json.load(f)
         loaded = 0
         for k in _LKG_KEYS:
             if data.get(k):
@@ -399,7 +485,9 @@ def _lkg_file_load():
     except FileNotFoundError:
         print("[startup] LKG empty (first run on this volume)")
     except Exception as e:
-        # A corrupt file must not stop the server from booting.
+        # Neither a corrupt file nor an unreachable Redis may stop the server
+        # from booting. An empty safety net is a degraded start; no start at all
+        # is an outage.
         print(f"[startup] LKG unreadable, starting empty: {e}")
 
 _lkg_file_load()  # seed from disk on boot (no-op on first ever run)
@@ -413,6 +501,7 @@ def _cleanup_loop():
         gc.collect()
 
 threading.Thread(target=_cleanup_loop, daemon=True).start()
+threading.Thread(target=_lkg_flush_loop, daemon=True).start()
 # ─────────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="BuddhaVest API")
@@ -1049,7 +1138,7 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         for _f in _ov_fields
     }
     _cache_set("analyze_overview_lkg", _ov_lkg, 86400)
-    _lkg_file_save()  # persist across restarts/deploys
+    _lkg_mark_dirty()  # flushed by _lkg_flush_loop, off the request path
 
     # Forward P/E ו-Sector comparison
     try:
@@ -3230,7 +3319,7 @@ def _market_overview_uncached():
             for f in _LKG_FIELDS
         }
     _cache_set("mover_lkg", lkg, 86400)
-    _lkg_file_save()  # persist across restarts/deploys
+    _lkg_mark_dirty()  # flushed by _lkg_flush_loop, off the request path
 
     # Don't poison the cache with an all-null snapshot (Yahoo+Stooq both down)
     has_data = any(m.get("price") is not None for m in movers)

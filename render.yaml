@@ -16,22 +16,31 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
-      # Where the last-known-good market data is kept. It used to live in /tmp,
-      # which Render wipes on every deploy — so the safety net that fills missing
-      # volume and market-cap values was destroyed by each release, exactly when
-      # it was needed. Point this at a mounted disk to make it survive.
+      # ── Last-known-good store ───────────────────────────────────────────────
+      # Holds the most recent non-null volume, average volume and market cap per
+      # ticker. It is what keeps the market table populated when Yahoo answers
+      # with a price and nothing else.
       #
-      # Uncomment the `disk:` block below once on a paid plan ($0.25/GB/month).
-      # Until then the server logs "EPHEMERAL — wiped on every deploy" at startup
-      # so the limitation is visible rather than silent.
-      # - key: LKG_DIR
-      #   value: /var/data
-    # disk:
-    #   name: buddhavest-data
-    #   mountPath: /var/data
-    #   sizeGB: 1
-    #
-    # Both blocks are commented together on purpose. Setting LKG_DIR without an
-    # actual mounted disk would point at an ordinary container directory that is
-    # ALSO wiped on deploy, while the startup log claimed "persistent" — a false
-    # reassurance, which is worse than the honest warning it replaces.
+      # It lived in /tmp, which Render wipes on EVERY deploy — so the safety net
+      # was destroyed by each release, at precisely the moment it was needed.
+      #
+      # Now backed by Upstash Redis (free tier), which lives outside the
+      # container and therefore survives deploys. Set these two in the Render
+      # dashboard (Environment tab) — NOT here, they are credentials:
+      #
+      #     UPSTASH_REDIS_REST_URL     https://<your-db>.upstash.io
+      #     UPSTASH_REDIS_REST_TOKEN   <the REST token from the Upstash console>
+      #
+      # With both set, startup logs:
+      #     [startup] LKG store: Upstash Redis (persistent — survives deploys)
+      # With either missing it falls back to /tmp and logs:
+      #     [startup] LKG store: /tmp/... (EPHEMERAL — wiped on every deploy)
+      #
+      # Writes are coalesced to at most one every 60 seconds (see
+      # _lkg_flush_loop), so traffic cannot push this past the free tier.
+      #
+      # A mounted disk also works if you ever move to a paid plan — set LKG_DIR
+      # to the mount path. Redis takes precedence when both are configured.
+      #
+      # Nothing is declared here for it on purpose: both values are credentials,
+      # and a token committed to the repo is a token that has to be rotated.

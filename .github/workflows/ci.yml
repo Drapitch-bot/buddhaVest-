@@ -56,6 +56,16 @@ jobs:
           print(f"OK — {len(routes)} routes, rate limiting: {m._RATE_LIMITING}")
           EOF
 
+      - name: LKG store survives a deploy
+        # H4 was reported "done" once before while the deployed behaviour was
+        # completely unchanged — the code was ready but the storage was still
+        # /tmp, so every deploy still wiped the safety net. This test asserts
+        # the property that actually matters: a value written before a restart
+        # is still there after one. It runs a real HTTP server standing in for
+        # Upstash, so the Redis path is exercised rather than assumed.
+        working-directory: assets/1BuddhaVest
+        run: python test_lkg.py
+
       - name: Second data provider behaves
         # The fallback runs ONLY when the primary source has already failed, so
         # it executes precisely when nobody is watching. These assert the two
