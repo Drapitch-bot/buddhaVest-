@@ -77,7 +77,18 @@ function row(label, state, detail) {
   row('server reachable', 'ok', URL);
 
   // ── 3. is the running code the code on this machine ───────────────────────
+  // Three separate delivery paths, and conflating them cries wolf:
+  //   assets/1BuddhaVest/**  -> Render          (git push, ~3-6 min)
+  //   screens|components|constants|utils|App.js -> EAS OTA (force-close the app)
+  //   scripts, .github, docs -> neither; they never reach a server or a phone
+  // A commit that only adds a script is not a stale deployment, and saying so
+  // would train you to ignore this line — which is the whole point of it.
+  const SERVER = /^assets\/1BuddhaVest\//;
+  const CLIENT = /^(screens|components|constants|utils)\/|^App\.js$|^index\.js$|^app\.json$/;
+
+  let serverStale = false;
   if (!('build' in body)) {
+    serverStale = true;
     row('deployed commit', 'bad',
         'the running server predates the /status build field — it is NOT running your latest code');
   } else if (!head) {
@@ -85,8 +96,26 @@ function row(label, state, detail) {
   } else if (body.build === head) {
     row('deployed commit', 'ok', body.build + ' — the server is running THIS code');
   } else {
-    row('deployed commit', 'bad',
-        'server=' + body.build + '  local=' + head + ' — the fix you are looking at is NOT live');
+    const changed = (git(`diff --name-only ${body.build}..${headFull}`) || '').split('\n').filter(Boolean);
+    const serverChanged = changed.filter(f => SERVER.test(f));
+    const clientChanged = changed.filter(f => CLIENT.test(f));
+    if (changed.length === 0) {
+      row('deployed commit', 'unknown',
+          'server=' + body.build + ' is not in this clone — run: git fetch');
+    } else if (serverChanged.length === 0) {
+      row('deployed commit', 'ok',
+          'server=' + body.build + ' — behind by ' + changed.length + ' file(s), but NONE of them '
+          + 'are server code, so the server is effectively up to date');
+    } else {
+      serverStale = true;
+      row('deployed commit', 'bad',
+          'server=' + body.build + ' local=' + head + ' — ' + serverChanged.length
+          + ' server file(s) not deployed: ' + serverChanged.map(f => f.split('/').pop()).join(', ').slice(0, 60));
+    }
+    if (clientChanged.length) {
+      row('app bundle (OTA)', 'warn',
+          clientChanged.length + ' client file(s) changed — force-close the app on the phone and reopen it');
+    }
   }
 
   // ── 4. things that are easy to configure and easy to leave off ────────────
@@ -140,10 +169,11 @@ function row(label, state, detail) {
   }
 
   // ── 5. verdict ────────────────────────────────────────────────────────────
+  // Blocking = the SERVER is not running your server code. A client-only or
+  // tooling-only difference is reported above but does not fail the check.
   const blocking = (realDirty.length > 0)
                 || (remote != null && remote !== headFull)
-                || !('build' in body)
-                || (head && body.build !== head);
+                || serverStale;
 
   console.log();
   if (blocking) {
