@@ -175,14 +175,44 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
           </SvgText>
         ))}
 
-        {/* X axis date labels — show up to 5 evenly spaced labels */}
+        {/* X axis date labels.
+            The old rule was "every n/5th point, then always append the last one",
+            and that last append is what collided: with 53 points the labels landed
+            at 0,11,22,33,44 and then 52 — eight points apart where the others were
+            eleven, so "Jan 2026" and "Aug 2026" printed on top of each other.
+            It depended on the series length, so it appeared on some stocks and
+            some metrics and not others.
+
+            Now the count comes from the space available: however many labels fit
+            at MIN_GAP pixels apart, evenly spread, first and last included. No
+            series length or screen width can produce an overlap. */}
         {(() => {
           const n = prices.length;
           if (n < 2) return null;
-          const step = Math.max(1, Math.ceil(n / 5));
+          const MIN_GAP = 46;                  // ~6 chars at fontSize 8, plus breathing room
+          const maxLabels = Math.max(2, Math.min(6, Math.floor(cW / MIN_GAP) + 1));
+
+          // Evenly spaced candidates, then a hard filter on the ACTUAL pixel
+          // distance. Spacing them evenly by index is not enough: with 10 points
+          // and 6 labels, rounding puts two of them one index apart — 33px on a
+          // 360dp screen, still overlapping. Measuring the gap is the only way
+          // the invariant actually holds.
           const indices = [];
-          for (let i = 0; i < n; i += step) indices.push(i);
-          if (indices[indices.length - 1] !== n - 1) indices.push(n - 1);
+          for (let k = 0; k < maxLabels; k++) {
+            const idx = Math.round((k / (maxLabels - 1)) * (n - 1));
+            if (!indices.length) { indices.push(idx); continue; }
+            const prev = indices[indices.length - 1];
+            if (idx !== prev && xOf(idx) - xOf(prev) >= MIN_GAP) indices.push(idx);
+          }
+          // The last point must always be labelled. If it would crowd the one
+          // before it, REPLACE that one instead of squeezing in beside it —
+          // appending unconditionally is exactly what printed "Jan 2026" on top
+          // of "Aug 2026".
+          const last = indices[indices.length - 1];
+          if (last !== n - 1) {
+            if (xOf(n - 1) - xOf(last) >= MIN_GAP) indices.push(n - 1);
+            else indices[indices.length - 1] = n - 1;
+          }
           return indices.map((idx, j) => (
             <SvgText
               key={'x' + j}

@@ -610,10 +610,15 @@ export default function MetricHistoryScreen({ route, navigation }) {
                       statement is always true, so the answer is to make it small,
                       not conditional. One dim line under the number. */}
                   {COMPUTED_DIFFERENTLY.has(metricKey) && t.chart_method_note ? (
-                    <Text style={[s.methodNote, { color: colors.textDimmer },
-                                  { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
-                      {t.chart_method_note}
-                    </Text>
+                    <View style={[s.methodChip, {
+                      backgroundColor: colors.cardAlt,
+                      borderColor: colors.cardBorder,
+                    }]}>
+                      <Text style={[s.methodNote, { color: colors.textDim },
+                                    { writingDirection: isRtl ? 'rtl' : 'ltr' }]}>
+                        {'ⓘ  ' + t.chart_method_note}
+                      </Text>
+                    </View>
                   ) : null}
                 </>
               ) : (
@@ -710,7 +715,12 @@ const makeStyles = (c) => StyleSheet.create({
 
   currentValue: { fontSize: 28, fontWeight: 'bold', textAlign: 'center', marginVertical: 14 },
   // Small, dim, and under the number — a footnote, not a warning.
-  methodNote:   { fontSize: 11, textAlign: 'center', marginTop: 4, paddingHorizontal: 16 },
+  // A soft chip, not a bare grey line — same card styling as the explanation
+  // boxes above, so it reads as part of the design instead of leftover text.
+  methodChip:   { alignSelf: 'center', marginTop: 10, marginBottom: 4,
+                  marginHorizontal: 16, paddingVertical: 6, paddingHorizontal: 12,
+                  borderRadius: 8, borderWidth: 0.5 },
+  methodNote:   { fontSize: 11, textAlign: 'center', lineHeight: 15 },
   noData:       { textAlign: 'center', fontSize: 14 },
 
   retryBtn:     { paddingHorizontal: 28, paddingVertical: 12, borderRadius: 10 },
