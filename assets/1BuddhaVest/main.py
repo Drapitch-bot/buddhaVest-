@@ -57,6 +57,7 @@ TIINGO_TOKEN = os.environ.get("TIINGO_TOKEN", "")
 # cannot import back from main.py without a cycle — and those three contain
 # some of the most damaging silent failures in the codebase.
 from observability import SENTRY_DSN, report, swallow
+from observability import _SENTRY as _SENTRY_ACTIVE
 
 
 # ─── Shared thread pools ──────────────────────────────────────────────────────
@@ -942,6 +943,10 @@ def status():
         "maintenance": os.path.exists(flag_path),
         "build": (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:7],
         "lkg": lkg_backend(),
+        # Same lesson as `lkg`: monitoring that is coded but has no DSN is
+        # monitoring that does not exist, and it looks identical from outside.
+        # The Upstash 401 sat unnoticed for exactly this reason.
+        "sentry": "on" if _SENTRY_ACTIVE else "off",
     }
 
 

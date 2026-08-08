@@ -159,7 +159,8 @@ jobs:
           # build + lkg answer "is my fix live?" and "is persistence on?" in one
           # request. Without them, confirming a deploy meant reading the log by
           # hand and guessing.
-          assert "build" in body and "lkg" in body, body
+          assert "build" in body and "lkg" in body and "sentry" in body, body
+          assert body["sentry"] in ("on", "off"), body
           # "redis" must mean redis is WORKING, not merely configured. A live
           # deploy once reported "redis" while every call was returning 401.
           assert body["lkg"] in ("redis", "redis-failing", "redis-rejected",
