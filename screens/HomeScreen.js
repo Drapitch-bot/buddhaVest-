@@ -11,6 +11,7 @@ import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import BrandHeader from '../components/BrandHeader';
 import { captureIssue } from '../utils/monitoring';
+import { signedPct } from '../utils/bidi';
 
 // Column widths (px) for horizontal-scroll market table
 // Column widths were fixed pixels totalling 390, inside a card that only leaves
@@ -395,7 +396,7 @@ export default function HomeScreen({ navigation }) {
                         <Text style={[s.iChange, { color: colors.textDimmer }]}>{t.live_rate || 'Live rate'}</Text>
                       ) : idx.change_pct != null ? (
                         <Text style={[s.iChange, { color: cc(idx.change_pct) }]}>
-                          {idx.change_pct >= 0 ? '+' : ''}{idx.change_pct.toFixed(2)}%
+                          {signedPct(idx.change_pct)}
                         </Text>
                       ) : null}
                     </View>
@@ -450,7 +451,7 @@ export default function HomeScreen({ navigation }) {
                       )}
                       {m.change_pct != null && (
                         <Text style={[s.moverChg, { color: cc(m.change_pct) }]}>
-                          {m.change_pct >= 0 ? '+' : ''}{m.change_pct.toFixed(2)}%
+                          {signedPct(m.change_pct)}
                         </Text>
                       )}
                     </View>
@@ -516,7 +517,7 @@ export default function HomeScreen({ navigation }) {
                         </Text>
                         {/* Change % */}
                         <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[s.td, { width: COL.change, color: m.change_pct != null ? cc(m.change_pct) : colors.textDim }]}>
-                          {m.change_pct != null ? (m.change_pct >= 0 ? '+' : '') + m.change_pct.toFixed(2) + '%' : '—'}
+                          {signedPct(m.change_pct)}
                         </Text>
                         {/* Volume */}
                         <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={[s.td, { width: COL.volume, color: colors.textDim }]}>
