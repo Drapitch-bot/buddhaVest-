@@ -19,6 +19,7 @@ Endpoints:
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
+import hashlib
 import json
 import math
 import os
@@ -921,6 +922,52 @@ def root():
     return {"status": "ok"}
 
 
+# The server modules whose contents define "the running code". Listed rather
+# than globbed so that adding a file is a deliberate act and a stray .py left in
+# the directory cannot change the digest.
+_SOURCE_FILES = (
+    "main.py", "analyzer.py", "data_fetcher.py", "observability.py",
+    "i18n_data.py", "news_signals.py", "stooq_fallback.py", "ticker_search.py",
+)
+_source_digest_cache = None
+
+
+def _source_digest() -> str:
+    """
+    Short digest of the source files this process loaded.
+
+    Computed once and cached: the files cannot change under a running process,
+    and /status is polled by the app on every cold start.
+
+    Carriage returns are stripped before hashing. Git checks these files out
+    with CRLF on Windows and LF on Render's Linux builders, so hashing raw
+    bytes would report a mismatch for identical code — a checker that cries
+    wolf gets ignored, which is worse than having no checker.
+    """
+    global _source_digest_cache
+    if _source_digest_cache is not None:
+        return _source_digest_cache
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        h = hashlib.sha256()
+        for name in sorted(_SOURCE_FILES):
+            path = os.path.join(here, name)
+            try:
+                with open(path, "rb") as fh:
+                    body = fh.read().replace(b"\r\n", b"\n")
+            except FileNotFoundError:
+                body = b""          # absence is itself part of the fingerprint
+            h.update(name.encode("utf-8"))
+            h.update(b"\0")
+            h.update(body)
+            h.update(b"\0")
+        _source_digest_cache = h.hexdigest()[:12]
+    except Exception as _e:
+        swallow("main:_source_digest", _e)
+        _source_digest_cache = "unknown"
+    return _source_digest_cache
+
+
 @app.api_route("/status", methods=["GET", "HEAD"])
 def status():
     """
@@ -944,6 +991,20 @@ def status():
     return {
         "maintenance": os.path.exists(flag_path),
         "build": (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:7],
+        # `code` exists because `build` turned out to be untrustworthy.
+        #
+        # On 2026-08-12 the P/E fix was pushed, Render deployed it, and the
+        # live endpoint provably ran the new code (ORA.TA went from 16955.4 to
+        # "not reported") while this field still reported a commit from two
+        # pushes earlier. RENDER_GIT_COMMIT is an environment variable, and an
+        # environment variable can be stale, overridden in the dashboard, or
+        # absent — so it describes what Render was told, not what is running.
+        # That is the exact failure `build` was added to prevent, one level up.
+        #
+        # This one cannot drift: it is a digest of the source files actually
+        # loaded into this process. If it matches the digest of the working
+        # copy, the deployed code IS the local code, whatever any env var says.
+        "code": _source_digest(),
         "lkg": lkg_backend(),
         # Same lesson as `lkg`: monitoring that is coded but has no DSN is
         # monitoring that does not exist, and it looks identical from outside.

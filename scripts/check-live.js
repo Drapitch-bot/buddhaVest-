@@ -17,8 +17,49 @@
  */
 
 const { execSync } = require('child_process');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const URL = 'https://buddhavest.onrender.com/status';
+
+// Must stay identical to _SOURCE_FILES in main.py, including the framing below,
+// or the two digests will differ for identical code.
+const SOURCE_FILES = [
+  'main.py', 'analyzer.py', 'data_fetcher.py', 'observability.py',
+  'i18n_data.py', 'news_signals.py', 'stooq_fallback.py', 'ticker_search.py',
+];
+
+/**
+ * The same digest main.py computes, over the files in this working copy.
+ * Carriage returns are stripped first: git checks these out CRLF on Windows
+ * and LF on Render's Linux builders, so raw bytes would differ for identical
+ * code and this check would fail every single time.
+ */
+function localDigest() {
+  try {
+    const root = execSync('git rev-parse --show-toplevel',
+                          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const dir = path.join(root, 'assets', '1BuddhaVest');
+    const h = crypto.createHash('sha256');
+    const NUL = Buffer.from([0]);
+    for (const name of [...SOURCE_FILES].sort()) {
+      let bytes;
+      try {
+        bytes = fs.readFileSync(path.join(dir, name));
+      } catch {
+        bytes = Buffer.alloc(0);      // absence is part of the fingerprint
+      }
+      h.update(Buffer.from(name, 'utf8'));
+      h.update(NUL);
+      h.update(Buffer.from(bytes.toString('binary').split('\r\n').join('\n'), 'binary'));
+      h.update(NUL);
+    }
+    return h.digest('hex').slice(0, 12);
+  } catch {
+    return null;
+  }
+}
 const RESET = '\x1b[0m', RED = '\x1b[31m', GREEN = '\x1b[32m', YELLOW = '\x1b[33m', DIM = '\x1b[2m';
 
 function git(args) {
@@ -86,8 +127,37 @@ function row(label, state, detail) {
   const SERVER = /^assets\/1BuddhaVest\//;
   const CLIENT = /^(screens|components|constants|utils)\/|^App\.js$|^index\.js$|^app\.json$/;
 
+  // The authoritative check is the source digest, NOT the commit.
+  //
+  // On 2026-08-12 Render deployed a fix, the live endpoint provably ran it
+  // (ORA.TA stopped printing a P/E of 16955.4), and /status still reported a
+  // commit from two pushes earlier. RENDER_GIT_COMMIT is an environment
+  // variable: it says what Render was told, not what is running. This script
+  // trusted it, so it would have reported a successful deploy as a failure —
+  // the same cry-wolf failure it was written to avoid.
+  //
+  // A digest of the server source files cannot drift, because it is computed
+  // from the bytes the process actually loaded.
   let serverStale = false;
-  if (!('build' in body)) {
+  const localCode = localDigest();
+
+  if (typeof body.code === 'string' && body.code !== 'unknown' && localCode) {
+    if (body.code === localCode) {
+      row('deployed server code', 'ok',
+          'digest ' + localCode + ' — byte-for-byte the code in this folder');
+    } else {
+      serverStale = true;
+      const names = SOURCE_FILES.join(', ');
+      row('deployed server code', 'bad',
+          'digest server=' + body.code + ' local=' + localCode
+          + ' — the server is NOT running this code (' + names.slice(0, 48) + '…)');
+    }
+    row('commit reported by Render', body.build === head ? 'ok' : 'warn',
+        body.build === head
+          ? body.build + ' — matches HEAD'
+          : 'build=' + body.build + ' vs HEAD=' + head
+            + ' — advisory only; RENDER_GIT_COMMIT can be stale, the digest above is the truth');
+  } else if (!('build' in body)) {
     serverStale = true;
     row('deployed commit', 'bad',
         'the running server predates the /status build field — it is NOT running your latest code');

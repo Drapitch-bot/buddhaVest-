@@ -269,6 +269,43 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      - name: The deploy checker agrees with the server
+        # check-live.js decides "is my code deployed?" by comparing a digest it
+        # computes against the one /status reports. Two implementations of the
+        # same hash in two languages: the moment they disagree, the checker
+        # reports a good deploy as a failure or a stale one as fine, and either
+        # way it becomes noise you learn to ignore.
+        #
+        # The likely way they drift is a new server module added to
+        # _SOURCE_FILES in main.py and not to SOURCE_FILES in check-live.js.
+        # This step computes both against the same tree and demands they match.
+        run: |
+          PY=$(cd assets/1BuddhaVest && python3 -c "
+          import hashlib, re
+          src = open('main.py', encoding='utf-8').read()
+          block = re.search(r'_SOURCE_FILES = \((.*?)\)', src, re.S).group(1)
+          files = re.findall(r'\"([^\"]+\.py)\"', block)
+          h = hashlib.sha256()
+          for n in sorted(files):
+              try:
+                  b = open(n, 'rb').read().replace(b'\r\n', b'\n')
+              except FileNotFoundError:
+                  b = b''
+              h.update(n.encode()); h.update(b'\0'); h.update(b); h.update(b'\0')
+          print(h.hexdigest()[:12])
+          ")
+          JS=$(node -e "
+          const fs = require('fs');
+          const src = fs.readFileSync('scripts/check-live.js', 'utf8');
+          eval(src.slice(0, src.indexOf('(async () =>')));
+          console.log(localDigest());
+          ")
+          echo "  main.py        -> $PY"
+          echo "  check-live.js  -> $JS"
+          test -n "$PY" && test "$PY" = "$JS" \
+            && echo "  the checker and the server compute the same digest" \
+            || { echo "::error::check-live.js and main.py disagree on the source digest — the deploy check would lie"; exit 1; }
+
       - name: Parse every JS file
         run: |
           node - <<'EOF'
