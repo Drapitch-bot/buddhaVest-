@@ -1611,11 +1611,17 @@ def _shares_outstanding(result: dict, info: dict):
     currency from the quote (Ormat reports in dollars and trades in shekels).
     """
     direct = info.get("sharesOutstanding") if isinstance(info, dict) else None
-    try:
-        if direct and float(direct) > 0:
-            return float(direct)
-    except (TypeError, ValueError):
-        pass
+    # Type-checked instead of wrapped in try/except, for two reasons. CI forbids
+    # a silent handler and it was right to: an `except: pass` here was the first
+    # thing I wrote and it hid the second reason, which is that `float(True)` is
+    # 1.0. A boolean in this field would have become a share count of one, and
+    # a market cap "reconciled" against one share is worse than none at all.
+    # Strings are not accepted: yfinance normalises this field to a number, and
+    # anything else arriving here is not a share count.
+    if isinstance(direct, (int, float)) and not isinstance(direct, bool):
+        direct = float(direct)
+        if direct > 0 and direct == direct and direct != float("inf"):
+            return direct
     try:
         hist = (result.get("inline_history") or {})
         ni = ((hist.get("net_income") or {}).get("annual") or [])

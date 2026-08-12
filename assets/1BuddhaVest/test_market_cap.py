@@ -185,6 +185,13 @@ check("falls back to net income / EPS",
       sh(payload("X", 1, 1, 1e9, 2.0), {}), 5e8)
 check("ignores a zero share count",
       sh(payload("X", 1, 1, 1e9, 2.0), {"sharesOutstanding": 0}), 5e8)
+# float(True) is 1.0. A boolean here would have become a share count of ONE,
+# and every market cap would then be "reconciled" against the share price.
+check("rejects True as a share count",
+      sh(payload("X", 1, 1, 1e9, 2.0), {"sharesOutstanding": True}), 5e8)
+for junk in ("many", "", None, [1], {"a": 1}, float("nan"), float("inf"), -5):
+    check("rejects %r" % (junk,),
+          sh(payload("X", 1, 1, 1e9, 2.0), {"sharesOutstanding": junk}), 5e8)
 check("None when neither source works", sh(payload("X", 1, 1), {}), None)
 check("None on a loss-making year", sh(payload("X", 1, 1, -1e9, -2.0), {}), None)
 
