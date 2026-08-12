@@ -56,6 +56,65 @@ def _safe_info(info, key):
     return value
 
 
+# Quote currencies that are 1/100 of the currency the statements are written
+# in. Mirrors _MINOR_UNIT in main.py — keep the two in step.
+_MINOR_UNIT_QUOTES = {"GBp", "GBX", "GBx", "ZAc", "ZAC", "ILA", "ILa"}
+
+# Exchanges that always quote in a minor unit, checked by suffix as well as by
+# currency code because Yahoo is inconsistent about which it reports. Mirrors
+# _MINOR_UNIT_SUFFIXES in main.py.
+_MINOR_UNIT_SUFFIXES = (".TA", ".L", ".JO")
+
+# A trailing P/E above this is not a valuation, it is an arithmetic accident.
+# The highest genuine trailing multiples in the market sit in the low hundreds
+# (a barely-profitable company in a recovery year); 500 leaves generous room
+# above that while still catching a unit error of 100x or more.
+_PE_SANITY_CEILING = 500.0
+
+
+def _price_eps_units_agree(info):
+    """
+    True only when dividing price by EPS is PROVABLY unit-consistent.
+
+    Measured live on ORA.TA on 2026-08-12: the app displayed a P/E of 16955.4.
+    Ormat is quoted in Tel Aviv in AGOROT (34,250 = ₪342.50) and reports its
+    statements in DOLLARS (EPS $2.02). The division therefore combined two
+    unrelated units — 100x for agorot, ~2.99x for the exchange rate, 299x
+    together. 34250 / 2.02 = 16955.4 exactly. The true multiple is 56.6.
+
+    main.py has refused price-derived multiples for these listings since the
+    DLEKG.TA investigation (_tase_price_mismatch), and the comment above the
+    TASE conversion states outright that "Ratios (P/E etc.) are unit-free and
+    already correct". That was true for as long as P/E came straight from the
+    provider's trailingPE, which is a pure ratio. Computing the ratio here from
+    a raw price silently invalidated that assumption for every TASE, London and
+    Johannesburg listing.
+
+    Anything that cannot be positively verified counts as a mismatch. Returning
+    "not reported" is a true statement about what we know; 16955.4 is not.
+    """
+    if not isinstance(info, dict):
+        return False
+
+    symbol = str(info.get("symbol") or "").strip().upper()
+    if symbol.endswith(_MINOR_UNIT_SUFFIXES):
+        return False
+
+    quote = str(info.get("currency") or "").strip()
+    if not quote or quote in _MINOR_UNIT_QUOTES:
+        return False
+
+    # A company can trade in one currency and report in another (Elbit trades
+    # in shekels, reports in dollars). When the provider tells us, believe it.
+    # When it stays silent we cannot check, but the two rules above have already
+    # removed the listings where a split is common.
+    fin = str(info.get("financialCurrency") or "").strip()
+    if fin and fin.upper() != quote.upper():
+        return False
+
+    return True
+
+
 def _safe_series(df, row_name):
     """שולף שורה שלמה (כל השנים) מ-DataFrame. מחזיר None אם לא קיים."""
     try:
@@ -361,9 +420,25 @@ def metric_pe_ratio(info, income=None):
     if pe is None:
         price = _safe_info(info, "currentPrice") or _safe_info(info, "regularMarketPrice")
         eps = _eps_from_income(income)
-        if price and eps and eps > 0:
-            pe = price / eps
-            computed = True
+        if price and eps and eps > 0 and _price_eps_units_agree(info):
+            candidate = price / eps
+            # Last line of defence. The unit checks above enumerate the
+            # mismatches we know about; this one catches the ones we do not.
+            # A number this size is never a valuation, and publishing it does
+            # far more damage than admitting the multiple is unavailable.
+            if candidate <= _PE_SANITY_CEILING:
+                pe = candidate
+                computed = True
+            else:
+                return {"value": None, "label": "P/E Ratio",
+                        "explanation": "מכפיל הרווח לא זמין כרגע ממקור הנתונים.",
+                        "explanation_parts": [("pe_not_reported", {})], "score": None}
+        elif price and eps and eps > 0:
+            # Earnings exist, but the price and the EPS are in different units
+            # or different currencies, so no honest multiple can be built here.
+            return {"value": None, "label": "P/E Ratio",
+                    "explanation": "מכפיל הרווח לא זמין כרגע ממקור הנתונים.",
+                    "explanation_parts": [("pe_not_reported", {})], "score": None}
         elif eps is not None and eps <= 0:
             # Genuinely no earnings — the original message is correct here.
             return {"value": None, "label": "P/E Ratio",

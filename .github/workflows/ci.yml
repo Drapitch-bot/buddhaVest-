@@ -123,6 +123,22 @@ jobs:
         working-directory: assets/1BuddhaVest
         run: python test_partial_degradation.py
 
+      - name: A computed P/E never mixes units
+        # On 2026-08-12 the app showed a P/E of 16955.4 for ORA.TA. The
+        # arithmetic was right and the inputs were incomparable: Tel Aviv quotes
+        # in agorot, Ormat reports in dollars, so the division was off by 100x
+        # for the minor unit and again by the exchange rate — 299x in total.
+        #
+        # The fallback that produced it had shipped the day before to fix a
+        # different lie ("Apple isn't profitable"), and it silently invalidated
+        # an invariant documented in another file: main.py refuses
+        # price-derived multiples for these listings and states that ratios are
+        # unit-free — true only while P/E came from the provider. This test
+        # holds both properties at once: no unit mixing, and no reverting to
+        # the false profitability claim.
+        working-directory: assets/1BuddhaVest
+        run: python test_pe_units.py
+
       - name: LKG store survives a deploy
         # H4 was reported "done" once before while the deployed behaviour was
         # completely unchanged — the code was ready but the storage was still

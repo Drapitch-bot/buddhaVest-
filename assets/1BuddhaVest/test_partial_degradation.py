@@ -40,6 +40,13 @@ PARTIAL = {
     "currentPrice": 313.33,
     "regularMarketPrice": 313.33,
     "marketCap": 4572794223433.228,
+    # Added 2026-08-12. The fixture was a minimal reproduction and omitted this,
+    # but a real degraded response still carries it: `currency` ships in the
+    # same quoteSummary module as regularMarketPrice (which IS present above),
+    # and _merge_chart_meta refills it from the chart endpoint when it is not.
+    # It matters now because computing P/E from a price is only legitimate once
+    # the price's unit is known — see test_pe_units.py and ORA.TA.
+    "currency": "USD",
 }
 
 print("\n── the fallback must FIRE on a partially degraded response ──")
@@ -79,6 +86,17 @@ check("does NOT say 'not profitable'",
 check("says the number was computed here",
       any(k == "pe_computed" for k, _ in r["explanation_parts"]), True)
 check("scored (was None, so the valuation pillar vanished)", r["score"] is not None, True)
+
+print("\n── without a currency the multiple cannot be computed, by design ──")
+# Recorded as a deliberate trade-off rather than left implicit. If BOTH the
+# quote and the chart fallback fail to report a currency, the price's unit is
+# unknown and price/EPS could be off by 100x (agorot) or by an exchange rate.
+# We give up the number instead of guessing — the alternative shipped a P/E of
+# 16955.4 for ORA.TA on 2026-08-12.
+r_nc = az.metric_pe_ratio({k: v for k, v in PARTIAL.items() if k != "currency"}, income)
+check("no currency -> value None", r_nc["value"], None)
+check("no currency -> 'not reported', never 'not profitable'",
+      [k for k, _ in r_nc["explanation_parts"]], ["pe_not_reported"])
 
 print("\n── a company with NO earnings must still be called unprofitable ──")
 loss = pd.DataFrame({pd.Timestamp("2025-09-30"): [-2.10]}, index=["Diluted EPS"])
