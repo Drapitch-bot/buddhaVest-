@@ -43,7 +43,10 @@ function formatBigNumber(num) {
 // monetary metrics below are reported in the company's own currency, so a
 // hard-coded '$' mislabelled every Israeli stock's cash flow / cash position.
 function metricValueDisplay(key, metric, cur) {
-  const sym = cur || '$';
+  // `??` for the same reason as MetricHistoryScreen: '' is the deliberate
+  // "reporting currency unknown, show no sign" value, and `||` would treat it
+  // as missing and print a dollar sign over a figure that may be in shekels.
+  const sym = cur ?? '$';
   const v = metric && metric.value;
   if (v == null) return '—';
   const bigKeys   = ['free_cash_flow', 'net_income_trend', 'operating_cash_flow', 'cash_position', 'cost_of_revenue'];
@@ -363,8 +366,21 @@ export default function StockScreen({ route, navigation }) {
   // line is populated even before /analyze responds.
   const companyName = (data && data.company_name) || name || null;
   // Statements can be published in a different currency from the share price.
-  // Falls back to the price currency when the server doesn't say (older cache).
-  const finSymbol = symbolFor((data && data.financial_currency) || (data && data.price_currency));
+  //
+  // When the provider omits the reporting currency the server no longer guesses
+  // it for listings where a split is common, and sends financial_currency_known
+  // = false instead. Measured on ORA.TA on 2026-08-12: the old fallback stamped
+  // ILS 989.5M on revenue of USD 989.5M — ILS 2.96B — so the sign made a
+  // threefold error look like a precise figure. An unlabelled number is
+  // incomplete; a wrongly labelled one is false, and only one of those is
+  // repairable by the person reading it.
+  //
+  // The fallback stays for a server that predates the flag (older cached
+  // response), where the absence of the key is not the same as a false one.
+  const finKnown = !(data && data.financial_currency_known === false);
+  const finSymbol = finKnown
+    ? symbolFor((data && data.financial_currency) || (data && data.price_currency))
+    : '';
 
   // Every long translated string on this screen (recommendation explanation,
   // card descriptions, the Munger checklist, metric notes) was rendering

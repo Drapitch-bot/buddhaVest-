@@ -103,7 +103,12 @@ export default function PriceChart({ data, colors, height = 200, showCurrency = 
   const tipY = tp ? Math.max(tp.y - TOOLTIP_H - 6, PAD.top) : 0;
 
   function fmtPrice(v) {
-    const prefix = showCurrency ? (currency || '$') : '';
+    // `??`, not `||`, for the same reason as StockScreen: an empty string means
+    // "no currency could be established, show none", and `||` would silently
+    // replace that with a dollar sign. This chart plots the PRICE, whose
+    // currency the server always knows, so today it changes nothing — but the
+    // rule has to hold everywhere or the next caller reintroduces the bug.
+    const prefix = showCurrency ? (currency ?? '$') : '';
     const abs = Math.abs(v);
     const sign = v < 0 ? '-' : '';
     if (abs >= 1e12) return sign + prefix + (abs / 1e12).toFixed(2) + 'T';

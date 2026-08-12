@@ -231,8 +231,15 @@ export default function MetricHistoryScreen({ route, navigation }) {
   // (ESLT.TA trades in ILS, reports in USD). `cur` labels the metric's own
   // figures; `priceCur` labels a PRICE fallback chart, which is always in the
   // trading currency. Using one for both would print "$2512" on Elbit's price.
-  const cur      = route.params.cur || '$';
-  const priceCur = route.params.priceCur || cur;
+  // `??`, not `||`. An empty string is a DELIBERATE value here: it means the
+  // server could not establish the reporting currency, so statement figures are
+  // shown unlabelled rather than under a sign that might be wrong (see
+  // StockScreen and ORA.TA, 2026-08-12). With `||` the empty string is falsy
+  // and the dollar sign came straight back one tap into the detail screen —
+  // the fix would have held on the tile and failed on the page behind it.
+  // `undefined` still falls back, because that means "not passed", not "blank".
+  const cur      = route.params.cur ?? '$';
+  const priceCur = route.params.priceCur ?? cur;
   const { colors, t, lang } = useApp();
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState('quarterly');

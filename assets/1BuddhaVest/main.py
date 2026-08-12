@@ -1459,10 +1459,17 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         result["inline_history"] = {}
 
     # ── Israeli (TASE) listings ──
-    # Yahoo quotes Tel-Aviv stocks in agorot (1/100 ILS), while marketCap /
-    # revenue / net income stay in shekel. Convert the per-share PRICE fields to
-    # shekel and tag the currency so the app shows ₪ and skips the (wrong)
-    # USD→ILS conversion. Ratios (P/E etc.) are unit-free and already correct.
+    # Yahoo quotes Tel-Aviv stocks in agorot (1/100 ILS), while revenue, net
+    # income and cash stay in the statements' own currency. Convert the
+    # per-share PRICE fields to shekel and tag the currency so the app shows ₪
+    # and skips the (wrong) USD→ILS conversion.
+    #
+    # Two claims that used to sit here were both false and both shipped a wrong
+    # number to users:
+    #   "marketCap stays in shekel"  — it does not; see _reconcile_market_cap.
+    #   "ratios are unit-free"       — true of a ratio the PROVIDER computed,
+    #                                  false of one computed here from a price;
+    #                                  see _price_eps_units_agree in analyzer.py.
     #
     # Detection is by BOTH the ".TA" suffix (TASE equities are always quoted in
     # agorot) AND the currency field ("ILA"/"ILS") — belt and suspenders, since
@@ -1477,6 +1484,7 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         # already in shekel ("ILS"); every other TASE case is agorot.
         if _ccy != "ILS":
             _scale_price_fields(result, 100.0)
+            _reconcile_market_cap(result, info, 100.0)
     else:
         # Yahoo reports the real trading currency; using it means a German, UK
         # or Japanese listing is no longer stamped with a dollar sign. The old
@@ -1489,6 +1497,7 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         if _minor:
             result["price_currency"] = _minor[0]
             _scale_price_fields(result, _minor[1])
+            _reconcile_market_cap(result, info, _minor[1])
         else:
             result["price_currency"] = _ccy or "USD"
 
@@ -1502,7 +1511,28 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
     _fin_ccy = (info.get("financialCurrency") or "").upper()
     if _fin_ccy == "ILA":          # agorot is never a reporting currency
         _fin_ccy = "ILS"
-    result["financial_currency"] = _fin_ccy or result["price_currency"]
+
+    # When the provider does not report it, the old code fell back to the
+    # trading currency. Measured on ORA.TA on 2026-08-12: financialCurrency was
+    # absent, the fallback stamped ILS on statements written in dollars, and the
+    # app showed "ILS 989.5M" of revenue for a company that earned USD 989.5M —
+    # ILS 2.96B. A threefold error on revenue, net income, cash and cash flow,
+    # presented with a currency sign that made it look precise.
+    #
+    # The guess is only dangerous where the split actually happens: a listing
+    # quoted in a minor unit is one whose company may well report abroad, and
+    # Elbit, Ormat and Teva all do. For an ordinary listing the trading currency
+    # is the reporting currency often enough that dropping the sign would be a
+    # worse trade. So: guess where it is safe, say nothing where it is not.
+    _fin_known = bool(_fin_ccy)
+    if not _fin_known and not _minor_unit_for(_ccy_raw) and not _is_tase:
+        _fin_ccy = result["price_currency"]
+        _fin_known = True
+
+    result["financial_currency"] = _fin_ccy or None
+    # The client needs to tell "USD, confirmed" from "we do not know", because
+    # the honest rendering of the second is a number with no currency sign.
+    result["financial_currency_known"] = _fin_known
 
     _cache_set(cache_key, result, CACHE_TTL["stock"])
     return result
@@ -1547,10 +1577,17 @@ def _scale_price_fields(result: dict, divisor: float) -> None:
     """
     Divide every PER-SHARE field by `divisor`, in place.
 
-    Deliberately does NOT touch market cap, revenue, net income or cash: those
-    are already reported in the major unit, so dividing them would introduce the
-    mirror image of the bug this fixes. Verified on Tel Aviv, where marketCap is
-    in shekel while the quote is in agorot.
+    Deliberately does NOT touch revenue, net income or cash: those come from the
+    financial statements, which are already in the major unit, so dividing them
+    would introduce the mirror image of the bug this fixes.
+
+    It does not touch market cap either, but NOT because market cap is safe.
+    That claim used to be here — "Verified on Tel Aviv, where marketCap is in
+    shekel while the quote is in agorot" — and it is wrong. Measured on
+    2026-08-12, ORA.TA and POLI.TA both reported a market cap 100x too large,
+    and the app showed Bank Hapoalim as a ILS 10 trillion company. Market cap is
+    handled by _reconcile_market_cap instead, which checks it against shares x
+    price rather than believing either version of this comment.
     """
     if result.get("current_price") is not None:
         result["current_price"] = round(result["current_price"] / divisor, 2)
@@ -1561,6 +1598,103 @@ def _scale_price_fields(result: dict, divisor: float) -> None:
     _h = result.get("history")
     if _h and _h.get("prices"):
         _h["prices"] = [round(p / divisor, 2) for p in _h["prices"]]
+
+
+def _shares_outstanding(result: dict, info: dict):
+    """
+    Share count, from whichever source is available. None if neither is.
+
+    Two sources on purpose. `sharesOutstanding` is the direct one but lives in
+    the part of quoteSummary that degrades. Net income divided by diluted EPS
+    is arithmetic on the income statement, which arrives separately — and it is
+    unit-free, so it stays correct even when the statements are in a different
+    currency from the quote (Ormat reports in dollars and trades in shekels).
+    """
+    direct = info.get("sharesOutstanding") if isinstance(info, dict) else None
+    try:
+        if direct and float(direct) > 0:
+            return float(direct)
+    except (TypeError, ValueError):
+        pass
+    try:
+        hist = (result.get("inline_history") or {})
+        ni = ((hist.get("net_income") or {}).get("annual") or [])
+        eps = ((hist.get("eps") or {}).get("annual") or [])
+        if ni and eps:
+            n = float(ni[-1]["value"])
+            e = float(eps[-1]["value"])
+            if e > 0 and n > 0:
+                return n / e
+    except Exception as _e:
+        swallow("main:_shares_outstanding", _e)
+    return None
+
+
+def _reconcile_market_cap(result: dict, info: dict, divisor: float) -> None:
+    """
+    Make market cap agree with shares x price, or publish nothing.
+
+    _scale_price_fields deliberately leaves market cap alone, on the stated
+    grounds that "marketCap is in shekel while the quote is in agorot". Measured
+    on 2026-08-12, that is false for both tickers checked:
+
+        ORA.TA   reported  ILS 2,106.27B   shares x price  ILS  21.01B   x100.3
+        POLI.TA  reported  ILS 10,048.53B  shares x price  ILS 101.49B   x99.0
+
+    Bank Hapoalim is a ~ILS 100B company and the app was calling it a ILS 10
+    trillion one, on the stock screen and in the market table. One of those two
+    tickers reports in dollars and one in shekels, so this is not a
+    reporting-currency artefact — the quote unit reaches market cap too.
+
+    Blindly dividing by 100 would be trading one assumption for another, and
+    whoever wrote that docstring presumably saw something. So this does not
+    assume: it reconstructs the market cap from the share count and the price
+    that were already converted, and acts on the ratio.
+
+      ratio near 1        the value is already in the major unit — leave it
+      ratio near divisor  it is in the minor unit — divide, and say so
+      anything else       we cannot explain it, so we do not publish it
+
+    Suppressing is the right third branch. A market cap the user can read is
+    worth less than not being lied to, and `report()` means the case reaches
+    Sentry instead of a screenshot.
+    """
+    try:
+        overview = result.get("overview") or {}
+        mc = overview.get("market_cap")
+        price = result.get("current_price")
+        if mc is None or not price or price <= 0:
+            return
+
+        shares = _shares_outstanding(result, info)
+        if not shares:
+            # Unverifiable. Both tickers measured were in the minor unit, but
+            # one unverified guess is what produced this bug, so say nothing.
+            overview["market_cap"] = None
+            report("market_cap_unverifiable", ticker=result.get("ticker"),
+                   reported=mc, reason="no share count from either source")
+            return
+
+        expected = shares * price
+        if expected <= 0:
+            return
+        ratio = mc / expected
+
+        if 0.5 <= ratio <= 2.0:
+            return                                  # already correct
+        if divisor * 0.5 <= ratio <= divisor * 2.0:
+            overview["market_cap"] = mc / divisor
+            report("market_cap_rescaled", ticker=result.get("ticker"),
+                   was=mc, now=overview["market_cap"], divisor=divisor,
+                   ratio=round(ratio, 2))
+            return
+
+        overview["market_cap"] = None
+        report("market_cap_unexplained", ticker=result.get("ticker"),
+               reported=mc, expected=round(expected, 2), ratio=round(ratio, 2))
+    except Exception as _e:
+        swallow("main:_reconcile_market_cap", _e, notify=True,
+                ticker=result.get("ticker"))
 
 
 # Exchanges whose quotes arrive in a MINOR unit while the financial statements

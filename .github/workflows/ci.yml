@@ -123,6 +123,20 @@ jobs:
         working-directory: assets/1BuddhaVest
         run: python test_partial_degradation.py
 
+      - name: Market cap agrees with shares x price
+        # Measured 2026-08-12: ORA.TA and POLI.TA both reported a market cap
+        # 100x too large, and the app presented Bank Hapoalim — a ~ILS 100B
+        # bank — as a ILS 10 trillion company, on the stock screen and in the
+        # sortable market table. A docstring in main.py asserted the opposite
+        # and that assertion is why nothing caught it.
+        #
+        # These tests pin the reconciliation, including the branch that refuses
+        # to publish anything when the share count is unavailable — because
+        # "divide by 100" would have been right for both tickers measured, and
+        # acting on that would be the same unverified guess in a new coat.
+        working-directory: assets/1BuddhaVest
+        run: python test_market_cap.py
+
       - name: A computed P/E never mixes units
         # On 2026-08-12 the app showed a P/E of 16955.4 for ORA.TA. The
         # arithmetic was right and the inputs were incomparable: Tel Aviv quotes
@@ -268,6 +282,58 @@ jobs:
           cache: npm
 
       - run: npm ci --no-audit --no-fund
+
+      - name: A blank currency symbol is never turned back into a dollar sign
+        # '' is a deliberate value: it means the server could not establish the
+        # reporting currency, so statement figures are shown with no sign rather
+        # than a possibly wrong one. An empty string is falsy, so `cur || '$'`
+        # silently converts that decision back into "$".
+        #
+        # This is not hypothetical. The fix held on the tile and was undone one
+        # tap away in MetricHistoryScreen, which read `route.params.cur || '$'`.
+        # A user opening ORA.TA's cash-flow detail would have seen the dollar
+        # sign restored over a shekel-or-dollar figure nobody had established.
+        run: |
+          node - <<'EOF'
+          const parser = require('@babel/parser');
+          const fs = require('fs'), path = require('path');
+          const NAMES = new Set(['cur', 'priceCur', 'sym', 'finSymbol', 'priceSymbol', 'currency']);
+          const roots = ['screens', 'components', 'utils'];
+          const files = [];
+          for (const r of roots) {
+            if (!fs.existsSync(r)) continue;
+            for (const f of fs.readdirSync(r)) if (f.endsWith('.js')) files.push(path.join(r, f));
+          }
+          const bad = [];
+          for (const f of files) {
+            const src = fs.readFileSync(f, 'utf8');
+            const ast = parser.parse(src, { sourceType: 'module', plugins: ['jsx'] });
+            (function walk(n) {
+              if (!n || typeof n !== 'object') return;
+              if (n.type === 'LogicalExpression' && n.operator === '||'
+                  && n.left.type === 'Identifier' && NAMES.has(n.left.name)
+                  && n.right.type === 'StringLiteral') {
+                bad.push(`${f}:${n.loc.start.line}  ${n.left.name} || '${n.right.value}'  -> use ??`);
+              }
+              if (n.type === 'LogicalExpression' && n.operator === '||'
+                  && n.left.type === 'MemberExpression' && n.left.property
+                  && NAMES.has(n.left.property.name)) {
+                bad.push(`${f}:${n.loc.start.line}  ...${n.left.property.name} || ...  -> use ??`);
+              }
+              for (const k of Object.keys(n)) {
+                const v = n[k];
+                if (Array.isArray(v)) v.forEach(walk);
+                else if (v && typeof v.type === 'string') walk(v);
+              }
+            })(ast.program);
+          }
+          if (bad.length) {
+            console.error('A blank currency symbol would be replaced by a hard-coded one:');
+            bad.forEach(b => console.error('  ' + b));
+            process.exit(1);
+          }
+          console.log('  no currency symbol is defaulted with || across ' + files.length + ' files');
+          EOF
 
       - name: The deploy checker agrees with the server
         # check-live.js decides "is my code deployed?" by comparing a digest it
