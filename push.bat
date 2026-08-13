@@ -100,9 +100,14 @@ echo [4/5] OTA SKIPPED - the app on the phone keeps the bundle it has
 
 echo.
 echo   DONE.
+echo   - Server changes redeploy on Render by themselves, ~1-5 min.
+echo   - Confirm with:  .\check.bat
+if /i "%~2"=="noota" goto :doneNoOta
 echo   - Force-close the app on your phone, then reopen it (pulls the OTA).
-echo   - Server changes (main.py) redeploy on Render by themselves, ~1 min.
-echo   - Then check SHEL.L or BP.L: the price should be about 25, not 2578.
+endlocal & exit /b 0
+:doneNoOta
+echo   - No OTA was published, so the app keeps the bundle it already has.
+echo     Any CLIENT change in this push is NOT on the phone yet.
 endlocal & exit /b 0
 
 :ciFailed
