@@ -4,13 +4,11 @@ REM  push.bat - commit, push, and publish an OTA update in one go.
 REM
 REM  Usage:  .\push.bat "your commit message"
 REM          .\push.bat                          (generic message)
-REM          .\push.bat "message" skipci         (skip the CI gate)
+REM          .\push.bat "message" ci             (run CI first, stop if red)
 REM
-REM  Step 1 runs the GitHub Actions workflow locally and STOPS if
-REM  anything fails. Added 2026-08-12, after a push went out red and
-REM  the first anyone knew was an email from GitHub. Running the test
-REM  files by hand is not the same thing: over half of ci.yml is
-REM  lint-style checks on the source, and one of those was what broke.
+REM  The CI gate is OPT-IN. It was briefly the default on 2026-08-12
+REM  and taking the machine down, so it is off unless you ask for it.
+REM  Run the checks on their own any time with:  .\ci.bat
 REM
 REM  ASCII ONLY - ON PURPOSE. Do not add Hebrew text or a chcp line.
 REM  cmd.exe reads a .bat by BYTE OFFSET, so switching the codepage
@@ -26,18 +24,22 @@ cd /d "%~dp0"
 set "MSG=%~1"
 if "%MSG%"=="" set "MSG=Update"
 
-REM --- 0. CI gate --------------------------------------------------
-REM Nothing below this point should run against a red build. Push it
-REM anyway with:  .\push.bat "message" skipci
-if /i "%~2"=="skipci" goto :skipci
+REM --- 0. CI gate (OPT-IN) -----------------------------------------
+REM This ran automatically for about an hour on 2026-08-12 and was
+REM turned back off the same day: the machine went down every time
+REM push.bat was run. A gate that can take the computer with it is
+REM worse than the red build it was added to prevent, so it is now
+REM explicit until the cause is confirmed and ruled out.
+REM
+REM   .\push.bat "message" ci     run the checks first, stop if red
+REM   .\push.bat "message"        push without them (previous behaviour)
+REM
+REM Either way you can always run them on their own:  .\ci.bat
+if /i not "%~2"=="ci" goto :ciDone
 echo.
 echo [0/5] running the CI workflow locally
 node scripts\run-ci.js
 if errorlevel 1 goto :ciFailed
-goto :ciDone
-:skipci
-echo.
-echo [0/5] CI gate SKIPPED at your request
 :ciDone
 
 REM --- 1. stale index.lock -----------------------------------------
@@ -89,7 +91,7 @@ endlocal & exit /b 0
 echo.
 echo   CI FAILED - nothing was committed, pushed or published.
 echo   GitHub would have run exactly the same steps and mailed you.
-echo   Fix what is listed above, or override with: .\push.bat "msg" skipci
+echo   Fix what is listed above, or push without the gate: .\push.bat "msg"
 endlocal & exit /b 1
 
 :gitbusy

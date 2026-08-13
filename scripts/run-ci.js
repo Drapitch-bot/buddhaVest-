@@ -55,6 +55,71 @@ if (!PY) {
   process.exit(1);
 }
 
+/**
+ * The bash to run steps with — and, on Windows, emphatically NOT the one that
+ * comes first on PATH.
+ *
+ * Windows ships C:\Windows\System32\bash.exe. It is not a shell: it is the
+ * launcher for the Windows Subsystem for Linux. System32 sits near the front
+ * of PATH on essentially every machine, so a bare spawn('bash') finds THAT
+ * one, and each call boots or attaches a WSL 2 virtual machine. This script
+ * makes 23 of them back to back, on a machine already running Node, Python
+ * and whatever else — and a WSL 2 VM reserves memory up front.
+ *
+ * Reported on 2026-08-12: running push.bat took the machine down. This is the
+ * mechanism I can name and rule out, so it is ruled out here by construction:
+ * anything under System32 is refused outright, and the bash that ships with
+ * Git for Windows is located directly instead of being looked up by name.
+ *
+ * If neither is found, this stops with an explanation. It does not fall back
+ * to the PATH lookup — the whole point is not to run that one.
+ */
+function resolveBash() {
+  if (process.platform !== 'win32') return 'bash';
+
+  const tried = [];
+  const candidates = [];
+
+  // Ask git where it lives, and take the bash next to it. More reliable than
+  // guessing Program Files, and it works for portable installs.
+  try {
+    const gitPath = execSync('where git', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .split('\n')[0].trim();
+    if (gitPath) {
+      const gitRoot = path.resolve(path.dirname(gitPath), '..');
+      candidates.push(path.join(gitRoot, 'bin', 'bash.exe'));
+      candidates.push(path.join(gitRoot, '..', 'bin', 'bash.exe'));
+    }
+  } catch { /* git not on PATH; the fixed locations below still apply */ }
+
+  for (const base of [process.env.ProgramFiles, process.env['ProgramFiles(x86)'],
+                      process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs')]) {
+    if (base) candidates.push(path.join(base, 'Git', 'bin', 'bash.exe'));
+  }
+
+  const sys32 = (process.env.SystemRoot || 'C:\\Windows').toLowerCase() + '\\system32';
+  for (const c of candidates) {
+    const full = path.resolve(c);
+    tried.push(full);
+    if (full.toLowerCase().startsWith(sys32)) continue;      // the WSL launcher
+    if (fs.existsSync(full)) return full;
+  }
+
+  console.error('\n' + RED + 'Could not find the bash that ships with Git for Windows.' + RESET);
+  console.error('Looked in:');
+  tried.forEach(t => console.error('  ' + t));
+  console.error('\nNot falling back to whatever `bash` is on PATH: on Windows that is');
+  console.error('usually C:\\Windows\\System32\\bash.exe, which starts a WSL virtual');
+  console.error('machine rather than a shell.\n');
+  console.error('Install Git for Windows, or run the checks one at a time:');
+  console.error('  cd assets\\1BuddhaVest && ' + PY + ' test_market_cap.py\n');
+  process.exit(2);
+}
+
+const BASH = resolveBash();
+console.log(DIM + 'shell:  ' + BASH + RESET);
+console.log(DIM + 'python: ' + PY + RESET);
+
 let failed = [];
 let ran = 0;
 
@@ -74,12 +139,11 @@ for (const [jobName, job] of Object.entries(doc.jobs || {})) {
     // Steps are written for GitHub's bash. On Windows, Git for Windows ships
     // one; without it there is no honest way to run the workflow and pretending
     // otherwise is how you end up trusting a check that never ran.
-    const res = spawnSync('bash', ['-c', step.run.replace(/\bpython\b/g, PY)],
+    const res = spawnSync(BASH, ['-c', step.run.replace(/\bpython\b/g, PY)],
                           { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 
     if (res.error) {
-      console.error('\n' + RED + 'could not run bash: ' + res.error.message + RESET);
-      console.error('On Windows this comes with Git — make sure Git\'s bin folder is on PATH.\n');
+      console.error('\n' + RED + 'could not run ' + BASH + ': ' + res.error.message + RESET);
       process.exit(2);
     }
 
