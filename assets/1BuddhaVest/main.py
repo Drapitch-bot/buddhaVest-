@@ -1529,6 +1529,14 @@ def _analyze_uncached(ticker: str, lang: str, cache_key: str):
         _fin_ccy = result["price_currency"]
         _fin_known = True
 
+    # Last resort, and only where the two lines above have already given up:
+    # work it out from the arithmetic. Never runs when the provider told us.
+    if not _fin_known:
+        _inferred = _infer_financial_currency(result)
+        if _inferred:
+            _fin_ccy = _inferred
+            _fin_known = True
+
     result["financial_currency"] = _fin_ccy or None
     # The client needs to tell "USD, confirmed" from "we do not know", because
     # the honest rendering of the second is a number with no currency sign.
@@ -1634,6 +1642,92 @@ def _shares_outstanding(result: dict, info: dict):
     except Exception as _e:
         swallow("main:_shares_outstanding", _e)
     return None
+
+
+# A trailing P/E outside this range is not impossible, but it is rare enough
+# that a value landing inside it while the alternative lands outside is real
+# evidence about which currency the statements are in. Widening it makes the
+# test give up more often; narrowing it makes it answer more often and be wrong
+# more often. Giving up is the cheap failure here, so the band stays generous.
+_PLAUSIBLE_PE = (5.0, 60.0)
+
+
+def _infer_financial_currency(result: dict):
+    """
+    Work out the reporting currency when the provider did not say. None if it
+    cannot be established — which is most of the time, and is fine.
+
+    The problem: for a Tel Aviv listing, Yahoo often omits financialCurrency,
+    and the two possibilities are three-fold apart. Ormat trades in shekels and
+    reports in dollars; Bank Hapoalim trades and reports in shekels. Guessing
+    the trading currency for both is what labelled USD 989.5M of Ormat revenue
+    as ILS 989.5M on 2026-08-12.
+
+    The test. Market cap is in the trading currency and net income is in the
+    reporting currency, so `market cap / net income` is a real P/E when the two
+    agree and a P/E multiplied by the exchange rate when they do not. Compute
+    both candidates and accept an answer only when exactly ONE of them is a
+    plausible multiple:
+
+        ORA.TA    169.0 raw    56.6 / FX     only the second is plausible -> USD
+        POLI.TA    10.4 raw     3.5 / FX     only the first  is plausible -> ILS
+
+    Both measured live on 2026-08-13, and both land on the right answer.
+
+    What keeps this honest rather than clever:
+
+      - It NEVER overrides a reported financialCurrency. It only fills a gap
+        that currently renders with no currency sign at all, so the worst case
+        is measured against showing nothing, not against showing the truth.
+      - Ambiguous means unknown. If both candidates are plausible, or neither
+        is, it returns None and the figure stays unlabelled.
+      - Only ILS listings, because usd_ils is the only rate on hand. A pence or
+        rand listing with a missing reporting currency stays unknown.
+      - Every conclusion is reported, so Sentry shows how often it fires and on
+        what, instead of this quietly deciding things forever.
+    """
+    try:
+        if (result.get("price_currency") or "") != "ILS":
+            return None
+
+        fx = result.get("usd_ils")
+        if not isinstance(fx, (int, float)) or isinstance(fx, bool):
+            return None
+        fx = float(fx)
+        if not (1.0 < fx < 100.0):          # a broken rate must not decide this
+            return None
+
+        mc = (result.get("overview") or {}).get("market_cap")
+        ni_series = ((result.get("inline_history") or {}).get("net_income") or {}).get("annual") or []
+        if not mc or not ni_series:
+            return None
+        ni = float(ni_series[-1]["value"])
+        mc = float(mc)
+        if ni <= 0 or mc <= 0:              # a loss-making year says nothing here
+            return None
+
+        raw = mc / ni                       # plausible if the currencies agree
+        adjusted = raw / fx                 # plausible if the statements are USD
+
+        lo, hi = _PLAUSIBLE_PE
+        raw_ok = lo <= raw <= hi
+        adj_ok = lo <= adjusted <= hi
+
+        if raw_ok and not adj_ok:
+            verdict = "ILS"
+        elif adj_ok and not raw_ok:
+            verdict = "USD"
+        else:
+            report("fin_currency_ambiguous", ticker=result.get("ticker"),
+                   raw=round(raw, 1), adjusted=round(adjusted, 1))
+            return None
+
+        report("fin_currency_inferred", ticker=result.get("ticker"),
+               verdict=verdict, raw=round(raw, 1), adjusted=round(adjusted, 1))
+        return verdict
+    except Exception as _e:
+        swallow("main:_infer_financial_currency", _e, ticker=result.get("ticker"))
+        return None
 
 
 def _reconcile_market_cap(result: dict, info: dict, divisor: float) -> None:

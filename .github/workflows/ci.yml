@@ -123,6 +123,20 @@ jobs:
         working-directory: assets/1BuddhaVest
         run: python test_partial_degradation.py
 
+      - name: The reporting currency is inferred, or admitted unknown
+        # Yahoo omits financialCurrency for most Tel Aviv listings and the two
+        # candidates are three-fold apart: Ormat trades in shekels and reports
+        # in dollars, Bank Hapoalim does both in shekels. Defaulting to the
+        # trading currency labelled USD 989.5M of Ormat revenue as ILS 989.5M.
+        #
+        # Most of this suite guards the FAILURE mode rather than the success
+        # one. The function is allowed to be unsure — the figure then renders
+        # with no currency sign, which is the status quo. It is not allowed to
+        # be confidently wrong, because that is the original bug with a better
+        # argument attached.
+        working-directory: assets/1BuddhaVest
+        run: python test_fin_currency.py
+
       - name: Market cap agrees with shares x price
         # Measured 2026-08-12: ORA.TA and POLI.TA both reported a market cap
         # 100x too large, and the app presented Bank Hapoalim — a ~ILS 100B

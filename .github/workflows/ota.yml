@@ -1,0 +1,79 @@
+name: OTA — publish the app bundle from CI
+
+# Why this is here: `eas update` bundles the whole app with Metro, one worker
+# per core, every core pinned for the length of the build. Run on a laptop that
+# is also running everything else, that is the heaviest thing in this repo — and
+# the machine shut down three times during push.bat before the bundle step was
+# made skippable (Event 41 + 6008, no 1074: nothing requested a shutdown).
+#
+# GitHub's runners are disposable and have nothing else to lose. Moving the
+# bundle here removes the load from the machine entirely rather than trimming
+# it, which is what metro.config.js does as a fallback for local runs.
+#
+# Deliberately manual (workflow_dispatch), not on every push. Most pushes in
+# this repo are server-only, and Render redeploys those from the push by
+# itself — publishing an OTA for them would be pure waste.
+#
+# ── One-time setup ───────────────────────────────────────────────────────────
+# 1. Create an Expo access token:  https://expo.dev/settings/access-tokens
+# 2. GitHub → this repo → Settings → Secrets and variables → Actions →
+#    New repository secret, named EXPO_TOKEN, with that value.
+# 3. Then: Actions tab → "OTA — publish the app bundle from CI" → Run workflow.
+#
+# Without EXPO_TOKEN the job stops on the first step with that message rather
+# than failing somewhere confusing later.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'EAS branch to publish to'
+        required: true
+        default: 'preview'
+        type: choice
+        options: [preview, production]
+      message:
+        description: 'Update message (shown in the EAS dashboard)'
+        required: false
+        default: ''
+
+jobs:
+  publish:
+    name: eas update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the token is set
+        # Without this the failure surfaces as an opaque auth error three
+        # minutes into a bundle, which is the least useful moment to learn it.
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "::error::EXPO_TOKEN is not set. Create one at https://expo.dev/settings/access-tokens, then add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          echo "  EXPO_TOKEN is present"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Publish the update
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then MSG="$(git log -1 --pretty=%s)"; fi
+          echo "  branch:  ${{ github.event.inputs.branch }}"
+          echo "  message: $MSG"
+          npx eas-cli@latest update \
+            --branch "${{ github.event.inputs.branch }}" \
+            --message "$MSG" \
+            --non-interactive
+
+      - name: What to do next
+        run: |
+          echo "Published. Force-close the app on the phone and reopen it to pull the bundle."
