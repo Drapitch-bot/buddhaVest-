@@ -1038,7 +1038,7 @@ def privacy():
 <body>
 
 <h1>BuddhaVest — Privacy Policy</h1>
-<p class="meta">Last updated: July 2026 &nbsp;·&nbsp; Contact: <a href="mailto:supportbuddhavest@gmail.com">supportbuddhavest@gmail.com</a></p>
+<p class="meta">Last updated: August 2026 &nbsp;·&nbsp; Contact: <a href="mailto:supportbuddhavest@gmail.com">supportbuddhavest@gmail.com</a></p>
 
 <div class="box">
   <strong>BuddhaVest is a stock research tool, not a financial advisor.</strong>
@@ -1072,11 +1072,18 @@ def privacy():
   web server, our hosting provider keeps standard technical logs (which can include the
   requesting IP address and the URL requested) for a short period for security and
   troubleshooting. We do not use these logs for advertising or profiling.</p>
+<p><strong>One exception to "not stored".</strong> When something fails on our server, an
+  error report is recorded so the fault can be found and fixed. That report can include
+  the ticker symbol that was being processed at the time, because without it the failure
+  cannot be reproduced. It contains no identifier of any kind for the person who made the
+  request — no account, no device ID, and no IP address. Reports are kept only as long as
+  our error-monitoring provider retains them.</p>
 
 <h2>3. Third-Party Services</h2>
-<p>BuddhaVest retrieves market data and news from public financial data sources. Article translation is powered by Google Translate. These services have their own privacy policies:</p>
+<p>BuddhaVest retrieves market data and news from public financial data sources. Article translation is powered by Google Translate. Server-side error reports are handled by Sentry. These services have their own privacy policies:</p>
 <ul>
   <li><a href="https://policies.google.com/privacy" target="_blank">Google Privacy Policy</a></li>
+  <li><a href="https://sentry.io/privacy/" target="_blank">Sentry Privacy Policy</a></li>
 </ul>
 <p>We do not share your data with advertisers or any third party for commercial purposes.</p>
 
