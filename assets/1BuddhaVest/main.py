@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse
 import hashlib
+import html as _html
 import json
 import math
 import os
@@ -244,6 +245,75 @@ def _too_large(resp) -> bool:
         return cl is not None and int(cl) > _MAX_HTML_BYTES
     except Exception:
         return False
+
+_IMG_JUNK = ("logo", "icon", "avatar", "sprite", "pixel", "spacer", "1x1",
+             "blank.", "transparent.", "placeholder", "advert", "/ads/", "doubleclick")
+
+
+def _image_src(tag, page_url: str):
+    """
+    A usable, absolute image URL from an <img>, or None.
+
+    Harder than tag["src"] for three reasons, each of which produced a broken
+    image in testing:
+
+      - Lazy loading. Most news sites ship a 1x1 placeholder in `src` and the
+        real file in `data-src`, `data-lazy-src` or `srcset`. Reading `src`
+        first gets you a blank pixel on exactly the sites people read.
+      - Relative paths. "/img/chart.png" is meaningless once the HTML is
+        rendered inside the app, so it has to be resolved against the article.
+      - Junk. Logos, avatars, tracking pixels and ad slots are all <img> tags,
+        and a page has more of them than it has real pictures.
+
+    The result is fed to the same _validate_public_url used for the article
+    itself, so a page cannot point this at an internal address.
+    """
+    try:
+        src = ""
+        for attr in ("data-src", "data-lazy-src", "data-original", "src"):
+            v = (tag.get(attr) or "").strip()
+            if v and not v.startswith("data:"):
+                src = v
+                break
+        if not src:
+            # srcset: "small.jpg 400w, big.jpg 1200w" — take the widest.
+            srcset = (tag.get("srcset") or tag.get("data-srcset") or "").strip()
+            best, best_w = "", -1
+            for part in srcset.split(","):
+                bits = part.strip().split()
+                if not bits:
+                    continue
+                w = 0
+                if len(bits) > 1 and bits[1].endswith("w"):
+                    try:
+                        w = int(bits[1][:-1])
+                    except ValueError:
+                        w = 0
+                if w >= best_w:
+                    best, best_w = bits[0], w
+            src = best
+        if not src or src.startswith("data:"):
+            return None
+
+        from urllib.parse import urljoin
+        src = urljoin(page_url, src)
+
+        low = src.lower()
+        if any(j in low for j in _IMG_JUNK):
+            return None
+
+        # Declared dimensions are the cheapest way to spot a tracking pixel
+        # without fetching anything.
+        for attr in ("width", "height"):
+            raw = (tag.get(attr) or "").strip().rstrip("px")
+            if raw.isdigit() and int(raw) < 80:
+                return None
+
+        return _validate_public_url(src)
+    except Exception as _e:
+        swallow("main:_image_src", _e)
+        return None
+
 
 def _validate_public_url(u: str) -> str:
     """
@@ -3289,12 +3359,36 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
             for bs_tag in soup(["script", "style", "nav", "header", "footer", "aside", "form", "iframe", "noscript"]):
                 bs_tag.decompose()
             body = soup.find("article") or soup.find(attrs={"itemprop": "articleBody"}) or soup.body
-            bs_tags = body.find_all(["h1", "h2", "h3", "p"]) if body else []
+            # Lists and images are part of an article, not decoration. The tag
+            # list used to be headings and paragraphs only, which is why every
+            # translated article arrived as a wall of grey text with the charts
+            # and photos silently dropped — reported 2026-08-15.
+            bs_tags = body.find_all(
+                ["h1", "h2", "h3", "h4", "p", "li", "blockquote", "img", "figcaption"]
+            ) if body else []
+            seen_images = set()
+            chars = 0
             for bs_tag in bs_tags:
+                if bs_tag.name == "img":
+                    src = _image_src(bs_tag, url)
+                    if src and src not in seen_images:
+                        seen_images.add(src)
+                        items.append(("img", src))
+                    continue
                 text = bs_tag.get_text(separator=" ", strip=True)
-                if len(text) > 40:
+                # Captions are short by nature; the 40-char floor written for
+                # paragraphs would have thrown every one of them away.
+                floor = 12 if bs_tag.name == "figcaption" else (
+                    18 if bs_tag.name == "li" else 40)
+                if len(text) > floor:
                     items.append((bs_tag.name, text))
-                if len(items) >= 20:
+                    chars += len(text)
+                # Bound by CONTENT, not by block count. The old `>= 20` cut a
+                # normal article off in the middle regardless of how short the
+                # blocks were, which is exactly what a reader noticed first.
+                # 24k characters is a long feature article; past that, and past
+                # 200 blocks, the translation cost stops being worth it.
+                if chars >= 24000 or len(items) >= 200:
                     break
 
         if not items:
@@ -3340,7 +3434,10 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
                 return txt
         return list(translate_pool().map(_one, texts))
 
-    raw_texts = [t for _, t in items]
+    # Images carry no text. Sending their URLs to the translator would waste a
+    # request each and, worse, could come back mangled into something that is
+    # no longer a URL.
+    raw_texts = [t if kind != "img" else "" for kind, t in items]
     # Run in a thread so the (blocking) translation doesn't stall the event loop
     translated = await _asyncio.get_event_loop().run_in_executor(
         None, _translate_all_parallel, raw_texts
@@ -3349,11 +3446,28 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
     # 4. Build output HTML
     is_rtl = lang in {"he"}
     dir_attr = "rtl" if is_rtl else "ltr"
-    html_parts = ["<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>body{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;line-height:1.75;color:#111;background:#fff;direction:" + dir_attr + ";max-width:800px;margin:0 auto}h1{font-size:22px;margin:0 0 16px}h2{font-size:18px;margin:20px 0 8px}h3{font-size:16px;margin:16px 0 6px}p{font-size:16px;margin:0 0 14px}</style></head><body>"]
+    html_parts = ["<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>body{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;line-height:1.75;color:#111;background:#fff;direction:" + dir_attr + ";max-width:800px;margin:0 auto}h1{font-size:22px;margin:0 0 16px}h2{font-size:18px;margin:20px 0 8px}h3{font-size:16px;margin:16px 0 6px}p{font-size:16px;margin:0 0 14px}h4{font-size:15px;margin:14px 0 6px}li{font-size:16px;margin:0 0 8px}ul,ol{padding-inline-start:22px;margin:0 0 14px}blockquote{margin:14px 0;padding-inline-start:14px;border-inline-start:3px solid #d97706;color:#333;font-style:italic}img{max-width:100%;height:auto;display:block;margin:16px auto;border-radius:10px}p.cap{font-size:13px;color:#666;text-align:center;margin:-8px 0 16px}</style></head><body>"]
 
-    for i, (tag_name, _) in enumerate(items):
+    for i, (tag_name, payload) in enumerate(items):
+        if tag_name == "img":
+            # `payload` is a URL that already passed _validate_public_url and is
+            # escaped here as an attribute value, so it cannot break out of the
+            # quotes and inject markup.
+            html_parts.append(
+                f'<img src="{_html.escape(payload, quote=True)}" loading="lazy" alt="">')
+            continue
         text = translated[i].strip() if i < len(translated) else ""
-        if text:
+        if not text:
+            continue
+        # The extractor now emits list items and captions too; render them as
+        # themselves rather than as bare tags with no styling.
+        if tag_name == "li":
+            html_parts.append(f"<li>{text}</li>")
+        elif tag_name == "figcaption":
+            html_parts.append(f'<p class="cap">{text}</p>')
+        elif tag_name == "blockquote":
+            html_parts.append(f"<blockquote>{text}</blockquote>")
+        else:
             html_parts.append(f"<{tag_name}>{text}</{tag_name}>")
 
     html_parts.append("</body></html>")

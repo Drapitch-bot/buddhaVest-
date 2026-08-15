@@ -137,6 +137,20 @@ jobs:
         working-directory: assets/1BuddhaVest
         run: python test_fin_currency.py
 
+      - name: Translated articles keep their images and do not stop early
+        # Reported from the phone on 2026-08-15: articles cut off mid-sentence
+        # and every chart and photo was gone. Two one-line causes - a hard
+        # 20-block ceiling, and a tag list containing only headings and
+        # paragraphs.
+        #
+        # The image half is what fails silently: a broken <img> renders as
+        # nothing, which looks exactly like an article that had no pictures.
+        # Most of this suite is therefore about picking the right URL - lazy
+        # loading, srcset, relative paths, and the logos and tracking pixels
+        # that are also <img> tags.
+        working-directory: assets/1BuddhaVest
+        run: python test_article_images.py
+
       - name: The market table stays USD-only
         # HomeScreen.fmtBig() hard-codes a "$" and _one_mover sends no currency
         # and no reconciled market cap. Both are fine while every symbol in the
