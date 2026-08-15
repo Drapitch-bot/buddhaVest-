@@ -279,8 +279,24 @@ _KILL_HINT = re.compile(
     r"ad|ads|adslot|advert\w*|promo|promotion|sponsor\w*|share|sharing|social|"
     r"newsletter|subscribe|subscription|paywall|related|recommend\w*|trending|"
     r"comment\w*|disqus|cookie|consent|gdpr|breadcrumb|sidebar|menu|toolbar|"
-    r"popup|modal|overlay|banner|masthead|byline-social|more-from|outbrain|taboola"
+    r"popup|modal|overlay|banner|masthead|byline-social|more-from|outbrain|taboola|"
+    # Added 2026-08-15 after seeing Yahoo's site footer arrive at the end of a
+    # translated article: "Terms | Privacy Policy / Privacy Dashboard / More
+    # info". Those are not part of anything anyone opened the page to read.
+    r"legal|copyright|disclosure-?bar|site-?info|utility|meta-?nav|tags?-?list"
     r")(?:[\s_-]|$)", re.I)
+
+# Phrases that mark the end of the article and the start of the publisher's
+# boilerplate. Everything from here down is promotion, disclosure or
+# navigation — the "Stock Advisor returns as of...", "originally published
+# by...", "Terms | Privacy" tail that made the end of the page read as noise.
+_TAIL_MARKERS = (
+    "originally published by", "originally appeared on",
+    "returns as of", "stock advisor returns",
+    "has a disclosure policy", "disclosure policy",
+    "the motley fool has positions", "the motley fool recommends",
+    "views and opinions expressed", "all rights reserved",
+)
 
 # Attributes kept, per tag. Everything else — including every on* handler,
 # every style, every data-* — is removed.
@@ -405,9 +421,74 @@ def _sanitize_article(root, page_url: str):
                 else:
                     cleaned[k] = str(v)[:200]
             tag.attrs = cleaned
+
+        _trim_article_tail(root)
     except Exception as _e:
         swallow("main:_sanitize_article", _e)
     return images
+
+
+def _trim_article_tail(root) -> None:
+    """
+    Cut the publisher's boilerplate off the end.
+
+    A news page does not stop at the last sentence. After it come the promo
+    block, the disclosure paragraph, the tag list and the site's legal footer —
+    and once translated they read as part of the article, which is exactly how
+    the end of the page turned into noise.
+
+    Two passes, both conservative:
+
+      1. If a block contains one of the end-of-article phrases, drop it and
+         everything after it. Only from the second half of the page, so an
+         article that happens to mention "disclosure policy" in its opening is
+         not decapitated.
+      2. Then peel trailing blocks that are almost entirely links. A paragraph
+         that is 70% hyperlink is a navigation row, not prose.
+    """
+    try:
+        blocks = [b for b in root.find_all(
+            ["p", "div", "section", "ul", "ol", "footer", "h2", "h3"], recursive=True)
+            if not b.decomposed]
+        if not blocks:
+            return
+
+        half = len(blocks) // 2
+        cut_from = None
+        for i, b in enumerate(blocks):
+            if i < half:
+                continue
+            text = b.get_text(" ", strip=True).lower()
+            if not text or len(text) > 600:
+                continue
+            if any(mk in text for mk in _TAIL_MARKERS):
+                cut_from = b
+                break
+        if cut_from is not None:
+            for sib in list(cut_from.find_all_next()):
+                if not sib.decomposed and sib.name:
+                    sib.decompose()
+            if not cut_from.decomposed:
+                cut_from.decompose()
+
+        # Peel link-only rows off the end.
+        for _ in range(12):
+            kids = [k for k in root.find_all(recursive=False)
+                    if getattr(k, "name", None) and not k.decomposed]
+            if not kids:
+                break
+            last = kids[-1]
+            text = last.get_text(" ", strip=True)
+            if not text:
+                last.decompose()
+                continue
+            link_text = "".join(a.get_text(" ", strip=True) for a in last.find_all("a"))
+            if len(text) < 400 and len(link_text) >= 0.7 * len(text):
+                last.decompose()
+                continue
+            break
+    except Exception as _e:
+        swallow("main:_trim_article_tail", _e)
 
 
 def _image_src(tag, page_url: str):
@@ -3563,6 +3644,23 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
             raise ValueError("no article root")
 
         n_images = _sanitize_article(root, url)
+
+        # The page's own headline is inside the body too, so printing our
+        # <h1> above it showed the title twice with a picture wedged between —
+        # which is what made the top of the article read as a jumble.
+        # Compare on letters and digits only: the two copies differ in
+        # punctuation and whitespace often enough that a plain == misses.
+        def _key(s):
+            return "".join(c for c in (s or "").lower() if c.isalnum())[:120]
+
+        if page_title:
+            title_key = _key(page_title)
+            for h in root.find_all(["h1", "h2"], limit=4):
+                if h.decomposed:
+                    continue
+                if title_key and _key(h.get_text(" ", strip=True)) == title_key:
+                    h.decompose()
+                    break
 
         # Every piece of visible text, in document order. Translating the nodes
         # in place is what keeps the layout: nothing is rebuilt, so nothing can

@@ -44,6 +44,7 @@ exec(src[src.index("_IMG_JUNK = ("):src.index("def _pick_article_root")], mod.__
 exec(extract("_image_src"), mod.__dict__)
 exec(extract("_pick_article_root"), mod.__dict__)
 exec(extract("_sanitize_article"), mod.__dict__)
+exec(extract("_trim_article_tail"), mod.__dict__)
 img_src = mod._image_src
 
 from bs4 import BeautifulSoup
@@ -258,6 +259,53 @@ mod._sanitize_article(root2, "https://example.com/a.html")
 out2 = root2.decode_contents()
 check("nested junk does not abort the pass", "onclick" not in out2 and "<script" not in out2, True)
 check("real text survives it", "Real body text" in out2 and "second real paragraph" in out2, True)
+
+print("\n── the tail: promo, disclosure and the site footer ──")
+# A news page does not stop at the last sentence. After it come the promo
+# block, the disclosure paragraph and the legal footer - and once translated
+# they read as part of the article. Reported as "מבולגן" on 2026-08-15.
+TAIL_HTML = """<article>
+<h1>64% of men who make this investing move feel like failures</h1>
+<p>When the stock market is booming, some people feel tempted to day trade and chase hype.</p>
+<p>A recent survey found that day trading can be bad for your mental health over time.</p>
+<h2>What to do instead</h2>
+<p>Buy a broad index fund and hold it for years, rather than trading on short term moves.</p>
+<p>Over the long run this total market ETF has produced strong wealth building returns.</p>
+<p>Suppose you put five hundred dollars a month into the fund and it keeps returning.</p>
+<p>Ben Gran has positions in the fund. The Motley Fool has positions in and recommends it.</p>
+<p>*Stock Advisor returns as of August 15, 2026.</p>
+<p>64% of men who make this move feel like failures was originally published by The Motley Fool</p>
+<div class="legal-footer"><a href="/terms">Terms</a> | <a href="/privacy">Privacy Policy</a></div>
+<p><a href="/dash">Privacy Dashboard</a> <a href="/more">More info</a></p>
+</article>"""
+tsoup = BeautifulSoup(TAIL_HTML, "html.parser")
+troot = mod._pick_article_root(tsoup)
+mod._sanitize_article(troot, "https://finance.yahoo.com/news/a.html")
+ttext = troot.get_text(" ", strip=True)
+
+for label, gone in [
+    ("the disclosure paragraph",      "has positions in" not in ttext),
+    ("'Stock Advisor returns as of'", "Stock Advisor returns" not in ttext),
+    ("'originally published by'",     "originally published by" not in ttext),
+    ("the legal footer",              "Privacy Policy" not in ttext),
+    ("the trailing link row",         "Privacy Dashboard" not in ttext),
+]:
+    check("tail removed: " + label, gone, True)
+check("the article body itself survives", "broad index fund" in ttext, True)
+check("a mid-article heading is not treated as tail",
+      "What to do instead" in ttext, True)
+
+print("\n── the duplicate headline ──")
+# The page's own <h1> is inside the body, so emitting ours above it printed the
+# title twice with a picture wedged between them.
+def _tkey(s): return "".join(c for c in (s or "").lower() if c.isalnum())[:120]
+_title = "64% of men who make this investing move feel like failures"
+_removed = False
+for h in troot.find_all(["h1", "h2"], limit=4):
+    if _tkey(h.get_text(" ", strip=True)) == _tkey(_title):
+        h.decompose(); _removed = True; break
+check("the body's copy of the headline is dropped", _removed, True)
+check("headline de-dup is in the endpoint", "title_key and _key(h.get_text" in src, True)
 
 print("\n" + ("PASS — all checks green" if not FAILURES
               else "FAIL — %d: %s" % (len(FAILURES), ", ".join(FAILURES))))
