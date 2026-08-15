@@ -66,6 +66,46 @@ function metricValueDisplay(key, metric, cur) {
   return String(v);
 }
 
+// Which metrics are amounts of money. Ratios, percentages and month counts are
+// not, and converting them would be nonsense — a current ratio of 0.81 does not
+// become 2.42 shekels.
+const MONEY_KEYS = ['free_cash_flow', 'net_income_trend', 'operating_cash_flow',
+                    'cash_position', 'cost_of_revenue'];
+
+/**
+ * The same amount in the reader's own currency, or null.
+ *
+ * The rule is the one the share price already follows, and it is the whole
+ * point of the function: convert ONLY when the figure is in dollars. An
+ * earlier version of the price line tested "not shekel" instead, so a euro
+ * listing was multiplied by the dollar rate and EUR 37.95 was displayed as
+ * ILS 115.75. Statement figures are worse, because nothing on screen tells the
+ * reader which currency they started in.
+ *
+ * `finCurrency` is what the SERVER established, which is not always the
+ * trading currency: Ormat trades in shekels and reports in dollars. When the
+ * server could not establish it at all it sends financial_currency_known
+ * false, and then there is nothing to convert FROM and this returns null.
+ */
+function metricSecondaryDisplay(key, metric, finCurrency, finKnown, secondary) {
+  // Note what is NOT consulted here: showSecondaryCcy, the flag that governs
+  // the price line. That one is gated on the PRICE currency, and gating this
+  // on it would have suppressed the conversion in the exact case that prompted
+  // it — Ormat, which trades in shekels (so the price line is off) and reports
+  // in dollars (so its statement figures are precisely the ones worth
+  // converting). The two currencies are different questions and get different
+  // guards.
+  if (!secondary || !finKnown) return null;
+  if (!isUsd(finCurrency)) return null;          // only ever USD -> local
+  if (secondary.symbol === '$') return null;     // nothing to say
+  const v = metric && metric.value;
+  if (v == null) return null;
+  const isMoney = MONEY_KEYS.includes(key) ||
+                  (key === 'buyback' && metric.value_unit === 'currency');
+  if (!isMoney) return null;
+  return secondary.symbol + formatBigNumber(v * secondary.rate);
+}
+
 // A company can trade in one currency and report in another. ESLT.TA trades in
 // shekels and reports in dollars, so every statement figure was stamped '₪'
 // while the number was USD.
@@ -99,7 +139,8 @@ function timeAgo(published, t) {
 }
 
 // ── MetricsGrid ───────────────────────────────────────────────────────────────
-function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, companyName, t, cur, priceCur, rtl }) {
+function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, companyName,
+                      t, cur, priceCur, rtl, finCur, finKnown, secondary }) {
   const pairs = metricKeys.filter(function(k) {
     const m = metrics[k];
     if (!m) return false;
@@ -117,6 +158,7 @@ function MetricsGrid({ metricKeys, metrics, colors, navigation, ticker, companyN
             key={key}
             label={displayLabel}
             value={metricValueDisplay(key, m, cur)}
+            sub={metricSecondaryDisplay(key, m, finCur, finKnown, secondary)}
             note={m.explanation}
             score={m.score}
             colors={colors}
@@ -688,14 +730,16 @@ export default function StockScreen({ route, navigation }) {
           {(m.pe_ratio && m.pe_ratio.value != null) || (m.peg_ratio && m.peg_ratio.value != null) ? (
             <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
               <Text style={[s.cardTitle, { color: colors.text }]}>{'🏷️ ' + (t.valuation || 'Valuation')}</Text>
-              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
+              <MetricsGrid metricKeys={['pe_ratio', 'peg_ratio']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl}
+              finCur={data.financial_currency} finKnown={finKnown} secondary={secondaryCurrency} />
             </View>
           ) : null}
 
           {/* Profitability card */}
           <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={[s.cardTitle, { color: colors.text }]}>{'📊 ' + (t.profitability || 'Profitability & Margins')}</Text>
-            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
+            <MetricsGrid metricKeys={['gross_margin','operating_margin','net_margin','cost_of_revenue','moat']} metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl}
+              finCur={data.financial_currency} finKnown={finKnown} secondary={secondaryCurrency} />
           </View>
 
           {/* Balance card */}
@@ -708,7 +752,8 @@ export default function StockScreen({ route, navigation }) {
                 ...(m.cash_runway && m.cash_runway.value != null ? ['cash_runway'] : []),
                 'dividend','buyback',
               ]}
-              metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl} />
+              metrics={m} colors={colors} navigation={navigation} ticker={ticker} companyName={companyName} t={t} cur={finSymbol} priceCur={priceSymbol} rtl={isRtl}
+              finCur={data.financial_currency} finKnown={finKnown} secondary={secondaryCurrency} />
           </View>
 
           {/* Price chart card */}

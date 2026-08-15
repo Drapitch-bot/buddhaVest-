@@ -333,6 +333,20 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      - name: A converted figure is only ever converted from dollars
+        # The second line under a money tile shows the same amount in the
+        # reader's currency. Getting it wrong produces a number that is
+        # confidently and invisibly incorrect, and it has happened: the price
+        # line once tested "not shekel" instead of "is dollar", so a euro
+        # listing was multiplied by the dollar rate and EUR 37.95 rendered as
+        # ILS 115.75.
+        #
+        # Statement figures are the worse case, because nothing on the screen
+        # tells the reader which currency the number started in. So the guards
+        # are the subject here, not the arithmetic: only USD converts, only
+        # money converts, and an unknown reporting currency converts nothing.
+        run: node scripts/test-currency-secondary.js
+
       - name: A blank currency symbol is never turned back into a dollar sign
         # '' is a deliberate value: it means the server could not establish the
         # reporting currency, so statement figures are shown with no sign rather
