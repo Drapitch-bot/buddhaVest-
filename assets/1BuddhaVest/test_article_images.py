@@ -168,8 +168,22 @@ check("the source link exists in all four languages",
       set(_re.findall(r'"(en|he|ru|es)":',
           src[src.index("_SOURCE_LABEL = {"):src.index("_SOURCE_LABEL = {") + 400])),
       {"en", "he", "ru", "es"})
-check("the page's own lead image is used when the body has none",
-      "if n_images == 0 and hero:" in src, True)
+check("the lead image is shown unless the body already has that file",
+      'if hero and hero not in root.decode_contents():' in src, True)
+# Yahoo Finance serves the article TEXT but inserts the pictures with
+# JavaScript, so a server-side fetch finds no <img> to scan at all. The head
+# metadata is the only place the picture is named in the HTML itself. Four
+# sources, because publishers populate different ones.
+for label, marker in [
+    ("og:image",          'soup.find("meta", property="og:image")'),
+    ("twitter:image",     '"twitter:image"'),
+    ("twitter:image:src", '"twitter:image:src"'),
+    ("link rel=image_src",'soup.find("link", rel="image_src")'),
+    ("JSON-LD image",     'block.get("image")'),
+]:
+    check("lead image source: " + label, marker in src, True)
+check("JSON-LD image handles a list", "img = img[0]" in src, True)
+check("JSON-LD image handles an ImageObject", 'img = img.get("url")' in src, True)
 
 print("\n── the article keeps its own markup, minus anything executable ──")
 # The whole point of the rewrite: translate the words, leave the page alone.

@@ -3498,14 +3498,65 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
         from urllib.parse import urlparse as _urlparse
         source_host = (_urlparse(url).hostname or "").lstrip("www.")
 
-        # The lead image is often outside the article body, in the page head.
+        # ── The lead image, from the page HEAD rather than its body ──
+        #
+        # Measured on 2026-08-15 against Yahoo Finance, which is where most of
+        # this app's articles come from: the served HTML contains the article
+        # TEXT (for search engines) but not its pictures. Yahoo inserts those
+        # with JavaScript after load, so a server-side fetch sees the caption —
+        # "Image source: Getty Images" arrived intact — and no image beside it.
+        #
+        # No amount of cleverness in the <img> scan fixes that: there is no
+        # <img> to find. The metadata in <head> is the one place the picture is
+        # named in the HTML itself, because that is what link previews read.
+        # Four sources, because different publishers populate different ones.
         hero = ""
-        og_img = soup.find("meta", property="og:image")
-        if og_img and og_img.get("content"):
+        for finder in (
+            lambda: (soup.find("meta", property="og:image") or {}).get("content"),
+            lambda: (soup.find("meta", attrs={"name": "twitter:image"}) or {}).get("content"),
+            lambda: (soup.find("meta", attrs={"name": "twitter:image:src"}) or {}).get("content"),
+            lambda: (soup.find("link", rel="image_src") or {}).get("href"),
+        ):
             try:
-                hero = _validate_public_url(og_img["content"].strip()) or ""
+                cand = (finder() or "").strip()
+            except Exception:
+                cand = ""
+            if not cand:
+                continue
+            try:
+                from urllib.parse import urljoin as _uj
+                hero = _validate_public_url(_uj(url, cand)) or ""
             except Exception:
                 hero = ""
+            if hero:
+                break
+
+        if not hero:
+            # Last resort: JSON-LD, where "image" is either a URL, a list of
+            # URLs, or an ImageObject with a url field. All three occur.
+            try:
+                import json as _j
+                for script in soup.find_all("script", type="application/ld+json"):
+                    try:
+                        data = _j.loads(script.string or "{}")
+                    except Exception:
+                        continue
+                    for block in (data if isinstance(data, list) else [data]):
+                        if not isinstance(block, dict):
+                            continue
+                        img = block.get("image")
+                        if isinstance(img, list) and img:
+                            img = img[0]
+                        if isinstance(img, dict):
+                            img = img.get("url")
+                        if isinstance(img, str) and img.strip():
+                            from urllib.parse import urljoin as _uj
+                            hero = _validate_public_url(_uj(url, img.strip())) or ""
+                            break
+                    if hero:
+                        break
+            except Exception as _e:
+                swallow("main:translate_article_endpoint.hero", _e)
 
         root = _pick_article_root(soup)
         if root is None:
@@ -3634,9 +3685,11 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
                      ' · <a href="' + _e(url, quote=True) +
                      '" target="_blank" rel="noopener noreferrer">' +
                      _e(_SOURCE_LABEL.get(lang, _SOURCE_LABEL["en"])) + "</a></p>")
-    # If the body itself has no picture, the page's own lead image is better
-    # than nothing at all — which is what the reader saw before.
-    if n_images == 0 and hero:
+    # Show the lead image unless the body already carries that exact file.
+    # The earlier version only showed it when the body had NO image at all, so
+    # a single surviving thumbnail elsewhere in the page suppressed the real
+    # one — and the reader still got a wall of text.
+    if hero and hero not in root.decode_contents():
         parts.append('<img src="' + _e(hero, quote=True) + '" alt="">')
     parts.append(root.decode_contents())
     parts.append("</body></html>")
