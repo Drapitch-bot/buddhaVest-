@@ -1058,7 +1058,8 @@ def privacy():
 <p>To be precise about the watchlist: it is <em>saved</em> only on your device, but in order to
   show you a price and a score for each entry, the app has to ask our server about those
   ticker symbols. So the symbols themselves are sent with the request. They are used to fetch
-  market data, are not written to any database, and are not linked to you or to any identifier.
+  market data, are not written to any database, and are not linked to you or to any identifier
+  (with one narrow exception, described at the end of section 2).
   Your language setting is sent the same way, so the response comes back in your language.</p>
 
 <h2>2. Data We Process on Our Servers</h2>
@@ -3628,6 +3629,26 @@ def _market_overview_uncached():
     usd_ils = fx_future.result()
     overview["usd_ils"] = usd_ils
 
+    # ── USD-QUOTED SYMBOLS ONLY. Read this before adding one. ──
+    #
+    # Two things downstream assume it, and neither of them checks:
+    #
+    #   1. HomeScreen.fmtBig() hard-codes a "$". It has no currency to work
+    #      with, because _one_mover below does not send one. A Tel Aviv or
+    #      London listing here would print "$100.89B" over a shekel figure.
+    #   2. _one_mover returns info["marketCap"] untouched. It does NOT run
+    #      through _reconcile_market_cap, so a minor-unit quote would arrive
+    #      100x too large — Bank Hapoalim as a ten-trillion-shekel company,
+    #      which is exactly what /analyze was doing until 2026-08-13.
+    #
+    # Verified 2026-08-15: all fifteen below are NYSE/NASDAQ and quote in USD,
+    # so both assumptions hold today and the table is correct. Adding a ".TA",
+    # ".L" or ".JO" symbol breaks both at once, silently, and the number will
+    # look plausible enough to go unnoticed.
+    #
+    # If this list ever needs a foreign listing: send price_currency from
+    # _one_mover, run the cap through _reconcile_market_cap, and give fmtBig a
+    # currency argument. All three, not one.
     watchlist_symbols = [
         "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "TSLA", "META", "AMD",
         "JPM", "V", "JNJ", "WMT", "DIS", "NFLX", "KO",

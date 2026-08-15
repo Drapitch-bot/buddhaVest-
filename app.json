@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.buddhavest.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1c1f26"

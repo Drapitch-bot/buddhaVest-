@@ -137,6 +137,28 @@ jobs:
         working-directory: assets/1BuddhaVest
         run: python test_fin_currency.py
 
+      - name: The market table stays USD-only
+        # HomeScreen.fmtBig() hard-codes a "$" and _one_mover sends no currency
+        # and no reconciled market cap. Both are fine while every symbol in the
+        # table is NYSE/NASDAQ, and both break silently the moment one is not —
+        # a shekel figure under a dollar sign, and a cap 100x too large.
+        #
+        # The comment above the list says all this. A comment is not a check.
+        working-directory: assets/1BuddhaVest
+        run: |
+          python - <<'EOF'
+          import re, sys
+          src = open('main.py', encoding='utf-8').read()
+          block = re.search(r'watchlist_symbols = \[(.*?)\]', src, re.S).group(1)
+          syms = re.findall(r'"([^"]+)"', block)
+          bad = [s for s in syms if '.' in s]
+          print("  %d symbols in the market table" % len(syms))
+          if bad:
+              print("::error::Non-USD listing(s) in the market table: %s. fmtBig prints '$' and the cap is not reconciled - see the comment above watchlist_symbols in main.py." % ", ".join(bad))
+              sys.exit(1)
+          print("  all USD-quoted, so the hard-coded $ and the raw marketCap are safe")
+          EOF
+
       - name: Market cap agrees with shares x price
         # Measured 2026-08-12: ORA.TA and POLI.TA both reported a market cap
         # 100x too large, and the app presented Bank Hapoalim — a ~ILS 100B
