@@ -70,7 +70,12 @@
 - **App interactions** — כל מניה שנפתחת נשלחת כ־`/analyze/<ticker>` (`StockScreen.js:253`)
 - **Other user-generated content** — רשימת המעקב. היא *נשמרת* רק במכשיר, אבל כדי להציג מחיר וציון לכל שורה הסמלים נשלחים לשרת: `watchlist.map(w => w.ticker).join(',')` (`BrandHeader.js:58`, `WatchlistScreen.js:159`)
 
-**למה Ephemeral = No:** ספק האחסון (Render) שומר לוגי גישה שכוללים את כתובת ה־URL, ובה מופיע הסמל. זה חורג מ"עיבוד בזיכרון בלבד". עדיף להצהיר מאשר להסתמך על פטור שנוי במחלוקת.
+**למה Ephemeral = No:** שתי סיבות, וכל אחת מספיקה לבדה.
+
+1. ספק האחסון (Render) שומר לוגי גישה שכוללים את כתובת ה־URL, ובה מופיע הסמל.
+2. מאז 13/08/2026 רץ Sentry בשרת, וכשבקשה נכשלת הסמל שעובד נשמר כתגית בדוח התקלה — בלי שום מזהה של מי שביקש. זה מתועד במפורש במדיניות הפרטיות תחת "One exception to not stored".
+
+שתיהן חורגות מ"עיבוד בזיכרון בלבד". עדיף להצהיר מאשר להסתמך על פטור שנוי במחלוקת.
 
 ### ✅ לסמן — Device or other IDs
 
@@ -92,7 +97,7 @@
 | Financial info | **שים לב:** יומן המחקר יכול להכיל טקסט חופשי על עסקאות — אבל הוא **אף פעם לא עוזב את המכשיר**. אומת: `buddhavest_journal` מופיע רק ב־`getItem`/`setItem`/`removeItem`, אף פעם לא ב־`fetch` |
 | Location | אין הרשאת מיקום, ואין שימוש בכתובת IP להסקת מיקום |
 | Contacts · Photos · Audio · Files · Calendar · Messages · Health | אין הרשאות כאלה. המניפסט מכיל **רק** `INTERNET` ו־`ACCESS_NETWORK_STATE` |
-| Crash logs · Diagnostics | אין Sentry, Crashlytics, Bugsnag או כל SDK דומה. נסרקו כל 19 התלויות ב־`package.json` |
+| Crash logs · Diagnostics | **התשובה לא השתנתה, הנימוק כן — קרא את זה לפני שאתה מסמן.** אין SDK ניטור באפליקציה: `@sentry/react-native` לא מותקן ו־`EXPO_PUBLIC_SENTRY_DSN` לא מוגדר בשום מקום, כך ש־`utils/monitoring.js` הוא קוד רדום. **בשרת כן רץ Sentry** (מאז 13/08/2026), אבל הוא מתעד תקלות של השרת, לא קריסות של המכשיר — וגוגל מגדירה את הקטגוריה כ"crash log data from your app". לכן לא מסמנים. הסמל שמופיע בדוח תקלה כזה כבר מכוסה תחת App interactions ו־In-app search history למטה, ששניהם מסומנים Collected=Yes · Ephemeral=No |
 | Advertising ID | אין SDK פרסומי בכלל |
 
 ---

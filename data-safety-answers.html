@@ -113,7 +113,7 @@
 <li><strong>App interactions</strong> — כל מניה שנפתחת נשלחת כ־<code>/analyze/&lt;ticker&gt;</code> (<code>StockScreen.js:253</code>)</li>
 <li><strong>Other user-generated content</strong> — רשימת המעקב. היא <em>נשמרת</em> רק במכשיר, אבל כדי להציג מחיר וציון לכל שורה הסמלים נשלחים לשרת: <code>watchlist.map(w =&gt; w.ticker).join(',')</code> (<code>BrandHeader.js:58</code>, <code>WatchlistScreen.js:159</code>)</li>
 </ul>
-<p><strong>למה Ephemeral = No:</strong> ספק האחסון (Render) שומר לוגי גישה שכוללים את כתובת ה־URL, ובה מופיע הסמל. זה חורג מ"עיבוד בזיכרון בלבד". עדיף להצהיר מאשר להסתמך על פטור שנוי במחלוקת.</p>
+<p><strong>למה Ephemeral = No:</strong> שתי סיבות, וכל אחת מספיקה לבדה. (1) ספק האחסון (Render) שומר לוגי גישה שכוללים את כתובת ה־URL, ובה מופיע הסמל. (2) מאז 13/08/2026 רץ Sentry בשרת, וכשבקשה נכשלת הסמל שעובד נשמר כתגית בדוח התקלה — בלי שום מזהה של מי שביקש. זה מתועד במפורש במדיניות הפרטיות תחת "One exception to not stored". שתיהן חורגות מ"עיבוד בזיכרון בלבד". עדיף להצהיר מאשר להסתמך על פטור שנוי במחלוקת.</p>
 <h3>✅ לסמן — Device or other IDs</h3>
 <table>
 <thead>
@@ -165,7 +165,7 @@
 </tr>
 <tr>
 <td>Crash logs · Diagnostics</td>
-<td>אין Sentry, Crashlytics, Bugsnag או כל SDK דומה. נסרקו כל 19 התלויות ב־<code>package.json</code></td>
+<td><strong>התשובה לא השתנתה, הנימוק כן — קרא את זה לפני שאתה מסמן.</strong> אין SDK ניטור באפליקציה: <code>@sentry/react-native</code> לא מותקן ו־<code>EXPO_PUBLIC_SENTRY_DSN</code> לא מוגדר בשום מקום, כך ש־<code>utils/monitoring.js</code> הוא קוד רדום. <strong>בשרת כן רץ Sentry</strong> (מאז 13/08/2026), אבל הוא מתעד תקלות של השרת ולא קריסות של המכשיר — וגוגל מגדירה את הקטגוריה כ־"crash log data from your app". לכן לא מסמנים. הסמל שמופיע בדוח תקלה כזה כבר מכוסה תחת App interactions ו־In-app search history, ששניהם מסומנים Collected=Yes · Ephemeral=No</td>
 </tr>
 <tr>
 <td>Advertising ID</td>
