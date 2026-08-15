@@ -24,6 +24,7 @@ import html as _html
 import json
 import math
 import os
+import re
 import time
 import threading
 
@@ -248,6 +249,165 @@ def _too_large(resp) -> bool:
 
 _IMG_JUNK = ("logo", "icon", "avatar", "sprite", "pixel", "spacer", "1x1",
              "blank.", "transparent.", "placeholder", "advert", "/ads/", "doubleclick")
+
+# ── Reading an article as the article, not as a list of paragraphs ───────────
+#
+# The first version of this endpoint pulled out headings and paragraphs and
+# rebuilt a page from them. It worked, and it read like a wall of grey text:
+# every chart, photo, table, list and link was gone, because none of them were
+# in the tag list. Reported from the phone on 2026-08-15 as "empty, boring".
+#
+# So this keeps the article's OWN markup and only replaces the words. Images,
+# captions, tables, emphasis and links survive because they are never taken
+# apart in the first place.
+#
+# That means rendering third-party HTML, so the sanitising below is not
+# optional. Everything executable goes, every attribute that is not on the
+# keep-list goes, and every URL is resolved and re-validated.
+
+_KILL_TAGS = (
+    "script", "style", "noscript", "iframe", "form", "input", "select",
+    "textarea", "button", "svg", "canvas", "video", "audio", "object",
+    "embed", "link", "meta", "dialog", "template", "nav", "aside",
+    "header", "footer",
+)
+
+# Matched against class and id. Deliberately word-bounded: a bare "ad" substring
+# would take out "read", "headline" and "download".
+_KILL_HINT = re.compile(
+    r"(?:^|[\s_-])("
+    r"ad|ads|adslot|advert\w*|promo|promotion|sponsor\w*|share|sharing|social|"
+    r"newsletter|subscribe|subscription|paywall|related|recommend\w*|trending|"
+    r"comment\w*|disqus|cookie|consent|gdpr|breadcrumb|sidebar|menu|toolbar|"
+    r"popup|modal|overlay|banner|masthead|byline-social|more-from|outbrain|taboola"
+    r")(?:[\s_-]|$)", re.I)
+
+# Attributes kept, per tag. Everything else — including every on* handler,
+# every style, every data-* — is removed.
+_KEEP_ATTRS = {
+    "a": {"href"},
+    "img": {"src", "alt"},
+    "td": {"colspan", "rowspan"},
+    "th": {"colspan", "rowspan"},
+}
+
+# The link back to the original, in the four languages the app ships. Not run
+# through the translator: it is one fixed phrase, and paying a network round
+# trip per article to re-translate it would be absurd.
+_SOURCE_LABEL = {
+    "en": "Read the original",
+    "he": "לקריאת המקור",
+    "ru": "Читать оригинал",
+    "es": "Leer el original",
+}
+
+
+def _pick_article_root(soup):
+    """
+    The subtree that holds the article body.
+
+    Tries the explicit markers first, then falls back to whichever candidate
+    carries the most paragraph text — a page's real content is almost always
+    its densest block of <p>.
+    """
+    for finder in (
+        lambda: soup.find("article"),
+        lambda: soup.find(attrs={"itemprop": "articleBody"}),
+        lambda: soup.find(attrs={"class": re.compile(r"article-?body|story-?body|post-?content|entry-content", re.I)}),
+        lambda: soup.find("main"),
+    ):
+        try:
+            node = finder()
+        except Exception:
+            node = None
+        if node and len(node.get_text(strip=True)) > 400:
+            return node
+
+    best, best_len = None, 0
+    for cand in soup.find_all(["div", "section"], limit=400):
+        try:
+            n = sum(len(p.get_text(strip=True)) for p in cand.find_all("p", recursive=False))
+        except Exception:
+            continue
+        if n > best_len:
+            best, best_len = cand, n
+    return best if best_len > 400 else soup.body
+
+
+def _sanitize_article(root, page_url: str):
+    """
+    Strip the subtree down to content, in place. Returns the number of images
+    that survived.
+
+    Order matters: kill whole branches first so their contents are never walked,
+    then clean the attributes of what is left.
+    """
+    images = 0
+    try:
+        # `.decomposed` is checked in every pass below, and it is not defensive
+        # padding. find_all() returns a snapshot; decomposing a parent detaches
+        # its children but they are still in that list, and calling .get() on a
+        # detached tag raises because its attrs are gone. The first version did
+        # not check, the AttributeError was swallowed, and the whole pass
+        # aborted — leaving <script> and onclick handlers in the output. Found
+        # by the test, not in production, which is the only reason this reads
+        # as a note instead of an incident.
+        for tag in list(root.find_all(_KILL_TAGS)):
+            if not tag.decomposed:
+                tag.decompose()
+
+        # Ad slots, share bars, "related stories" — structural noise that is
+        # not a <nav> but is not the article either.
+        for tag in list(root.find_all(True)):
+            if tag.decomposed:
+                continue
+            hint = " ".join(tag.get("class") or []) + " " + (tag.get("id") or "")
+            if hint.strip() and _KILL_HINT.search(hint):
+                tag.decompose()
+
+        for tag in list(root.find_all(True)):
+            if tag.decomposed:
+                continue
+            if tag.name == "img":
+                src = _image_src(tag, page_url)
+                if not src:
+                    tag.decompose()
+                    continue
+                alt = (tag.get("alt") or "")[:200]
+                tag.attrs = {"src": src, "alt": alt}
+                images += 1
+                continue
+
+            keep = _KEEP_ATTRS.get(tag.name, set())
+            if not keep:
+                tag.attrs = {}
+                continue
+
+            cleaned = {}
+            for k in keep:
+                v = tag.get(k)
+                if v is None:
+                    continue
+                if k == "href":
+                    href = str(v).strip()
+                    low = href.lower()
+                    # javascript:, data: and vbscript: URLs are the whole reason
+                    # an href allow-list is not enough on its own.
+                    if low.startswith(("javascript:", "data:", "vbscript:")):
+                        continue
+                    from urllib.parse import urljoin
+                    href = urljoin(page_url, href)
+                    if not href.lower().startswith(("http://", "https://")):
+                        continue
+                    cleaned["href"] = href
+                    cleaned["target"] = "_blank"
+                    cleaned["rel"] = "noopener noreferrer"
+                else:
+                    cleaned[k] = str(v)[:200]
+            tag.attrs = cleaned
+    except Exception as _e:
+        swallow("main:_sanitize_article", _e)
+    return images
 
 
 def _image_src(tag, page_url: str):
@@ -3324,84 +3484,64 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
             or "בטרם תמשיך אל google" in _low or "לפני שתמשיך" in _low):
         return HTMLResponse(content="consent", status_code=500)
 
-    # 2. Extract text
-    # Strategy A: JSON-LD articleBody (always present in SSR, even on React SPAs)
-    # Strategy B: <article> / itemprop=articleBody / body fallback via BeautifulSoup
+    # 2. Keep the article's own markup; only the words get replaced.
     try:
         soup = BeautifulSoup(raw_html, "html.parser")
 
-        items = []  # list of (tag_name, text)
+        # Title and source, before the body is stripped of everything else.
+        page_title = ""
+        if soup.title and soup.title.string:
+            page_title = soup.title.string.strip()[:200]
+        og = soup.find("meta", property="og:title")
+        if og and og.get("content"):
+            page_title = og["content"].strip()[:200]
+        from urllib.parse import urlparse as _urlparse
+        source_host = (_urlparse(url).hostname or "").lstrip("www.")
 
-        # Strategy A: JSON-LD
-        for script in soup.find_all("script", type="application/ld+json"):
+        # The lead image is often outside the article body, in the page head.
+        hero = ""
+        og_img = soup.find("meta", property="og:image")
+        if og_img and og_img.get("content"):
             try:
-                data = _json.loads(script.string or "")
-                if isinstance(data, list):
-                    data = data[0] if data else {}
-                body_text = data.get("articleBody", "")
-                if len(body_text) > 200:
-                    # Split into ~500-char chunks to preserve paragraph structure
-                    sentences = body_text.replace(". ", ".\n").split("\n")
-                    para = ""
-                    for s in sentences:
-                        para += s + " "
-                        if len(para) > 300:
-                            items.append(("p", para.strip()))
-                            para = ""
-                    if para.strip():
-                        items.append(("p", para.strip()))
-                    break
-            except Exception as _e:
-                swallow("main:translate_article_endpoint", _e)
+                hero = _validate_public_url(og_img["content"].strip()) or ""
+            except Exception:
+                hero = ""
 
-        # Strategy B: HTML tags
-        if not items:
-            for bs_tag in soup(["script", "style", "nav", "header", "footer", "aside", "form", "iframe", "noscript"]):
-                bs_tag.decompose()
-            body = soup.find("article") or soup.find(attrs={"itemprop": "articleBody"}) or soup.body
-            # Lists and images are part of an article, not decoration. The tag
-            # list used to be headings and paragraphs only, which is why every
-            # translated article arrived as a wall of grey text with the charts
-            # and photos silently dropped — reported 2026-08-15.
-            bs_tags = body.find_all(
-                ["h1", "h2", "h3", "h4", "p", "li", "blockquote", "img", "figcaption"]
-            ) if body else []
-            seen_images = set()
-            chars = 0
-            for bs_tag in bs_tags:
-                if bs_tag.name == "img":
-                    src = _image_src(bs_tag, url)
-                    if src and src not in seen_images:
-                        seen_images.add(src)
-                        items.append(("img", src))
-                    continue
-                text = bs_tag.get_text(separator=" ", strip=True)
-                # Captions are short by nature; the 40-char floor written for
-                # paragraphs would have thrown every one of them away.
-                floor = 12 if bs_tag.name == "figcaption" else (
-                    18 if bs_tag.name == "li" else 40)
-                if len(text) > floor:
-                    items.append((bs_tag.name, text))
-                    chars += len(text)
-                # Bound by CONTENT, not by block count. The old `>= 20` cut a
-                # normal article off in the middle regardless of how short the
-                # blocks were, which is exactly what a reader noticed first.
-                # 24k characters is a long feature article; past that, and past
-                # 200 blocks, the translation cost stops being worth it.
-                if chars >= 24000 or len(items) >= 200:
-                    break
+        root = _pick_article_root(soup)
+        if root is None:
+            raise ValueError("no article root")
 
-        if not items:
-            raise ValueError("no content")
+        n_images = _sanitize_article(root, url)
 
-        # Quality check: if too little content, site blocked us (e.g. "enable JS" page)
-        total_chars = sum(len(t) for _, t in items)
-        if len(items) < 3 or total_chars < 300:
+        # Every piece of visible text, in document order. Translating the nodes
+        # in place is what keeps the layout: nothing is rebuilt, so nothing can
+        # be lost in the rebuilding.
+        from bs4 import NavigableString, Comment
+        text_nodes = []
+        for node in root.find_all(string=True):
+            if isinstance(node, Comment):
+                node.extract()
+                continue
+            if not isinstance(node, NavigableString):
+                continue
+            if node.parent and node.parent.name in ("script", "style"):
+                continue
+            s = str(node)
+            if len(s.strip()) < 2:
+                continue
+            text_nodes.append(node)
+            # Bounded work: a very long page stops being translated rather than
+            # holding the request open. The untranslated tail still renders.
+            if len(text_nodes) >= 400:
+                break
+
+        body_text = root.get_text(" ", strip=True)
+
+        # Quality gates, unchanged in intent from the previous version.
+        if len(body_text) < 300 or len(text_nodes) < 3:
             return HTMLResponse(content="error", status_code=500)
 
-        # Bot-wall check: don't translate an anti-bot / captcha page as if it
-        # were the article (Reuters, WSJ etc. serve these to server IPs)
-        joined = " ".join(t.lower() for _, t in items)[:3000]
+        joined = body_text.lower()[:3000]
         _BLOCK_MARKERS = (
             "access to this page has been denied", "are you a robot",
             "verify you are a human", "verify that you are not a robot",
@@ -3420,13 +3560,12 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
         swallow("main:translate_article_endpoint.extract", _e, notify=True)
         return HTMLResponse(content="error", status_code=500)
 
-    # 3. Translate — every paragraph in PARALLEL.
+    # 3. Translate — every text node in PARALLEL.
     #    deep_translator sends one HTTP request per text anyway, so sequential
     #    translation took 15-25s per article; 10 parallel workers -> ~2-4s.
     def _translate_all_parallel(texts):
         if lang == "en":
             return texts
-        from concurrent.futures import ThreadPoolExecutor
         def _one(txt):
             try:
                 return _translate_text(txt[:4500], lang)
@@ -3434,44 +3573,74 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
                 return txt
         return list(translate_pool().map(_one, texts))
 
-    # Images carry no text. Sending their URLs to the translator would waste a
-    # request each and, worse, could come back mangled into something that is
-    # no longer a URL.
-    raw_texts = [t if kind != "img" else "" for kind, t in items]
+    raw_texts = [str(n) for n in text_nodes]
     # Run in a thread so the (blocking) translation doesn't stall the event loop
     translated = await _asyncio.get_event_loop().run_in_executor(
         None, _translate_all_parallel, raw_texts
     )
 
+    # Write the translations back into the tree the article already had.
+    # Leading and trailing whitespace is preserved so words do not weld
+    # themselves to the tags around them.
+    for node, new_text in zip(text_nodes, translated):
+        original = str(node)
+        lead = original[:len(original) - len(original.lstrip())]
+        trail = original[len(original.rstrip()):]
+        try:
+            node.replace_with(NavigableString(lead + (new_text or "").strip() + trail))
+        except Exception as _e:
+            swallow("main:translate_article_endpoint.write", _e)
+
+    if lang != "en":
+        try:
+            page_title = _translate_text(page_title[:400], lang) or page_title
+        except Exception as _e:
+            swallow("main:translate_article_endpoint.title", _e)
+
     # 4. Build output HTML
     is_rtl = lang in {"he"}
     dir_attr = "rtl" if is_rtl else "ltr"
-    html_parts = ["<!DOCTYPE html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>body{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;line-height:1.75;color:#111;background:#fff;direction:" + dir_attr + ";max-width:800px;margin:0 auto}h1{font-size:22px;margin:0 0 16px}h2{font-size:18px;margin:20px 0 8px}h3{font-size:16px;margin:16px 0 6px}p{font-size:16px;margin:0 0 14px}h4{font-size:15px;margin:14px 0 6px}li{font-size:16px;margin:0 0 8px}ul,ol{padding-inline-start:22px;margin:0 0 14px}blockquote{margin:14px 0;padding-inline-start:14px;border-inline-start:3px solid #d97706;color:#333;font-style:italic}img{max-width:100%;height:auto;display:block;margin:16px auto;border-radius:10px}p.cap{font-size:13px;color:#666;text-align:center;margin:-8px 0 16px}</style></head><body>"]
-
-    for i, (tag_name, payload) in enumerate(items):
-        if tag_name == "img":
-            # `payload` is a URL that already passed _validate_public_url and is
-            # escaped here as an attribute value, so it cannot break out of the
-            # quotes and inject markup.
-            html_parts.append(
-                f'<img src="{_html.escape(payload, quote=True)}" loading="lazy" alt="">')
-            continue
-        text = translated[i].strip() if i < len(translated) else ""
-        if not text:
-            continue
-        # The extractor now emits list items and captions too; render them as
-        # themselves rather than as bare tags with no styling.
-        if tag_name == "li":
-            html_parts.append(f"<li>{text}</li>")
-        elif tag_name == "figcaption":
-            html_parts.append(f'<p class="cap">{text}</p>')
-        elif tag_name == "blockquote":
-            html_parts.append(f"<blockquote>{text}</blockquote>")
-        else:
-            html_parts.append(f"<{tag_name}>{text}</{tag_name}>")
-
-    html_parts.append("</body></html>")
-    html_content = "".join(html_parts)
+    _e = _html.escape
+    css = (
+        "body{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;line-height:1.75;"
+        "color:#111;background:#fff;direction:" + dir_attr + ";max-width:800px;margin:0 auto;"
+        "overflow-wrap:break-word}"
+        "h1{font-size:23px;margin:0 0 6px;line-height:1.35}"
+        "h2{font-size:19px;margin:22px 0 8px}h3{font-size:17px;margin:18px 0 6px}"
+        "h4,h5,h6{font-size:15px;margin:14px 0 6px}"
+        "p{font-size:16px;margin:0 0 14px}"
+        "li{font-size:16px;margin:0 0 8px}ul,ol{padding-inline-start:22px;margin:0 0 14px}"
+        "img{max-width:100%;height:auto;display:block;margin:16px auto;border-radius:10px}"
+        "figure{margin:16px 0}figcaption{font-size:13px;color:#666;text-align:center;margin-top:6px}"
+        "blockquote{margin:14px 0;padding-inline-start:14px;border-inline-start:3px solid #d97706;"
+        "color:#333;font-style:italic}"
+        "table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14px;display:block;"
+        "overflow-x:auto}th,td{border:1px solid #ddd;padding:7px 9px;text-align:start}"
+        "th{background:#f5f6f8;font-weight:600}"
+        "a{color:#b45309;text-decoration:none}"
+        "hr{border:0;border-top:1px solid #e5e7eb;margin:20px 0}"
+        ".src{font-size:13px;color:#6b7280;margin:0 0 18px}"
+        ".src a{color:#b45309;text-decoration:underline}"
+    )
+    parts = ['<!DOCTYPE html><html dir="', dir_attr, '"><head><meta charset="utf-8">',
+             '<meta name="viewport" content="width=device-width,initial-scale=1">',
+             '<style>', css, '</style></head><body>']
+    if page_title:
+        parts.append("<h1>" + _e(page_title) + "</h1>")
+    if source_host:
+        # A translated article without a way back to the original is a dead end,
+        # and attribution is the decent thing regardless.
+        parts.append('<p class="src">' + _e(source_host) +
+                     ' · <a href="' + _e(url, quote=True) +
+                     '" target="_blank" rel="noopener noreferrer">' +
+                     _e(_SOURCE_LABEL.get(lang, _SOURCE_LABEL["en"])) + "</a></p>")
+    # If the body itself has no picture, the page's own lead image is better
+    # than nothing at all — which is what the reader saw before.
+    if n_images == 0 and hero:
+        parts.append('<img src="' + _e(hero, quote=True) + '" alt="">')
+    parts.append(root.decode_contents())
+    parts.append("</body></html>")
+    html_content = "".join(parts)
 
     _cache_set(cache_key, html_content, 3600)
     return HTMLResponse(content=html_content)

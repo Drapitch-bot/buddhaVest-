@@ -35,12 +35,15 @@ def extract(name):
 
 
 mod = types.ModuleType("art")
+mod.__dict__["re"] = __import__("re")
 mod.__dict__["swallow"] = lambda where, exc=None, **f: None
 # _image_src calls _validate_public_url; the SSRF rules are tested elsewhere,
 # so stand in a permissive version and keep this file about image selection.
 mod.__dict__["_validate_public_url"] = lambda u: u
-exec(src[src.index("_IMG_JUNK = ("):src.index("def _image_src")], mod.__dict__)
+exec(src[src.index("_IMG_JUNK = ("):src.index("def _pick_article_root")], mod.__dict__)
 exec(extract("_image_src"), mod.__dict__)
+exec(extract("_pick_article_root"), mod.__dict__)
+exec(extract("_sanitize_article"), mod.__dict__)
 img_src = mod._image_src
 
 from bs4 import BeautifulSoup
@@ -142,31 +145,105 @@ for name, t in [("tag is None", None), ("tag is a string", "not a tag")]:
     except Exception as e:
         check(name + " -> no exception", "raised %r" % (e,), "no exception")
 
-print("\n── the extraction limits, read out of the source ──")
-# Asserting on the source because the surrounding function is an async endpoint
-# that fetches the network; what matters is that the two numbers that caused
-# the bug are gone and did not come back.
-# Both markers must be located from the SAME starting point: "if not items:"
-# occurs earlier in the file as well, and slicing to the first one produced an
-# empty string that silently passed nothing.
-_start = src.index('bs_tags = body.find_all(')
-block = src[_start:src.index('if not items:', _start)]
+print("\n── the endpoint no longer rebuilds the page from paragraphs ──")
 import re as _re
-# "len(items) >= 20" is a substring of "len(items) >= 200", so a plain `in`
-# check reported the old limit as still present when it was not. Match the
-# number exactly.
-check("no 20-block cut-off",
-      bool(_re.search(r"len\(items\) >= 20\b", block)), False)
-check("the new block ceiling is 200",
-      bool(_re.search(r"len\(items\) >= 200\b", block)), True)
-check("bounded by characters", "chars >= 24000" in block, True)
-check("images extracted", '"img"' in block, True)
-check("list items extracted", '"li"' in block, True)
-check("captions extracted", '"figcaption"' in block, True)
-check("image URLs are not sent to the translator",
-      'raw_texts = [t if kind != "img" else ""' in src, True)
-check("image URLs are escaped into the attribute",
-      '_html.escape(payload, quote=True)' in src, True)
+# The first fix raised a block limit. The second removed the rebuilding
+# entirely: the article's own subtree is kept and only its text nodes are
+# replaced. These assert that neither old shape came back.
+check("the paragraph-only tag list is gone",
+      "find_all([\"h1\", \"h2\", \"h3\", \"p\"])" in src, False)
+check("no fixed block cut-off",
+      bool(_re.search(r"len\(items\) >= 20\b", src)), False)
+check("the article subtree is emitted as-is",
+      "root.decode_contents()" in src, True)
+check("text nodes are replaced in place",
+      "node.replace_with(NavigableString(" in src, True)
+check("leading/trailing whitespace is preserved around each node",
+      "lead + (new_text or \"\").strip() + trail" in src, True)
+check("the text-node budget is bounded",
+      "len(text_nodes) >= 400" in src, True)
+check("a source link back to the original is emitted",
+      '_SOURCE_LABEL.get(lang' in src, True)
+check("the source link exists in all four languages",
+      set(_re.findall(r'"(en|he|ru|es)":',
+          src[src.index("_SOURCE_LABEL = {"):src.index("_SOURCE_LABEL = {") + 400])),
+      {"en", "he", "ru", "es"})
+check("the page's own lead image is used when the body has none",
+      "if n_images == 0 and hero:" in src, True)
+
+print("\n── the article keeps its own markup, minus anything executable ──")
+# The whole point of the rewrite: translate the words, leave the page alone.
+# So this asserts on BOTH halves — what must survive, and what must not.
+PAGE_HTML = """<html><head><title>Markets today</title></head><body>
+<nav class="site-nav"><a href="/">Home</a></nav>
+<article>
+  <h1>Small-cap ETFs</h1>
+  <p onclick="steal()" style="color:red">The index rose <b>4.2%</b> this week and kept going.</p>
+  <figure><img src="data:image/gif;base64,R0l" data-src="/img/chart.png" width="1200">
+  <figcaption>Performance since 2020</figcaption></figure>
+  <ul><li>First point that is long enough</li><li>Second point here too</li></ul>
+  <table><tr><th>Fund</th><td colspan="2">Return</td></tr></table>
+  <blockquote>Time in the market beats timing the market.</blockquote>
+  <p>See <a href="javascript:alert(1)">this</a> and <a href="/more">that</a>.</p>
+  <div class="related-stories"><p>You might also like this other article entirely</p></div>
+  <div class="ad-slot"><img src="/ads/banner.gif"></div>
+  <script>fetch('/steal')</script>
+  <p>A closing paragraph with enough words in it to count as real content.</p>
+</article></body></html>"""
+
+soup = BeautifulSoup(PAGE_HTML, "html.parser")
+root = mod._pick_article_root(soup)
+n_img = mod._sanitize_article(root, "https://example.com/news/a.html")
+out = root.decode_contents()
+
+# Must NOT survive. This half is a security boundary: the output is rendered
+# in a WebView, so anything executable that gets through is executing on the
+# user's device with whatever that WebView can reach.
+for label, gone in [
+    ("<script> and its body", "<script" not in out and "steal()" not in out),
+    ("inline event handlers", "onclick" not in out),
+    ("inline styles",         'style="' not in out),
+    ("javascript: hrefs",     "javascript:" not in out),
+    ("site navigation",       "site-nav" not in out),
+    ("'related stories'",     "might also like" not in out),
+    ("ad slots",              "/ads/banner" not in out),
+]:
+    check("removed: " + label, gone, True)
+
+# Must survive. This is everything the old paragraph-only extractor destroyed,
+# and the reason the reader called the result empty.
+for label, kept in [
+    ("images, from data-src",  "/img/chart.png" in out),
+    ("captions",               "Performance since 2020" in out),
+    ("list items",             "<li>" in out),
+    ("tables, with colspan",   "<table" in out and 'colspan="2"' in out),
+    ("pull quotes",            "<blockquote" in out),
+    ("inline emphasis",        "<b>4.2%</b>" in out),
+]:
+    check("kept: " + label, kept, True)
+
+check("relative links made absolute", 'href="https://example.com/more"' in out, True)
+check("external links get rel=noopener", 'rel="noopener noreferrer"' in out, True)
+check("image count returned", n_img, 1)
+
+print("\n── the bug the test above actually caught ──")
+# find_all() hands back a snapshot. Decomposing a parent detaches its children,
+# but they are still in that list, and .get() on a detached tag raises because
+# its attrs are gone. The first version did not check .decomposed, the
+# AttributeError was swallowed, and the ENTIRE sanitising pass aborted - so
+# <script> and onclick handlers stayed in the output. Nested junk reproduces it.
+NESTED = """<article>
+  <div class="ad-slot"><div class="inner"><p>Buy now</p><img src="/x.gif"></div></div>
+  <p onclick="bad()">Real body text that is long enough to be kept by the filter.</p>
+  <script>bad()</script>
+  <p>A second real paragraph, also long enough to survive the length filter.</p>
+</article>"""
+soup2 = BeautifulSoup(NESTED, "html.parser")
+root2 = soup2.find("article")
+mod._sanitize_article(root2, "https://example.com/a.html")
+out2 = root2.decode_contents()
+check("nested junk does not abort the pass", "onclick" not in out2 and "<script" not in out2, True)
+check("real text survives it", "Real body text" in out2 and "second real paragraph" in out2, True)
 
 print("\n" + ("PASS — all checks green" if not FAILURES
               else "FAIL — %d: %s" % (len(FAILURES), ", ".join(FAILURES))))
