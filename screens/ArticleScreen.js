@@ -83,17 +83,67 @@ const EXTRACT_JS = `
       }
       return { title: title, items: out, source: location.hostname, href: location.href };
     }
+    // ── Expand the article before reading it ──
+    //
+    // This is why every limit raised so far changed nothing. Yahoo Finance and
+    // most of its syndication partners render only the first few paragraphs and
+    // hide the rest behind a "Story continues" / "Continue reading" button.
+    // The remaining text is NOT in the DOM until that button is pressed, so
+    // both readers were extracting the whole of what was there and the whole
+    // of what was there was a third of the article.
+    //
+    // Only <button> and role=button are clicked, never <a>: a link would
+    // navigate the WebView away from the page mid-extraction. Each element is
+    // clicked once, and only while the text is still growing, so a button that
+    // does nothing cannot spin.
+    var EXPAND_RE = /story continues|continue reading|read more|read the rest|show more|keep reading|continue|קרא עוד|המשך לקרוא|המשך קריאה|читать далее|leer más|ver más/i;
+    var clicked = 0;
+    var seenBtn = [];
+    function expand() {
+      if (clicked >= 6) return false;
+      var cands = document.querySelectorAll(
+        'button, [role="button"], [class*="readmore" i], [class*="read-more" i], ' +
+        '[data-testid*="readmore" i], [class*="continues" i], [class*="expand" i]');
+      var did = false;
+      for (var i = 0; i < cands.length && clicked < 6; i++) {
+        var el = cands[i];
+        if (seenBtn.indexOf(el) !== -1) continue;
+        // A link navigates. Anything that is or contains one is left alone.
+        if (el.tagName === 'A' || el.querySelector('a')) continue;
+        var label = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '') +
+                     ' ' + (el.className || '') + ' ' +
+                     (el.getAttribute('data-testid') || '')).slice(0, 300);
+        if (!EXPAND_RE.test(label)) continue;
+        seenBtn.push(el);
+        try { el.click(); clicked++; did = true; } catch (e) {}
+      }
+      return did;
+    }
+
     var attempt = 0;
+    var lastLen = 0;
+    var stable = 0;
     var timer = setInterval(function() {
       attempt++;
+      expand();
       var d = grab();
-      if ((d.items.length >= 3 && d.title) || attempt > 12) {
+      // Wait for the text to STOP growing, not merely to exist. Clicking the
+      // expander adds paragraphs a moment later, and the old rule - three
+      // blocks and a title - fired before any of them arrived, which is
+      // precisely how a click-to-expand page yields a truncated article even
+      // after the button has been pressed.
+      var len = 0;
+      for (var k = 0; k < d.items.length; k++) len += (d.items[k].text || '').length;
+      if (len > lastLen) { lastLen = len; stable = 0; } else { stable++; }
+
+      var enough = d.items.length >= 3 && d.title;
+      if ((enough && stable >= 2) || attempt > 20) {
         clearInterval(timer);
         if (d.items.length >= 2 && window.ReactNativeWebView) {
           window.ReactNativeWebView.postMessage(JSON.stringify(d));
         }
       }
-    }, 900);
+    }, 700);
   } catch (e) {}
 })();
 true;
