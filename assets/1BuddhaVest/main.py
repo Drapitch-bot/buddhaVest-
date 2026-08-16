@@ -3824,7 +3824,10 @@ async def translate_batch_endpoint(request: Request):
     # Read the body with a hard size cap BEFORE parsing. Starlette has no
     # default limit, so an oversized payload was fully materialised in memory
     # on a small instance before the [:30] truncation could help.
-    MAX_BODY = 256 * 1024  # 256 KB — far above 30 paragraphs of article text
+    # 151 blocks x 4500 chars is ~680 KB in the worst case; 1 MB leaves room
+    # for JSON overhead and UTF-8 multibyte without letting an arbitrary
+    # payload be materialised in memory on a 512 MB instance.
+    MAX_BODY = 1024 * 1024
     try:
         raw = await request.body()
     except Exception:
@@ -3842,7 +3845,16 @@ async def translate_batch_endpoint(request: Request):
     lang = _clean_lang(payload.get("lang"))   # whitelist — reaches an outbound URL
     if not isinstance(texts, list) or not texts:
         return {"texts": []}
-    texts = [str(t)[:4500] for t in texts[:30]]
+    # 30 was the ceiling until 2026-08-15, and it was the reason articles
+    # opened through the WebView path still stopped in the middle. The client
+    # extractor was raised to 150 blocks the same day; this endpoint quietly
+    # threw away everything past the thirtieth and the reader saw a truncated
+    # article with no indication that anything was missing.
+    #
+    # The two numbers have to move together. 151 is the client's 150 blocks
+    # plus the title, and the body cap below is sized to match rather than to
+    # a number someone remembered.
+    texts = [str(t)[:4500] for t in texts[:151]]
 
     def _run():
         from concurrent.futures import ThreadPoolExecutor

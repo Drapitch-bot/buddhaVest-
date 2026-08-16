@@ -73,5 +73,30 @@ t('images get styling', src.includes('img{max-width:100%'), true);
 t('the stylesheet matches the server (blockquote rule)',
   src.includes('border-inline-start:3px solid #d97706'), true);
 
+console.log('\n-- the race between the two paths --');
+// They differ in QUALITY, not just speed: the server fetches raw HTML and on
+// Yahoo never sees an <img>, while this path runs after the page's own
+// JavaScript and gets the real pictures. First-past-the-post handed the reader
+// the poorer version whenever the server was quicker, which is most of the
+// time.
+t('the server result waits before being shown', src.includes('setTimeout(apply, 1600)'), true);
+t('the wait is skipped once the extraction has arrived',
+  src.includes('if (domSentRef.current) { apply(); return; }'), true);
+// domSentRef must be raised when the extraction ARRIVES, before its
+// translation round trip starts - otherwise the server's timer fires during
+// that round trip and the poorer version wins anyway. Checked inside
+// handleMessage, where the ordering actually matters; my first version of this
+// compared positions in the FILE, which proves nothing about execution.
+const hmBlock = src.slice(src.indexOf('var handleMessage'),
+                          src.indexOf('.catch(function() {', src.indexOf('var handleMessage')));
+t('the extraction flag is raised before the translation request',
+  hmBlock.indexOf('domSentRef.current = true') <
+  hmBlock.indexOf("fetch(API_BASE + '/translate-batch'"), true);
+t('the WebView path cancels the pending timer when it wins',
+  src.includes('if (graceRef.current) { clearTimeout(graceRef.current); graceRef.current = null; }'), true);
+// A timer left armed from the previous article paints over the new one.
+t('the timer is cleared in three places (win, cleanup, reset)',
+  (src.match(/clearTimeout\(graceRef\.current\)/g) || []).length >= 3, true);
+
 console.log(bad ? `\n  FAIL ${bad}` : '\n  OK the client reader matches the server reader');
 process.exit(bad ? 1 : 0);

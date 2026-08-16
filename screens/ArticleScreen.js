@@ -160,6 +160,9 @@ export default function ArticleScreen({ route, navigation }) {
   const [resolvedUrl, setResolvedUrl] = useState(isGnewsUrl(url) ? null : url);
   const abortRef = useRef(null);
   const domSentRef = useRef(false);
+  // Holds the pending 'show the server version' timer so the WebView path
+  // can cancel it the moment its own result is ready.
+  const graceRef = useRef(null);
   // Generation counter for the DOM-extraction translation path. The server fast
   // path is cancelled by its effect cleanup (AbortController), but this one is
   // fired from a WebView message and was never cancelled: switching article or
@@ -172,6 +175,7 @@ export default function ArticleScreen({ route, navigation }) {
     genRef.current++;            // invalidate any in-flight DOM translation
     setResolvedUrl(isGnewsUrl(url) ? null : url);
     setTranslatedHtml(null);
+    if (graceRef.current) { clearTimeout(graceRef.current); graceRef.current = null; }
     setError(false);
     setTranslating(false);
     domSentRef.current = false;
@@ -204,8 +208,33 @@ export default function ArticleScreen({ route, navigation }) {
       .then(function(html) {
         clearTimeout(timer);
         if (myGen !== genRef.current) return;   // article/language changed
-        setTranslatedHtml(function(prev) { return prev || html; });
-        setTranslating(false);
+        // Give the WebView path a head start before showing this one.
+        //
+        // The two produce different quality, not just different timing. This
+        // one fetches raw HTML, so on Yahoo — where most of these articles
+        // come from — it never sees a single <img>, because the pictures are
+        // inserted by the page's own JavaScript. The WebView path runs INSIDE
+        // the page after that JavaScript, so it gets the real images with
+        // srcset and lazy loading already resolved.
+        //
+        // First-past-the-post therefore meant the reader got the poorer
+        // version whenever the server happened to be quicker, which is most of
+        // the time. This waits ~1.6s: if the WebView delivers in that window
+        // it wins, and if it does not — a bot-walled page, a page that never
+        // finishes loading — this one is shown and nothing is lost but a
+        // second and a half.
+        //
+        // domSentRef is checked, not just translatedHtml: it is set the moment
+        // the extraction ARRIVES, before its translation round trip finishes,
+        // so a WebView result that is already in flight is not overtaken here.
+        var apply = function() {
+          if (myGen !== genRef.current) return;
+          setTranslatedHtml(function(prev) { return prev || html; });
+          setTranslating(false);
+        };
+        if (domSentRef.current) { apply(); return; }
+        var grace = setTimeout(apply, 1600);
+        graceRef.current = grace;
       })
       .catch(function() {
         clearTimeout(timer);
@@ -217,6 +246,9 @@ export default function ArticleScreen({ route, navigation }) {
 
     return function() {
       clearTimeout(timer);
+      // Without this a grace timer from the PREVIOUS article stays armed and
+      // paints its HTML over the one the reader just opened.
+      if (graceRef.current) { clearTimeout(graceRef.current); graceRef.current = null; }
       controller.abort();
     };
   }, [resolvedUrl, lang, needsTranslation]);
@@ -333,6 +365,9 @@ export default function ArticleScreen({ route, navigation }) {
           '.src a{color:#b45309;text-decoration:underline}' +
           '.cap{font-size:13px;color:#666;text-align:center;margin:-8px 0 16px}' +
           '</style></head><body>' + body + '</body></html>';
+        // This is the better version, so cancel the server's pending timer
+        // rather than letting it fire and lose the race by a hair.
+        if (graceRef.current) { clearTimeout(graceRef.current); graceRef.current = null; }
         setTranslatedHtml(function(prev) { return prev || html; });
         setTranslating(false);
       })

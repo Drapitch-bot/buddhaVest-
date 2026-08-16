@@ -186,6 +186,16 @@ for label, marker in [
 check("JSON-LD image handles a list", "img = img[0]" in src, True)
 check("JSON-LD image handles an ImageObject", 'img = img.get("url")' in src, True)
 
+print("\n── /translate-batch must not re-introduce the truncation ──")
+# The WebView path extracts up to 150 blocks. This endpoint capped the list at
+# 30 and threw the rest away silently, so articles served that way still
+# stopped in the middle - the same symptom, a different file. The two numbers
+# have to move together.
+check("the 30-text cap is gone", "texts[:30]" in src, False)
+check("the cap matches the client's 150 blocks plus the title",
+      "texts[:151]" in src, True)
+check("the body cap was raised to match", "MAX_BODY = 1024 * 1024" in src, True)
+
 print("\n── the article keeps its own markup, minus anything executable ──")
 # The whole point of the rewrite: translate the words, leave the page alone.
 # So this asserts on BOTH halves — what must survive, and what must not.
