@@ -192,6 +192,137 @@ const EXTRACT_JS = `
 true;
 `;
 
+// Injected INTO the translation proxy, after the page loads.
+//
+// The proxy serves the real page, and the real page lazy-loads its pictures:
+// the <img> carries a placeholder and the true file sits in data-src or
+// srcset, swapped in by an IntersectionObserver when the image scrolls into
+// view. Through translate.goog that observer frequently never fires, so the
+// images never load and the space reserved for them stays blank. Reported
+// from the phone as "a lot of empty space".
+//
+// The first instinct was to hide the gaps. That is backwards — the pictures
+// are part of the article, and the ask was for the page to look like the
+// original. So this makes them LOAD: the real URL is copied into src, native
+// lazy loading is switched to eager, and a scroll event is dispatched to wake
+// any observer that is listening for one.
+//
+// Only after the pictures have had several seconds to arrive does anything get
+// hidden, and then only two things: an image the browser has finished with and
+// failed to fetch, and an ad slot that reserved height and never filled
+// because ad networks do not serve through the proxy.
+const PROXY_CLEAN_JS = `
+(function() {
+  try {
+    // Word-bounded on purpose. A bare "ad" substring matches "read", "header",
+    // "download", "loading" and "shadow" — it would take out half the article.
+    var AD_SEL = [
+      'ins.adsbygoogle',
+      'iframe[src*="doubleclick"]',
+      'iframe[src*="googlesyndication"]',
+      'iframe[src*="amazon-adsystem"]',
+      'iframe[id*="google_ads"]',
+      '[id^="ad-"]', '[id$="-ad"]', '[id*="-ad-"]',
+      '[class^="ad-"]', '[class*=" ad-"]', '[class*="-ad-"]', '[class*="ad-slot"]',
+      '[class*="ad-container"]', '[class*="advertisement"]', '[class*="adWrapper"]',
+      '[data-testid*="-ad"]', '[data-google-query-id]',
+      '[aria-label="Advertisement"]', '[aria-label="advertisement"]'
+    ].join(',');
+
+    // ── 1. Make the pictures load ──
+    function wakeImages() {
+      var imgs = document.querySelectorAll('img');
+      for (var i = 0; i < imgs.length; i++) {
+        var el = imgs[i];
+        // Native lazy loading also holds images back off-screen.
+        // Both forms: the IDL property is what browsers act on, the attribute
+        // is what survives a page that re-reads its own markup.
+        if (el.getAttribute('loading') === 'lazy' || el.loading === 'lazy') {
+          el.loading = 'eager';
+          el.setAttribute('loading', 'eager');
+        }
+        if (el.getAttribute('decoding') === 'async') el.setAttribute('decoding', 'sync');
+
+        var real = el.getAttribute('data-src') || el.getAttribute('data-lazy-src') ||
+                   el.getAttribute('data-original') || el.getAttribute('data-srcset');
+        var cur = el.getAttribute('src') || '';
+        // Swap the placeholder for the real file. A 1x1 gif or an inline data:
+        // URI is the placeholder; anything else is already the picture.
+        if (real && (!cur || cur.indexOf('data:') === 0)) {
+          if (real.indexOf(' ') !== -1) {
+            // A srcset value: take the last (widest) candidate.
+            var parts = real.split(',');
+            var last = parts[parts.length - 1].trim().split(' ')[0];
+            if (last) el.setAttribute('src', last);
+          } else {
+            el.setAttribute('src', real);
+          }
+        }
+        // <picture> keeps its candidates on <source>, not on the <img>.
+        var pic = el.parentNode;
+        if (pic && pic.tagName === 'PICTURE') {
+          var srcs = pic.querySelectorAll('source[data-srcset]');
+          for (var k = 0; k < srcs.length; k++) {
+            srcs[k].setAttribute('srcset', srcs[k].getAttribute('data-srcset'));
+          }
+        }
+      }
+      // Some lazy loaders listen for scroll rather than using an observer.
+      try {
+        window.dispatchEvent(new Event('scroll'));
+        window.dispatchEvent(new Event('resize'));
+      } catch (e) {}
+    }
+
+    // ── 2. Only what is left over, and only later ──
+    function sweep() {
+      var i, el;
+      var ads = document.querySelectorAll(AD_SEL);
+      for (i = 0; i < ads.length; i++) {
+        el = ads[i];
+        if (el.dataset && el.dataset.bvGone) continue;
+        if (el.dataset) el.dataset.bvGone = '1';
+        el.style.display = 'none';
+      }
+      // complete && naturalWidth === 0 is the browser saying "I finished, and
+      // there is nothing" — checked only now, so an image still downloading is
+      // never mistaken for a broken one.
+      var imgs = document.querySelectorAll('img');
+      for (i = 0; i < imgs.length; i++) {
+        el = imgs[i];
+        if (el.complete && el.naturalWidth === 0) el.style.display = 'none';
+      }
+      var blocks = document.querySelectorAll('div,section,aside,figure');
+      for (i = 0; i < blocks.length; i++) {
+        el = blocks[i];
+        if (el.dataset && el.dataset.bvChecked) continue;
+        if (el.offsetHeight < 60) continue;
+        if ((el.innerText || '').trim().length > 0) continue;
+        if (el.querySelector('img,svg,video,canvas,picture,input,button')) continue;
+        if (el.dataset) el.dataset.bvChecked = '1';
+        el.style.display = 'none';
+      }
+      // Google's own translation toolbar floats over the article and is not
+      // part of it; the app already shows which language is selected.
+      var bars = document.querySelectorAll(
+        '.skiptranslate, #gt-nvframe, iframe.skiptranslate, .goog-te-banner-frame');
+      for (i = 0; i < bars.length; i++) bars[i].style.display = 'none';
+      if (document.body && document.body.style.top) document.body.style.top = '0px';
+    }
+
+    wakeImages();
+    var n = 0;
+    var t = setInterval(function() {
+      n++;
+      wakeImages();                 // the page keeps inserting images as it goes
+      if (n >= 5) sweep();          // ~4s in: whatever has not arrived is not coming
+      if (n > 14) clearInterval(t);
+    }, 800);
+  } catch (e) {}
+})();
+true;
+`;
+
 // Runs BEFORE each page's own scripts. When the WebView lands on Google's
 // cookie-consent wall (shown in the device language, e.g. Hebrew, the first
 // time an article routes through Google News / translate.goog), this sets the
@@ -559,7 +690,8 @@ export default function ArticleScreen({ route, navigation }) {
             var code = e && e.nativeEvent && e.nativeEvent.statusCode;
             if (usingProxy && code >= 400) setProxyFailed(true);
           }}
-          injectedJavaScript={!usingProxy && needsTranslation && !translatedHtml ? EXTRACT_JS : undefined}
+          injectedJavaScript={usingProxy ? PROXY_CLEAN_JS
+            : (needsTranslation && !translatedHtml ? EXTRACT_JS : undefined)}
           injectedJavaScriptBeforeContentLoaded={translatedHtml ? undefined : CONSENT_JS}
           style={s.webview}
           javaScriptEnabled={true}

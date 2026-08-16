@@ -333,6 +333,18 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      - name: Lazy images are made to load, not hidden
+        # The proxy serves the real page and the real page lazy-loads: the
+        # <img> holds a placeholder and the true file sits in data-src or
+        # srcset, swapped in by an observer that often never fires through
+        # translate.goog. Hiding the resulting gap was the first answer and it
+        # was backwards - the picture is part of the article.
+        #
+        # Half of these checks are about what must SURVIVE. A selector matching
+        # "ad" as a substring also matches "header", "download" and "read", and
+        # deleting those leaves an article with holes instead of gaps.
+        run: node scripts/test-proxy-cleanup.js
+
       - name: The translation proxy URL is built correctly
         # "I want it to look like the original, just translated" is a proxy,
         # not a reader. A reader extracts text and rebuilds a plain page, so it
