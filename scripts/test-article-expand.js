@@ -113,6 +113,23 @@ function run(page, { timeoutMs = 30000 } = {}) {
   const out2 = await run(plain);
   t('extracted without any button', !!out2 && out2.items.length >= 6, true);
 
+  console.log('\n-- which labels may be clicked at all --');
+  // This regex decides what gets clicked inside somebody else's page. A bare
+  // "continue" was in it at first, which matches "Continue to site" and
+  // "Continue without accepting" - buttons that navigate or dismiss rather
+  // than expand. Every alternative has to be a phrase that can only mean
+  // "reveal the rest of the article".
+  const _m = /var EXPAND_RE = (\/[^\n]+\/i);/.exec(src);
+  const EXPAND_RE = eval(_m[1]);
+  for (const label of ['Story continues', 'Continue reading', 'Read more',
+                       'Read the rest', 'Show more', 'Keep reading',
+                       'המשך לקרוא', 'קרא עוד', 'Читать далее', 'Leer más'])
+    t('matches: ' + label, EXPAND_RE.test(label), true);
+  for (const label of ['Continue', 'Continue to site', 'Continue without accepting',
+                       'Continue shopping', 'Sign in to continue', 'Next',
+                       'Submit', 'Share', 'Subscribe', 'Accept all'])
+    t('ignores: ' + label, EXPAND_RE.test(label), false);
+
   console.log(bad ? `\n  FAIL ${bad}` : '\n  OK the expander works on a real click-to-expand page');
   process.exit(bad ? 1 : 0);
 })();

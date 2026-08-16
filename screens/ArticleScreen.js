@@ -134,7 +134,12 @@ const EXTRACT_JS = `
     // navigate the WebView away from the page mid-extraction. Each element is
     // clicked once, and only while the text is still growing, so a button that
     // does nothing cannot spin.
-    var EXPAND_RE = /story continues|continue reading|read more|read the rest|show more|keep reading|continue|קרא עוד|המשך לקרוא|המשך קריאה|читать далее|leer más|ver más/i;
+    // A bare "continue" used to be in this list, and it should never have been:
+    // it matches "Continue", "Continue to site", "Continue without accepting"
+    // and any other button a page happens to label that way. This runs inside
+    // somebody else's page — every alternative here has to be a phrase that
+    // can only mean "reveal the rest of the article".
+    var EXPAND_RE = /story continues|continue reading|read (?:more|the rest)|show more|keep reading|קרא עוד|המשך לקרוא|המשך קריאה|читать далее|leer más|ver más/i;
     var clicked = 0;
     var seenBtn = [];
     function expand() {
