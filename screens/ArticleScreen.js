@@ -213,6 +213,9 @@ export default function ArticleScreen({ route, navigation }) {
   // Holds the pending 'show the server version' timer so the WebView path
   // can cancel it the moment its own result is ready.
   const graceRef = useRef(null);
+  // Kept so the two versions can be compared by length when the WebView
+  // result arrives after the server's is already on screen.
+  const serverHtmlRef = useRef(null);
   // Generation counter for the DOM-extraction translation path. The server fast
   // path is cancelled by its effect cleanup (AbortController), but this one is
   // fired from a WebView message and was never cancelled: switching article or
@@ -282,8 +285,16 @@ export default function ArticleScreen({ route, navigation }) {
           setTranslatedHtml(function(prev) { return prev || html; });
           setTranslating(false);
         };
+        serverHtmlRef.current = html;
         if (domSentRef.current) { apply(); return; }
-        var grace = setTimeout(apply, 1600);
+        // 1600ms was arithmetic I never did. The WebView path needs the page to
+        // load (1-3s), one poll (0.7s), the click, the revealed text (0.25s),
+        // two stable passes (1.4s) and then its own translation round trip -
+        // four to eight seconds. The server answers from a one-hour cache in
+        // about 300ms. So the server won every single race, and the server is
+        // the one that CANNOT press "Story continues", which is why the
+        // article stayed truncated no matter what was fixed upstream.
+        var grace = setTimeout(apply, 7000);
         graceRef.current = grace;
       })
       .catch(function() {
@@ -418,7 +429,15 @@ export default function ArticleScreen({ route, navigation }) {
         // This is the better version, so cancel the server's pending timer
         // rather than letting it fire and lose the race by a hair.
         if (graceRef.current) { clearTimeout(graceRef.current); graceRef.current = null; }
-        setTranslatedHtml(function(prev) { return prev || html; });
+        setTranslatedHtml(function(prev) {
+          // A grace period is a guess about timing, and a slow page will always
+          // beat any guess. So this one is also allowed to arrive LATE and take
+          // over — but only when it is clearly the fuller article, not merely
+          // different. Below that bar the reader keeps what they are reading.
+          if (!prev) return html;
+          if (html.length > prev.length * 1.3) return html;
+          return prev;
+        });
         setTranslating(false);
       })
       .catch(function() {

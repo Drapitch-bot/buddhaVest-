@@ -79,7 +79,15 @@ console.log('\n-- the race between the two paths --');
 // JavaScript and gets the real pictures. First-past-the-post handed the reader
 // the poorer version whenever the server was quicker, which is most of the
 // time.
-t('the server result waits before being shown', src.includes('setTimeout(apply, 1600)'), true);
+// The wait has to cover what the WebView path actually costs: page load
+// (1-3s), a poll (0.7s), the expander click, the revealed text (0.25s), two
+// stable passes (1.4s), then its own translation. Four to eight seconds. The
+// server answers from a one-hour cache in ~300ms, so a 1.6s grace - the first
+// number I used - lost every race, and the server is the path that cannot
+// press "Story continues".
+t('the server result waits long enough to actually lose', src.includes('setTimeout(apply, 7000)'), true);
+t('a late but fuller client result still takes over',
+  src.includes('html.length > prev.length * 1.3'), true);
 t('the wait is skipped once the extraction has arrived',
   src.includes('if (domSentRef.current) { apply(); return; }'), true);
 // domSentRef must be raised when the extraction ARRIVES, before its
