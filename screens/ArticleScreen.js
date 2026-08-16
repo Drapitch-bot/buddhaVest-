@@ -10,6 +10,44 @@ import { API_BASE } from '../constants/api';
 import { ERR, httpError, classifyError, errorText } from '../utils/errors';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
+
+/**
+ * The same page, on Google's translation proxy.
+ *
+ * This is what "I want it to look like the original, just in Hebrew" actually
+ * means, and it is not what the reader below does. The reader EXTRACTS text
+ * and rebuilds a plain white page, so it can never resemble the source: no
+ * layout, no styling, and only whatever markup the extractor happened to keep.
+ * The proxy serves the real page — its own CSS, its own images, its own
+ * "Story continues" button working normally — with the words replaced.
+ *
+ * URL shape: finance.yahoo.com -> finance-yahoo-com.translate.goog
+ *   every "-" in the host doubles first, THEN every "." becomes "-".
+ * Order matters: doing it the other way round makes a host containing a hyphen
+ * un-decodable, and the proxy returns someone else's site or nothing.
+ *
+ * Returns null when the URL cannot be used, and the caller then loads the page
+ * untranslated rather than guessing at a URL.
+ */
+function googleTranslateUrl(rawUrl, lang) {
+  try {
+    if (!rawUrl || !lang) return null;
+    var m = /^https?:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?/i.exec(String(rawUrl));
+    if (!m) return null;
+    var host = m[1];
+    if (host.indexOf(':') !== -1) return null;      // explicit port: not supported
+    if (host.indexOf('translate.goog') !== -1) return rawUrl;   // already proxied
+    var proxied = host.replace(/-/g, '--').replace(/\./g, '-') + '.translate.goog';
+    var path = m[2] || '/';
+    var query = m[3] || '';
+    var sep = query ? '&' : '?';
+    return 'https://' + proxied + path + query + sep +
+           '_x_tr_sl=auto&_x_tr_tl=' + encodeURIComponent(lang) +
+           '&_x_tr_hl=' + encodeURIComponent(lang);
+  } catch (e) {
+    return null;
+  }
+}
 const TRANSLATE_TIMEOUT_MS = 30000;
 
 // UI strings in the USER'S language (not the phone's system language)
@@ -216,6 +254,10 @@ export default function ArticleScreen({ route, navigation }) {
   // Kept so the two versions can be compared by length when the WebView
   // result arrives after the server's is already on screen.
   const serverHtmlRef = useRef(null);
+  // The proxy is the default. The reader below survives only as a fallback
+  // for pages the proxy cannot serve — it is the thing that does not look
+  // like the original, so it is not what anyone should see first.
+  const [proxyFailed, setProxyFailed] = useState(false);
   // Generation counter for the DOM-extraction translation path. The server fast
   // path is cancelled by its effect cleanup (AbortController), but this one is
   // fired from a WebView message and was never cancelled: switching article or
@@ -223,11 +265,17 @@ export default function ArticleScreen({ route, navigation }) {
   // the new screen, because the reset had just set translatedHtml back to null.
   const genRef = useRef(0);
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
+  const proxyUrl = needsTranslation && !isGnewsUrl(url)
+    ? googleTranslateUrl(resolvedUrl || url, lang) : null;
+  // While the proxy is showing the real page there is nothing to extract
+  // and nothing to fetch: the reader pipeline stays switched off entirely.
+  const usingProxy = !!proxyUrl && !proxyFailed;
 
   useEffect(function() {
     genRef.current++;            // invalidate any in-flight DOM translation
     setResolvedUrl(isGnewsUrl(url) ? null : url);
     setTranslatedHtml(null);
+    setProxyFailed(false);
     if (graceRef.current) { clearTimeout(graceRef.current); graceRef.current = null; }
     setError(false);
     setTranslating(false);
@@ -239,6 +287,9 @@ export default function ArticleScreen({ route, navigation }) {
     if (isConsentUrl(resolvedUrl)) return; // never translate a consent page
 
     if (!needsTranslation) return;
+    // The proxy is serving the real page; the reader would only replace it
+    // with a worse-looking one.
+    if (usingProxy) return;
 
     // Try server-side clean translation in background.
     // Meanwhile the WebView shows the article via the translate.goog proxy.
@@ -328,6 +379,7 @@ export default function ArticleScreen({ route, navigation }) {
   // build a clean reader page. Runs in parallel with the server fast path;
   // whichever finishes first wins (the other is ignored).
   var handleMessage = function(e) {
+    if (usingProxy) return;
     if (!needsTranslation || translatedHtml || domSentRef.current) return;
     var data;
     try { data = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
@@ -489,11 +541,20 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          key={translatedHtml ? 'clean' : 'orig'}
-          source={translatedHtml ? { html: translatedHtml } : { uri: url }}
+          key={usingProxy ? 'proxy' : (translatedHtml ? 'clean' : 'orig')}
+          source={usingProxy ? { uri: proxyUrl }
+                 : (translatedHtml ? { html: translatedHtml } : { uri: url })}
           onNavigationStateChange={handleNavChange}
           onMessage={handleMessage}
-          injectedJavaScript={needsTranslation && !translatedHtml ? EXTRACT_JS : undefined}
+          // The proxy failing is the ONLY reason to fall back to the reader.
+          // Without this the user would sit on an error page while a perfectly
+          // good fallback existed one state flag away.
+          onError={function() { if (usingProxy) setProxyFailed(true); }}
+          onHttpError={function(e) {
+            var code = e && e.nativeEvent && e.nativeEvent.statusCode;
+            if (usingProxy && code >= 400) setProxyFailed(true);
+          }}
+          injectedJavaScript={!usingProxy && needsTranslation && !translatedHtml ? EXTRACT_JS : undefined}
           injectedJavaScriptBeforeContentLoaded={translatedHtml ? undefined : CONSENT_JS}
           style={s.webview}
           javaScriptEnabled={true}

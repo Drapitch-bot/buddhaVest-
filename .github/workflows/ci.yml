@@ -333,6 +333,17 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      - name: The translation proxy URL is built correctly
+        # "I want it to look like the original, just translated" is a proxy,
+        # not a reader. A reader extracts text and rebuilds a plain page, so it
+        # can never resemble the source; the proxy serves the real page with
+        # its own CSS, images and expand button, words replaced.
+        #
+        # The host encoding is what breaks silently: every "-" doubles BEFORE
+        # every "." becomes "-". In the other order a hostname containing a
+        # hyphen cannot be decoded again and the proxy serves a different site.
+        run: node scripts/test-translate-proxy.js
+
       - name: The client article reader matches the server one
         # Two paths produce a translated article: the server fetches and
         # translates the page, and if that is slow or blocked the WebView
