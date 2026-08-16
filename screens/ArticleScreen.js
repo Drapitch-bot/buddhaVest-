@@ -40,21 +40,48 @@ const EXTRACT_JS = `
     if (window.__bvExtracted) return;
     if (location.hostname.indexOf('google') !== -1) return;
     window.__bvExtracted = true;
+    // Runs INSIDE the page, after its own JavaScript has finished. That is the
+    // one advantage this path has over the server: the images are really in
+    // the DOM here, already loaded and already resolved. The server fetches
+    // raw HTML and, on Yahoo, never sees a single <img>.
+    var IMG_JUNK = /logo|icon|avatar|sprite|pixel|spacer|1x1|blank\\.|placeholder|advert|\\/ads\\/|doubleclick/i;
     function grab() {
       var out = [];
       var h1 = document.querySelector('h1');
       var title = ((h1 && h1.innerText) || document.title || '').trim();
       var scope = document.querySelector('article') || document.body;
       if (!scope) return { title: title, items: out };
-      var nodes = scope.querySelectorAll('p, h2, h3');
-      for (var i = 0; i < nodes.length && out.length < 25; i++) {
-        var tag = nodes[i].tagName.toLowerCase();
-        var t = (nodes[i].innerText || '').replace(/\\s+/g, ' ').trim();
-        if ((tag === 'p' && t.length > 40) || (tag !== 'p' && t.length > 15 && t.length < 200)) {
+      // Same tag list the server keeps. The old one was p/h2/h3 only, which is
+      // why every article opened through this path arrived as a wall of text.
+      var nodes = scope.querySelectorAll('p, h2, h3, h4, li, blockquote, figcaption, img');
+      var chars = 0;
+      var seenImg = {};
+      for (var i = 0; i < nodes.length && out.length < 150 && chars < 24000; i++) {
+        var el = nodes[i];
+        var tag = el.tagName.toLowerCase();
+        if (tag === 'img') {
+          // currentSrc is what the browser actually chose out of srcset, so
+          // lazy loading and responsive images are already resolved for us.
+          var src = el.currentSrc || el.src || '';
+          if (!src || src.indexOf('data:') === 0) continue;
+          if (src.indexOf('http') !== 0) continue;
+          if (IMG_JUNK.test(src)) continue;
+          // Real dimensions, not declared ones: the picture is loaded.
+          if ((el.naturalWidth || el.width || 0) < 200) continue;
+          if (seenImg[src]) continue;
+          seenImg[src] = 1;
+          out.push({ tag: 'img', text: '', src: src.slice(0, 600) });
+          continue;
+        }
+        var t = (el.innerText || '').replace(/\\s+/g, ' ').trim();
+        var floor = tag === 'p' ? 40 : (tag === 'figcaption' ? 12 : (tag === 'li' ? 18 : 15));
+        var ceiling = (tag === 'h2' || tag === 'h3' || tag === 'h4') ? 200 : 100000;
+        if (t.length > floor && t.length < ceiling) {
           out.push({ tag: tag, text: t.slice(0, 3000) });
+          chars += t.length;
         }
       }
-      return { title: title, items: out };
+      return { title: title, items: out, source: location.hostname, href: location.href };
     }
     var attempt = 0;
     var timer = setInterval(function() {
@@ -222,14 +249,31 @@ export default function ArticleScreen({ route, navigation }) {
     // every field as untrusted: cap the item count and keep only the fields we
     // actually use (text is escaped below; the TAG is whitelisted, never
     // interpolated raw — otherwise a hostile page could send tag:"script").
-    var ALLOWED_TAGS = { p: 'p', h2: 'h2', h3: 'h3' };
-    var items = data.items.slice(0, 30).map(function(it) {
+    var ALLOWED_TAGS = { p: 'p', h2: 'h2', h3: 'h3', h4: 'h4', li: 'li',
+                         blockquote: 'blockquote', figcaption: 'figcaption', img: 'img' };
+    var items = data.items.slice(0, 150).map(function(it) {
+      var tag = ALLOWED_TAGS[String(it && it.tag).toLowerCase()] || 'p';
+      // An image URL is interpolated into an attribute, so it gets a stricter
+      // check than the text does: http(s) only, no javascript: or data:, and a
+      // hard length cap. Everything else about the message is already treated
+      // as hostile; this field has to be too.
+      var src = '';
+      if (tag === 'img') {
+        src = String((it && it.src) || '');
+        if (!/^https?:\/\//i.test(src)) { tag = 'p'; src = ''; }
+        else src = src.slice(0, 600);
+      }
       return {
-        tag: ALLOWED_TAGS[String(it && it.tag).toLowerCase()] || 'p',
+        tag: tag,
+        src: src,
         text: String((it && it.text) || '').slice(0, 4500),
       };
-    });
-    var texts = [String(data.title || '').slice(0, 500)].concat(items.map(function(it) { return it.text; }));
+    }).filter(function(it) { return it.tag !== 'img' || it.src; });
+    var sourceHost = String(data.source || '').replace(/^www\./, '').slice(0, 120);
+    // Images carry no words. Sending their empty text to the translator would
+    // burn a slot each and shift every following translation by one.
+    var texts = [String(data.title || '').slice(0, 500)]
+      .concat(items.map(function(it) { return it.tag === 'img' ? '' : it.text; }));
     fetch(API_BASE + '/translate-batch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -244,20 +288,51 @@ export default function ArticleScreen({ route, navigation }) {
         var isRtl = lang === 'he';
         var body = '';
         if (tr[0]) body += '<h1>' + escapeHtml(tr[0]) + '</h1>';
-        for (var i = 0; i < items.length; i++) {
-          var t = tr[i + 1] || '';
-          if (t) {
-            var tag = items[i].tag;   // already whitelisted to p/h2/h3
-            body += '<' + tag + '>' + escapeHtml(t) + '</' + tag + '>';
-          }
+        // A translated article with no way back to the original is a dead end,
+        // and attribution is the decent thing regardless. Same line the server
+        // emits, in the same four languages.
+        var SRC_LABEL = { en: 'Read the original', he: 'לקריאת המקור',
+                          ru: 'Читать оригинал', es: 'Leer el original' };
+        if (sourceHost && /^https?:\/\//i.test(String(data.href || ''))) {
+          body += '<p class="src">' + escapeHtml(sourceHost) + ' · <a href="' +
+                  escapeHtml(String(data.href).slice(0, 800)) +
+                  '" target="_blank" rel="noopener noreferrer">' +
+                  escapeHtml(SRC_LABEL[lang] || SRC_LABEL.en) + '</a></p>';
         }
-        var html = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        for (var i = 0; i < items.length; i++) {
+          var tag = items[i].tag;   // whitelisted above, never interpolated raw
+          if (tag === 'img') {
+            // src passed the http(s) test above and is escaped as an attribute
+            // value here, so it cannot break out of the quotes.
+            body += '<img src="' + escapeHtml(items[i].src) + '" loading="lazy" alt="">';
+            continue;
+          }
+          var t = tr[i + 1] || '';
+          if (!t) continue;
+          if (tag === 'figcaption') body += '<p class="cap">' + escapeHtml(t) + '</p>';
+          else body += '<' + tag + '>' + escapeHtml(t) + '</' + tag + '>';
+        }
+        // Kept deliberately identical to the stylesheet the server sends, so an
+        // article does not change appearance depending on which of the two
+        // paths happened to win the race.
+        var html = '<!DOCTYPE html><html dir="' + (isRtl ? 'rtl' : 'ltr') + '"><head><meta charset="utf-8">' +
           '<meta name="viewport" content="width=device-width,initial-scale=1">' +
           '<style>body{font-family:-apple-system,Arial,sans-serif;padding:16px 18px;' +
           'line-height:1.75;color:#111;background:#fff;direction:' + (isRtl ? 'rtl' : 'ltr') + ';' +
-          'max-width:800px;margin:0 auto}h1{font-size:22px;margin:0 0 16px}' +
-          'h2{font-size:18px;margin:20px 0 8px}h3{font-size:16px;margin:16px 0 6px}' +
-          'p{font-size:16px;margin:0 0 14px}</style></head><body>' + body + '</body></html>';
+          'max-width:800px;margin:0 auto;overflow-wrap:break-word}' +
+          'h1{font-size:23px;margin:0 0 6px;line-height:1.35}' +
+          'h2{font-size:19px;margin:22px 0 8px}h3{font-size:17px;margin:18px 0 6px}' +
+          'h4{font-size:15px;margin:14px 0 6px}' +
+          'p{font-size:16px;margin:0 0 14px}' +
+          'li{font-size:16px;margin:0 0 8px}ul,ol{padding-inline-start:22px;margin:0 0 14px}' +
+          'img{max-width:100%;height:auto;display:block;margin:16px auto;border-radius:10px}' +
+          'blockquote{margin:14px 0;padding-inline-start:14px;' +
+          'border-inline-start:3px solid #d97706;color:#333;font-style:italic}' +
+          'a{color:#b45309;text-decoration:none}' +
+          '.src{font-size:13px;color:#6b7280;margin:0 0 18px}' +
+          '.src a{color:#b45309;text-decoration:underline}' +
+          '.cap{font-size:13px;color:#666;text-align:center;margin:-8px 0 16px}' +
+          '</style></head><body>' + body + '</body></html>';
         setTranslatedHtml(function(prev) { return prev || html; });
         setTranslating(false);
       })

@@ -333,6 +333,18 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      - name: The client article reader matches the server one
+        # Two paths produce a translated article: the server fetches and
+        # translates the page, and if that is slow or blocked the WebView
+        # extracts the DOM and the app renders it locally. Whichever finishes
+        # first wins, so a fix applied to one and not the other shows up as a
+        # bug that "came back" - which is exactly what happened on 2026-08-15.
+        #
+        # The client path handles data posted from a third-party page, so most
+        # of these checks are about a hostile field never reaching the output:
+        # tags whitelisted, image URLs http(s)-only and escaped, no data: URLs.
+        run: node scripts/test-article-reader-client.js
+
       - name: A converted figure is only ever converted from dollars
         # The second line under a money tile shows the same amount in the
         # reader's currency. Getting it wrong produces a number that is
