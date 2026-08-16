@@ -345,6 +345,21 @@ jobs:
         # deleting those leaves an article with holes instead of gaps.
         run: node scripts/test-proxy-cleanup.js
 
+      - name: The proxy expands the article before Google translates it
+        # Google Translate walks the DOM once, at load. Yahoo keeps most of a
+        # long article behind "Story Continues" and inserts that text only when
+        # the button is pressed - after Google has already gone. A 46-minute
+        # earnings-call transcript is almost entirely behind that button, so the
+        # reader got a translated opening and nothing under it.
+        #
+        # The expander therefore has to run BEFORE the page's own scripts and
+        # keep trying, because the button does not exist yet when it starts.
+        # The two things that stop it doing harm matter as much as the fix:
+        # it must never click an <a> (that navigates the WebView off the
+        # article) and it must stop clicking, or a page that regenerates its
+        # buttons would be clicked forever.
+        run: node scripts/test-proxy-expand.js
+
       - name: The translation proxy URL is built correctly
         # "I want it to look like the original, just translated" is a proxy,
         # not a reader. A reader extracts text and rebuilds a plain page, so it

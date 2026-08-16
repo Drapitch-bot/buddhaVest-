@@ -192,6 +192,65 @@ const EXTRACT_JS = `
 true;
 `;
 
+// Injected BEFORE the proxy page's own scripts run.
+//
+// Google Translate walks the DOM once, when the page loads, and translates
+// what it finds. Yahoo hides most of a long article behind "Story Continues",
+// and that text is inserted only when the button is pressed — after Google has
+// already been and gone. On a 46-minute earnings-call transcript that is the
+// overwhelming majority of the page: the top arrives in Hebrew and everything
+// below the button is missing.
+//
+// So the button is pressed as early as possible, and kept pressed while the
+// page is still assembling itself, so the whole article is in the DOM before
+// the translation pass reaches it. Racing Google is the entire point of doing
+// this here rather than in PROXY_CLEAN_JS, which runs after load.
+//
+// Only <button> and role=button, and only labels that can mean one thing.
+// Clicking a link would navigate the WebView away from the article.
+const PROXY_EXPAND_JS = `
+(function() {
+  try {
+    if (window.__bvExpand) return;
+    window.__bvExpand = true;
+    var RE = /story continues|continue reading|read (?:more|the rest)|show more|keep reading|קרא עוד|המשך לקרוא|המשך קריאה|читать далее|leer más|ver más/i;
+    var clicked = 0;
+    var seen = [];
+    function expand() {
+      if (clicked >= 8) return;
+      var els = document.querySelectorAll(
+        'button, [role="button"], [class*="readmore" i], [class*="read-more" i], ' +
+        '[data-testid*="readmore" i], [class*="continues" i]');
+      for (var i = 0; i < els.length && clicked < 8; i++) {
+        var el = els[i];
+        if (seen.indexOf(el) !== -1) continue;
+        if (el.tagName === 'A' || el.querySelector('a')) continue;
+        var label = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '') +
+                     ' ' + (el.className || '') + ' ' +
+                     (el.getAttribute('data-testid') || '')).slice(0, 300);
+        if (!RE.test(label)) continue;
+        seen.push(el);
+        try { el.click(); clicked++; } catch (e) {}
+      }
+    }
+    // The button does not exist yet at this point — the page has not rendered.
+    // Poll fast and briefly: fast enough to catch it before Google's pass,
+    // brief enough that it stops long before the reader could notice.
+    var n = 0;
+    var t = setInterval(function() {
+      n++;
+      expand();
+      if (n > 40) clearInterval(t);     // 40 x 250ms = 10s
+    }, 250);
+    if (document.addEventListener) {
+      document.addEventListener('DOMContentLoaded', expand);
+      document.addEventListener('readystatechange', expand);
+    }
+  } catch (e) {}
+})();
+true;
+`;
+
 // Injected INTO the translation proxy, after the page loads.
 //
 // The proxy serves the real page, and the real page lazy-loads its pictures:
@@ -692,7 +751,10 @@ export default function ArticleScreen({ route, navigation }) {
           }}
           injectedJavaScript={usingProxy ? PROXY_CLEAN_JS
             : (needsTranslation && !translatedHtml ? EXTRACT_JS : undefined)}
-          injectedJavaScriptBeforeContentLoaded={translatedHtml ? undefined : CONSENT_JS}
+          // On the proxy, CONSENT_JS is not needed (no Google consent wall is
+          // shown for translate.goog) and the expander has to run first.
+          injectedJavaScriptBeforeContentLoaded={usingProxy ? PROXY_EXPAND_JS
+            : (translatedHtml ? undefined : CONSENT_JS)}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
