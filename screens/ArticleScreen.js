@@ -192,61 +192,141 @@ const EXTRACT_JS = `
 true;
 `;
 
-// Injected BEFORE the proxy page's own scripts run.
+// Translated IN PLACE, on the real page, instead of through translate.goog.
 //
-// Google Translate walks the DOM once, when the page loads, and translates
-// what it finds. Yahoo hides most of a long article behind "Story Continues",
-// and that text is inserted only when the button is pressed — after Google has
-// already been and gone. On a 46-minute earnings-call transcript that is the
-// overwhelming majority of the page: the top arrives in Hebrew and everything
-// below the button is missing.
+// Measured, in a real browser, on the page the reader complained about:
+// translate.goog served the article complete - 102 paragraphs, 50,704
+// characters, ending on the last line of the disclaimer - and translated
+// exactly none of it. Zero Hebrew, in every tenth of the page, still zero
+// after twenty-four seconds and a full scroll. The same on a short article.
 //
-// So the button is pressed as early as possible, and kept pressed while the
-// page is still assembling itself, so the whole article is in the DOM before
-// the translation pass reaches it. Racing Google is the entire point of doing
-// this here rather than in PROXY_CLEAN_JS, which runs after load.
+// The reason is structural, so no amount of waiting would have fixed it.
+// translate.goog translates what Yahoo's SERVER sends; Yahoo's server sends a
+// shell and injects the article from JavaScript in the browser afterwards.
+// Google never sees the text. Anything Yahoo loads later - the sections
+// further down the page - it never sees either.
 //
-// Only <button> and role=button, and only labels that can mean one thing.
-// Clicking a link would navigate the WebView away from the article.
-const PROXY_EXPAND_JS = `
+// So the proxy is gone. The WebView opens the real Yahoo URL, which is the
+// page the reader is comparing against, and the text is translated where it
+// sits: images, layout, links and everything Yahoo loads on scroll stay
+// exactly as they are. A MutationObserver keeps translating whatever arrives
+// after the first pass, which is the part Google structurally cannot do.
+const inPlaceTranslateJs = (apiBase, lang) => `
 (function() {
-  try {
-    if (window.__bvExpand) return;
-    window.__bvExpand = true;
-    var RE = /story continues|continue reading|read (?:more|the rest)|show more|keep reading|קרא עוד|המשך לקרוא|המשך קריאה|читать далее|leer más|ver más/i;
-    var clicked = 0;
-    var seen = [];
-    function expand() {
-      if (clicked >= 8) return;
-      var els = document.querySelectorAll(
-        'button, [role="button"], [class*="readmore" i], [class*="read-more" i], ' +
-        '[data-testid*="readmore" i], [class*="continues" i]');
-      for (var i = 0; i < els.length && clicked < 8; i++) {
-        var el = els[i];
-        if (seen.indexOf(el) !== -1) continue;
-        if (el.tagName === 'A' || el.querySelector('a')) continue;
-        var label = ((el.innerText || '') + ' ' + (el.getAttribute('aria-label') || '') +
-                     ' ' + (el.className || '') + ' ' +
-                     (el.getAttribute('data-testid') || '')).slice(0, 300);
-        if (!RE.test(label)) continue;
-        seen.push(el);
-        try { el.click(); clicked++; } catch (e) {}
+  if (window.__bvT) return; window.__bvT = 1;
+  var API = ${JSON.stringify(apiBase)}, LANG = ${JSON.stringify(lang)};
+  var RTL = LANG === 'he';
+  var SKIP = /^(script|style|noscript|svg|code|pre|iframe|button|select|textarea)$/i;
+  // Chrome and Safari cap a URL-ish POST long before the server's 1MB does,
+  // and a 46-minute transcript is 50KB of text. Send it in pieces sized so
+  // neither the count nor the bytes can be the thing that fails.
+  var MAX_ITEMS = 100, MAX_BYTES = 40000;
+  var queue = [], sending = false;
+
+  function inArticle(el) {
+    // Never touch chrome: a translated nav or cookie bar is worse than an
+    // untranslated one, and rewriting a <a> label can change where it points.
+    for (var n = el; n && n !== document.body; n = n.parentElement) {
+      var t = n.tagName;
+      if (t === 'NAV' || t === 'HEADER' || t === 'FOOTER' || t === 'ASIDE') return false;
+      if (n.getAttribute && n.getAttribute('role') === 'navigation') return false;
+    }
+    return true;
+  }
+
+  function worthTranslating(s) {
+    if (!s) return false;
+    var t = s.trim();
+    if (t.length < 2) return false;
+    // Prices, tickers, timestamps and "+1.24%" are the same in every language,
+    // and sending them back changes them for the worse.
+    if (!/[A-Za-z]{3}/.test(t)) return false;
+    return true;
+  }
+
+  // A block whose children are all inline is translated whole, so the sentence
+  // reaches the translator intact. A block that contains other blocks is left
+  // alone and its children are visited instead - replacing its text would
+  // delete every link, image and heading inside it.
+  function collect() {
+    var out = [];
+    var blocks = document.querySelectorAll('p,h1,h2,h3,h4,li,blockquote,figcaption,dd,dt,td,th');
+    for (var i = 0; i < blocks.length; i++) {
+      var el = blocks[i];
+      if (el.getAttribute('data-bv-t')) continue;
+      if (SKIP.test(el.tagName)) continue;
+      if (!inArticle(el)) continue;
+      if (el.querySelector('p,h1,h2,h3,h4,li,blockquote,div,table')) continue;
+      if (el.children.length === 0) {
+        if (!worthTranslating(el.textContent)) { el.setAttribute('data-bv-t', 'skip'); continue; }
+        out.push({ el: el, node: null, text: el.textContent.trim() });
+      } else {
+        // Mixed inline content: each text node on its own, so <a> and <strong>
+        // survive with their attributes and their targets untouched.
+        for (var j = 0; j < el.childNodes.length; j++) {
+          var n = el.childNodes[j];
+          if (n.nodeType !== 3) continue;
+          if (!worthTranslating(n.nodeValue)) continue;
+          out.push({ el: el, node: n, text: n.nodeValue.trim() });
+        }
       }
+      el.setAttribute('data-bv-t', '1');
     }
-    // The button does not exist yet at this point — the page has not rendered.
-    // Poll fast and briefly: fast enough to catch it before Google's pass,
-    // brief enough that it stops long before the reader could notice.
-    var n = 0;
-    var t = setInterval(function() {
-      n++;
-      expand();
-      if (n > 40) clearInterval(t);     // 40 x 250ms = 10s
-    }, 250);
-    if (document.addEventListener) {
-      document.addEventListener('DOMContentLoaded', expand);
-      document.addEventListener('readystatechange', expand);
-    }
-  } catch (e) {}
+    return out;
+  }
+
+  function applyRtl(el) {
+    if (!RTL) return;
+    try { el.style.direction = 'rtl'; el.style.textAlign = 'right'; } catch (e) {}
+  }
+
+  async function flush() {
+    if (sending || !queue.length) return;
+    sending = true;
+    try {
+      while (queue.length) {
+        var chunk = [], bytes = 0;
+        while (queue.length && chunk.length < MAX_ITEMS && bytes < MAX_BYTES) {
+          bytes += queue[0].text.length; chunk.push(queue.shift());
+        }
+        var res = await fetch(API + '/translate-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ texts: chunk.map(function(c) { return c.text; }), lang: LANG })
+        });
+        if (!res.ok) continue;
+        var data = await res.json();
+        var outTexts = data.texts || data.translations || [];
+        for (var k = 0; k < chunk.length; k++) {
+          var t = outTexts[k];
+          if (!t || typeof t !== 'string') continue;   // untranslated stays readable
+          if (chunk[k].node) chunk[k].node.nodeValue = ' ' + t + ' ';
+          else chunk[k].el.textContent = t;
+          applyRtl(chunk[k].el);
+        }
+      }
+    } catch (e) {} finally { sending = false; if (queue.length) flush(); }
+  }
+
+  function pass() {
+    var found = collect();
+    if (!found.length) return;
+    queue = queue.concat(found);
+    flush();
+  }
+
+  pass();
+  // Yahoo fills the article in after load and keeps adding to it on scroll.
+  // This is precisely what translate.goog cannot follow, and the reason a
+  // section further down the page arrived untranslated.
+  var pending = null;
+  new MutationObserver(function() {
+    clearTimeout(pending);
+    pending = setTimeout(pass, 600);
+  }).observe(document.body, { childList: true, subtree: true });
+  document.addEventListener('scroll', function() {
+    clearTimeout(pending); pending = setTimeout(pass, 600);
+  }, { passive: true });
 })();
 true;
 `;
@@ -460,11 +540,14 @@ export default function ArticleScreen({ route, navigation }) {
   // the new screen, because the reset had just set translatedHtml back to null.
   const genRef = useRef(0);
   const needsTranslation = translateArticles && lang && TRANSLATE_LANGS.has(lang);
-  const proxyUrl = needsTranslation && !isGnewsUrl(url)
-    ? googleTranslateUrl(resolvedUrl || url, lang) : null;
-  // While the proxy is showing the real page there is nothing to extract
-  // and nothing to fetch: the reader pipeline stays switched off entirely.
-  const usingProxy = !!proxyUrl && !proxyFailed;
+  // The real Yahoo URL, translated where it sits. Verified in a browser:
+  // translate.goog returned this article complete and translated 0% of it,
+  // because Yahoo injects the body from JavaScript after Google has already
+  // read the page. Translating in place is the only way the later sections -
+  // the ones Yahoo loads on scroll - get translated at all.
+  const canTranslateInPlace = needsTranslation && !isGnewsUrl(url) && !!resolvedUrl;
+  const usingProxy = canTranslateInPlace && !proxyFailed;
+  const inPlaceJs = usingProxy ? inPlaceTranslateJs(API_BASE, lang) : undefined;
 
   useEffect(function() {
     genRef.current++;            // invalidate any in-flight DOM translation
@@ -736,8 +819,8 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          key={usingProxy ? 'proxy' : (translatedHtml ? 'clean' : 'orig')}
-          source={usingProxy ? { uri: proxyUrl }
+          key={usingProxy ? 'inplace' : (translatedHtml ? 'clean' : 'orig')}
+          source={usingProxy ? { uri: resolvedUrl || url }
                  : (translatedHtml ? { html: translatedHtml } : { uri: url })}
           onNavigationStateChange={handleNavChange}
           onMessage={handleMessage}
@@ -749,12 +832,11 @@ export default function ArticleScreen({ route, navigation }) {
             var code = e && e.nativeEvent && e.nativeEvent.statusCode;
             if (usingProxy && code >= 400) setProxyFailed(true);
           }}
-          injectedJavaScript={usingProxy ? PROXY_CLEAN_JS
+          injectedJavaScript={usingProxy ? (PROXY_CLEAN_JS + '\n' + inPlaceJs)
             : (needsTranslation && !translatedHtml ? EXTRACT_JS : undefined)}
-          // On the proxy, CONSENT_JS is not needed (no Google consent wall is
-          // shown for translate.goog) and the expander has to run first.
-          injectedJavaScriptBeforeContentLoaded={usingProxy ? PROXY_EXPAND_JS
-            : (translatedHtml ? undefined : CONSENT_JS)}
+          // The page is now the publisher's own, so the consent wall is back in
+          // play and CONSENT_JS runs on every path again.
+          injectedJavaScriptBeforeContentLoaded={translatedHtml ? undefined : CONSENT_JS}
           style={s.webview}
           javaScriptEnabled={true}
           domStorageEnabled={true}
