@@ -10,44 +10,6 @@ import { API_BASE } from '../constants/api';
 import { ERR, httpError, classifyError, errorText } from '../utils/errors';
 
 const TRANSLATE_LANGS = new Set(['he', 'ru', 'es']);
-
-/**
- * The same page, on Google's translation proxy.
- *
- * This is what "I want it to look like the original, just in Hebrew" actually
- * means, and it is not what the reader below does. The reader EXTRACTS text
- * and rebuilds a plain white page, so it can never resemble the source: no
- * layout, no styling, and only whatever markup the extractor happened to keep.
- * The proxy serves the real page — its own CSS, its own images, its own
- * "Story continues" button working normally — with the words replaced.
- *
- * URL shape: finance.yahoo.com -> finance-yahoo-com.translate.goog
- *   every "-" in the host doubles first, THEN every "." becomes "-".
- * Order matters: doing it the other way round makes a host containing a hyphen
- * un-decodable, and the proxy returns someone else's site or nothing.
- *
- * Returns null when the URL cannot be used, and the caller then loads the page
- * untranslated rather than guessing at a URL.
- */
-function googleTranslateUrl(rawUrl, lang) {
-  try {
-    if (!rawUrl || !lang) return null;
-    var m = /^https?:\/\/([^/?#]+)([^?#]*)(\?[^#]*)?/i.exec(String(rawUrl));
-    if (!m) return null;
-    var host = m[1];
-    if (host.indexOf(':') !== -1) return null;      // explicit port: not supported
-    if (host.indexOf('translate.goog') !== -1) return rawUrl;   // already proxied
-    var proxied = host.replace(/-/g, '--').replace(/\./g, '-') + '.translate.goog';
-    var path = m[2] || '/';
-    var query = m[3] || '';
-    var sep = query ? '&' : '?';
-    return 'https://' + proxied + path + query + sep +
-           '_x_tr_sl=auto&_x_tr_tl=' + encodeURIComponent(lang) +
-           '&_x_tr_hl=' + encodeURIComponent(lang);
-  } catch (e) {
-    return null;
-  }
-}
 const TRANSLATE_TIMEOUT_MS = 30000;
 
 // UI strings in the USER'S language (not the phone's system language)
@@ -217,11 +179,15 @@ const inPlaceTranslateJs = (apiBase, lang) => `
   var API = ${JSON.stringify(apiBase)}, LANG = ${JSON.stringify(lang)};
   var RTL = LANG === 'he';
   var SKIP = /^(script|style|noscript|svg|code|pre|iframe|button|select|textarea)$/i;
-  // Chrome and Safari cap a URL-ish POST long before the server's 1MB does,
-  // and a 46-minute transcript is 50KB of text. Send it in pieces sized so
-  // neither the count nor the bytes can be the thing that fails.
-  var MAX_ITEMS = 100, MAX_BYTES = 40000;
-  var queue = [], sending = false;
+  // Sized by measurement against the live service, not by guesswork:
+  // 100 paragraphs came back in 16.9 seconds, 30 in 3.5, 20 in 2.4.
+  // In one big chunk the reader stares at seventeen seconds of English and
+  // reasonably concludes the article was cut off again. In twenties the text
+  // turns over from the top within about two seconds and fills downward, and
+  // two requests in flight keep the total for a 46-minute transcript near
+  // eight seconds instead of seventeen.
+  var MAX_ITEMS = 20, MAX_BYTES = 8000, MAX_INFLIGHT = 2;
+  var queue = [], inflight = 0;
 
   // Aim at the article, rather than guessing at everything that is not one.
   //
@@ -314,7 +280,7 @@ const inPlaceTranslateJs = (apiBase, lang) => `
           out.push({ el: el, node: n, text: n.nodeValue.trim() });
         }
       }
-      el.setAttribute('data-bv-t', '1');
+      el.setAttribute('data-bv-t', 'sent');
     }
     return out;
   }
@@ -324,21 +290,34 @@ const inPlaceTranslateJs = (apiBase, lang) => `
     try { el.style.direction = 'rtl'; el.style.textAlign = 'right'; } catch (e) {}
   }
 
-  async function flush() {
-    if (sending || !queue.length) return;
-    sending = true;
+  async function worker() {
     try {
       while (queue.length) {
         var chunk = [], bytes = 0;
         while (queue.length && chunk.length < MAX_ITEMS && bytes < MAX_BYTES) {
           bytes += queue[0].text.length; chunk.push(queue.shift());
         }
-        var res = await fetch(API + '/translate-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ texts: chunk.map(function(c) { return c.text; }), lang: LANG })
-        });
-        if (!res.ok) continue;
+        // A chunk that fails must not disappear. Blocks are marked 'sent'
+        // when they are collected, so without this the paragraphs in a failed
+        // chunk would stay English for good and nothing would ever look at
+        // them again - a silently truncated article, which is the exact
+        // failure this whole change exists to stop.
+        var res = null;
+        for (var attempt = 0; attempt < 3; attempt++) {
+          try {
+            res = await fetch(API + '/translate-batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ texts: chunk.map(function(c) { return c.text; }), lang: LANG })
+            });
+          } catch (e) { res = null; }
+          if (res && res.ok) break;
+          res = null;
+          // The service allows 120 requests a minute; backing off is what
+          // turns a burst rejection into a slower success instead of a hole.
+          await new Promise(function(r) { setTimeout(r, 700 * (attempt + 1)); });
+        }
+        if (!res) { release(chunk); continue; }
         var data = await res.json();
         var outTexts = data.texts || data.translations || [];
         for (var k = 0; k < chunk.length; k++) {
@@ -347,9 +326,23 @@ const inPlaceTranslateJs = (apiBase, lang) => `
           if (chunk[k].node) chunk[k].node.nodeValue = ' ' + t + ' ';
           else chunk[k].el.textContent = t;
           applyRtl(chunk[k].el);
+          chunk[k].el.setAttribute('data-bv-t', 'done');
         }
       }
-    } catch (e) {} finally { sending = false; if (queue.length) flush(); }
+    } catch (e) {} finally { inflight--; if (queue.length) flush(); }
+  }
+
+  function flush() {
+    while (inflight < MAX_INFLIGHT && queue.length) { inflight++; worker(); }
+  }
+
+  // Hand blocks back so the next pass picks them up again.
+  function release(chunk) {
+    for (var i = 0; i < chunk.length; i++) {
+      if (chunk[i].el.getAttribute('data-bv-t') !== 'done') {
+        chunk[i].el.removeAttribute('data-bv-t');
+      }
+    }
   }
 
   function pass() {
@@ -375,7 +368,7 @@ const inPlaceTranslateJs = (apiBase, lang) => `
 true;
 `;
 
-// Injected INTO the translation proxy, after the page loads.
+// Injected into the publisher's page, after it loads.
 //
 // The proxy serves the real page, and the real page lazy-loads its pictures:
 // the <img> carries a placeholder and the true file sits in data-src or
@@ -394,7 +387,7 @@ true;
 // hidden, and then only two things: an image the browser has finished with and
 // failed to fetch, and an ad slot that reserved height and never filled
 // because ad networks do not serve through the proxy.
-const PROXY_CLEAN_JS = `
+const PAGE_CLEAN_JS = `
 (function() {
   try {
     // Word-bounded on purpose. A bare "ad" substring matches "read", "header",
@@ -573,10 +566,10 @@ export default function ArticleScreen({ route, navigation }) {
   // Kept so the two versions can be compared by length when the WebView
   // result arrives after the server's is already on screen.
   const serverHtmlRef = useRef(null);
-  // The proxy is the default. The reader below survives only as a fallback
-  // for pages the proxy cannot serve — it is the thing that does not look
-  // like the original, so it is not what anyone should see first.
-  const [proxyFailed, setProxyFailed] = useState(false);
+  // Set when the publisher's own page will not load at all. The rebuilt
+  // reader below survives only for that case — it is the thing that does not
+  // look like the original, so it is not what anyone should see first.
+  const [livePageFailed, setLivePageFailed] = useState(false);
   // Generation counter for the DOM-extraction translation path. The server fast
   // path is cancelled by its effect cleanup (AbortController), but this one is
   // fired from a WebView message and was never cancelled: switching article or
@@ -590,14 +583,14 @@ export default function ArticleScreen({ route, navigation }) {
   // read the page. Translating in place is the only way the later sections -
   // the ones Yahoo loads on scroll - get translated at all.
   const canTranslateInPlace = needsTranslation && !isGnewsUrl(url) && !!resolvedUrl;
-  const usingProxy = canTranslateInPlace && !proxyFailed;
-  const inPlaceJs = usingProxy ? inPlaceTranslateJs(API_BASE, lang) : undefined;
+  const translatingInPlace = canTranslateInPlace && !livePageFailed;
+  const inPlaceJs = translatingInPlace ? inPlaceTranslateJs(API_BASE, lang) : undefined;
 
   useEffect(function() {
     genRef.current++;            // invalidate any in-flight DOM translation
     setResolvedUrl(isGnewsUrl(url) ? null : url);
     setTranslatedHtml(null);
-    setProxyFailed(false);
+    setLivePageFailed(false);
     if (graceRef.current) { clearTimeout(graceRef.current); graceRef.current = null; }
     setError(false);
     setTranslating(false);
@@ -611,7 +604,7 @@ export default function ArticleScreen({ route, navigation }) {
     if (!needsTranslation) return;
     // The proxy is serving the real page; the reader would only replace it
     // with a worse-looking one.
-    if (usingProxy) return;
+    if (translatingInPlace) return;
 
     // Try server-side clean translation in background.
     // Meanwhile the WebView shows the article via the translate.goog proxy.
@@ -701,7 +694,7 @@ export default function ArticleScreen({ route, navigation }) {
   // build a clean reader page. Runs in parallel with the server fast path;
   // whichever finishes first wins (the other is ignored).
   var handleMessage = function(e) {
-    if (usingProxy) return;
+    if (translatingInPlace) return;
     if (!needsTranslation || translatedHtml || domSentRef.current) return;
     var data;
     try { data = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
@@ -863,20 +856,22 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
-          key={usingProxy ? 'inplace' : (translatedHtml ? 'clean' : 'orig')}
-          source={usingProxy ? { uri: resolvedUrl || url }
+          key={translatingInPlace ? 'inplace' : (translatedHtml ? 'clean' : 'orig')}
+          source={translatingInPlace ? { uri: resolvedUrl || url }
                  : (translatedHtml ? { html: translatedHtml } : { uri: url })}
           onNavigationStateChange={handleNavChange}
           onMessage={handleMessage}
-          // The proxy failing is the ONLY reason to fall back to the reader.
-          // Without this the user would sit on an error page while a perfectly
-          // good fallback existed one state flag away.
-          onError={function() { if (usingProxy) setProxyFailed(true); }}
+          // The page itself failing is the ONLY reason to fall back to the
+          // rebuilt reader. Without this the reader would sit on an error page
+          // while a working fallback existed one state flag away — and that
+          // fallback fetches and translates on the server, so it does not
+          // depend on the page that just failed to load.
+          onError={function() { if (translatingInPlace) setLivePageFailed(true); }}
           onHttpError={function(e) {
             var code = e && e.nativeEvent && e.nativeEvent.statusCode;
-            if (usingProxy && code >= 400) setProxyFailed(true);
+            if (translatingInPlace && code >= 400) setLivePageFailed(true);
           }}
-          injectedJavaScript={usingProxy ? (PROXY_CLEAN_JS + '\n' + inPlaceJs)
+          injectedJavaScript={translatingInPlace ? (PAGE_CLEAN_JS + '\n' + inPlaceJs)
             : (needsTranslation && !translatedHtml ? EXTRACT_JS : undefined)}
           // The page is now the publisher's own, so the consent wall is back in
           // play and CONSENT_JS runs on every path again.

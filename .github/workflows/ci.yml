@@ -343,7 +343,7 @@ jobs:
         # Half of these checks are about what must SURVIVE. A selector matching
         # "ad" as a substring also matches "header", "download" and "read", and
         # deleting those leaves an article with holes instead of gaps.
-        run: node scripts/test-proxy-cleanup.js
+        run: node scripts/test-page-cleanup.js
 
       - name: The article is translated in place, including what loads later
         # Measured in a real browser on the article that was reported:
@@ -362,16 +362,6 @@ jobs:
         run: node scripts/test-inplace-translate.js
 
 
-      - name: The translation proxy URL is built correctly
-        # "I want it to look like the original, just translated" is a proxy,
-        # not a reader. A reader extracts text and rebuilds a plain page, so it
-        # can never resemble the source; the proxy serves the real page with
-        # its own CSS, images and expand button, words replaced.
-        #
-        # The host encoding is what breaks silently: every "-" doubles BEFORE
-        # every "." becomes "-". In the other order a hostname containing a
-        # hyphen cannot be decoded again and the proxy serves a different site.
-        run: node scripts/test-translate-proxy.js
 
       - name: The client article reader matches the server one
         # Two paths produce a translated article: the server fetches and

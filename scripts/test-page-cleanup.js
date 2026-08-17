@@ -1,5 +1,5 @@
 /**
- * PROXY_CLEAN_JS — run against a DOM, not read.
+ * PAGE_CLEAN_JS — run against a DOM, not read.
  *
  * The job is to make the pictures LOAD, not to hide the holes where they
  * should be. Yahoo lazy-loads: the <img> carries a placeholder and the real
@@ -23,7 +23,7 @@ const fs = require('fs');
 const { parseHTML } = require('linkedom');
 
 const src = fs.readFileSync('screens/ArticleScreen.js', 'utf8');
-const _o = src.indexOf('const PROXY_CLEAN_JS = `') + 'const PROXY_CLEAN_JS = '.length;
+const _o = src.indexOf('const PAGE_CLEAN_JS = `') + 'const PAGE_CLEAN_JS = '.length;
 const _c = src.indexOf('`;', _o) + 1;
 const CLEAN_JS = new Function('return ' + src.slice(_o, _c))();
 

@@ -47,7 +47,12 @@ async function run(html, opts) {
 
   const g = {
     window, document,
-    setTimeout: (fn) => { timers.push(fn); return timers.length; },
+    setTimeout: (fn, ms) => {
+      // Backoff waits must resolve, or flush() never finishes. Debounced
+      // passes are held so a test can fire them deliberately.
+      if (ms && ms >= 500) { Promise.resolve().then(fn); return 0; }
+      timers.push(fn); return timers.length;
+    },
     clearTimeout: () => {},
     MutationObserver: function (cb) {
       this.observe = () => observers.push(cb);
@@ -56,6 +61,10 @@ async function run(html, opts) {
       const body = JSON.parse(init.body);
       sent.push({ url, count: body.texts.length, lang: body.lang, texts: body.texts });
       if (opts.failFetch) return { ok: false };
+      if (opts.failFirst && sent.length <= opts.failFirst) {
+        if (opts.throwInstead) throw new Error('network');
+        return { ok: false, status: 429 };
+      }
       return { ok: true, json: async () => ({ texts: body.texts.map(x => '«' + x + '»') }) };
     },
   };
@@ -64,7 +73,7 @@ async function run(html, opts) {
   new Function('window', 'document', 'setTimeout', 'clearTimeout', 'MutationObserver', 'fetch', script)
     (g.window, g.document, g.setTimeout, g.clearTimeout, g.MutationObserver, g.fetch);
 
-  const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
+  const settle = async () => { for (let i = 0; i < 400; i++) await Promise.resolve(); };
   await settle();
   return {
     document, sent,
@@ -164,7 +173,12 @@ async function run(html, opts) {
       `<p>Paragraph number ${i} of the transcript, long enough to be worth sending.</p>`).join('');
     const r = await run(`<article>${paras}</article>`);
     t('splits a long transcript into chunks', r.sent.length > 1, true);
-    t('  no chunk exceeds the item cap', r.sent.every(x => x.count <= 100), true);
+    // 20 is not arbitrary: measured against the live service, 100 paragraphs
+    // took 16.9 seconds and 20 took 2.4. A reader watching seventeen seconds
+    // of English concludes the article was truncated again.
+    t('  no chunk exceeds the item cap', r.sent.every(x => x.count <= 20), true);
+    t('  and there are enough chunks to fill progressively',
+      r.sent.length >= 13, true);
     t('  every paragraph was sent',
       r.sent.reduce((a, b) => a + b.count, 0), 260);
   }
@@ -224,6 +238,70 @@ async function run(html, opts) {
       <div><p>A bare page with no article container at all here.</p></div>`);
     t('no container: chrome is still skipped', bare.sent[0].count, 1);
     t('  and the body text still goes', /bare page/.test(bare.sent[0].texts[0]), true);
+  }
+
+  // 12 · A chunk that fails must not become a hole in the article.
+  //      Blocks are marked the moment they are collected, so before this the
+  //      paragraphs in a rejected chunk stayed English for good and nothing
+  //      ever looked at them again - a silently truncated article, which is
+  //      the exact failure this whole change exists to stop.
+  {
+    const r = await run(`<article><p>A paragraph the service rejects twice before it succeeds.</p></article>`,
+      { failFirst: 2 });
+    t('retries a rejected chunk', r.sent.length, 3);
+    t('  and the text ends up translated',
+      /«A paragraph the service rejects/.test(r.document.querySelector('p').textContent), true);
+  }
+  {
+    const r = await run(`<article><p>A paragraph whose request throws outright, then works.</p></article>`,
+      { failFirst: 1, throwInstead: true });
+    t('a thrown request is retried too',
+      /«A paragraph whose request throws/.test(r.document.querySelector('p').textContent), true);
+  }
+  {
+    // Gave up after three tries: the block must be handed back, so the next
+    // pass tries it again rather than leaving it English for ever.
+    const r = await run(`<article><p>This one never succeeds at all today.</p><div id="late"></div></article>`,
+      { failFetch: true });
+    const marked = r.document.querySelector('p').getAttribute('data-bv-t');
+    t('an unrecoverable block is released, not left marked', marked, null);
+    const before = r.sent.length;
+    await r.mutate('');
+    t('  so a later pass picks it up again', r.sent.length > before, true);
+  }
+  {
+    // The counterpart: a block that succeeded is marked done and never resent.
+    const r = await run(`<article><p>One good paragraph, sent exactly once.</p><div id="late"></div></article>`);
+    t('a translated block is marked done',
+      r.document.querySelector('p').getAttribute('data-bv-t'), 'done');
+    await r.mutate('');
+    t('  and is never sent a second time',
+      r.sent.reduce((a, b) => a + b.count, 0), 1);
+  }
+
+  // 13 · Two requests may be in flight, never more: the service allows 120 a
+  //      minute and a long transcript should not spend that budget at once.
+  {
+    let peak = 0, live = 0;
+    const paras = Array.from({ length: 200 }, (_, i) =>
+      `<p>Paragraph ${i} of a long transcript, easily long enough to send.</p>`).join('');
+    const { document } = parseHTML(`<html><body><article>${paras}</article></body></html>`);
+    const window = {};
+    const script = factory('https://api.example', 'he');
+    let calls = 0;
+    const fetchImpl = async (url, init) => {
+      calls++; live++; peak = Math.max(peak, live);
+      await new Promise(r => Promise.resolve().then(r));
+      live--;
+      const body = JSON.parse(init.body);
+      return { ok: true, json: async () => ({ texts: body.texts.map(x => '«' + x + '»') }) };
+    };
+    new Function('window', 'document', 'setTimeout', 'clearTimeout', 'MutationObserver', 'fetch', script)
+      (window, document, (fn, ms) => { if (ms >= 500) Promise.resolve().then(fn); return 0; },
+       () => {}, function () { this.observe = () => {}; }, fetchImpl);
+    for (let i = 0; i < 800; i++) await Promise.resolve();
+    t('never more than two requests in flight', peak <= 2, true);
+    t('  and every paragraph still went', calls >= 10, true);
   }
 
   // 10 · Every language the app offers reaches the server as itself.
