@@ -147,6 +147,24 @@ console.log('\n  the currency list');
   t('the dollar is in the list, since it is the hub', listed.includes('USD'), true);
 }
 
+console.log('\n  the card shows what it does before it is used');
+{
+  const card = src.slice(src.indexOf('shares → money'), src.indexOf('money → money'));
+  // The quantity, total, budget and share count were all behind `quote ?`, so
+  // until a price was fetched the card was a ticker box and a button and read
+  // as though the sum had been taken out of it. Empty is honest; absent is not.
+  const gated = card.slice(card.indexOf('{quote ? ('), card.indexOf(') : null}', card.indexOf('{quote ? (')));
+  t('the quantity field is not hidden until a price arrives',
+    /calc_shares_label/.test(gated), false);
+  t('  nor the total', /calc_total_label/.test(gated), false);
+  t('  nor the budget', /calc_budget_label/.test(gated), false);
+  t('  nor the whole-share count', /calc_affordable_label/.test(gated), false);
+  t('  all four are on the card', ['calc_shares_label', 'calc_total_label',
+    'calc_budget_label', 'calc_affordable_label'].every(k => card.includes(k)), true);
+  t('  and the fetched price still only shows once there is one',
+    /calc_per_share/.test(gated), true);
+}
+
 console.log('\n  the converter picks both sides');
 {
   const body = src.slice(src.indexOf('export default function CalculatorScreen'));

@@ -333,44 +333,47 @@ export default function CalculatorScreen() {
           ) : null}
 
           {quote ? (
-            <>
-              <Result colors={colors} dir={dir}
-                label={quote.company_name || quote.ticker}
-                value={fmtMoney(quote.price, priceCur) + ' · ' + priceCur}
-                note={priceCur !== target && unitInTarget != null
-                  ? t.calc_per_share + ' ' + fmtMoney(unitInTarget, target)
-                  : null}
-              />
-              <Field colors={colors} dir={dir}
-                label={t.calc_shares_label}
-                value={shares}
-                onChangeText={setShares}
-                placeholder="0"
-              />
-              <Result colors={colors} dir={dir}
-                label={t.calc_total_label}
-                value={totalInTarget != null ? fmtMoney(totalInTarget, target) : '—'}
-                muted={totalInTarget == null}
-              />
-
-              {/* the same sum read backwards */}
-              <View style={[s.divider, { backgroundColor: colors.cardBorder }]} />
-              <Field colors={colors} dir={dir}
-                label={t.calc_budget_label.replace('{cur}', symbolFor(target))}
-                value={budget}
-                onChangeText={setBudget}
-                placeholder="0"
-              />
-              <Result colors={colors} dir={dir}
-                label={t.calc_affordable_label}
-                value={affordable != null ? fmtShares(affordable) : '—'}
-                muted={affordable == null}
-                note={affordable != null
-                  ? t.calc_leftover.replace('{amount}', fmtMoney(leftover, target))
-                  : null}
-              />
-            </>
+            <Result colors={colors} dir={dir}
+              label={quote.company_name || quote.ticker}
+              value={fmtMoney(quote.price, priceCur) + ' · ' + priceCur}
+              note={priceCur !== target && unitInTarget != null
+                ? t.calc_per_share + ' ' + fmtMoney(unitInTarget, target)
+                : null}
+            />
           ) : null}
+
+          {/* Always on screen, price or no price. Hiding them until a quote
+          arrived meant the card showed a ticker box and a button and gave
+          no sign of what it was for - it read as though the sum had been
+          taken away. Empty is honest; absent is misleading. */}
+          <Field colors={colors} dir={dir}
+          label={t.calc_shares_label}
+          value={shares}
+          onChangeText={setShares}
+          placeholder="0"
+          />
+          <Result colors={colors} dir={dir}
+          label={t.calc_total_label}
+          value={totalInTarget != null ? fmtMoney(totalInTarget, target) : '—'}
+          muted={totalInTarget == null}
+          />
+
+          {/* the same sum read backwards */}
+          <View style={[s.divider, { backgroundColor: colors.cardBorder }]} />
+          <Field colors={colors} dir={dir}
+          label={t.calc_budget_label.replace('{cur}', symbolFor(target))}
+          value={budget}
+          onChangeText={setBudget}
+          placeholder="0"
+          />
+          <Result colors={colors} dir={dir}
+          label={t.calc_affordable_label}
+          value={affordable != null ? fmtShares(affordable) : '—'}
+          muted={affordable == null}
+          note={affordable != null
+          ? t.calc_leftover.replace('{amount}', fmtMoney(leftover, target))
+          : null}
+          />
         </Card>
 
         {/* ── money → money ──────────────────────────────────────────────── */}
