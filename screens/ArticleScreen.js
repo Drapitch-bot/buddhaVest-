@@ -746,7 +746,10 @@ export default function ArticleScreen({ route, navigation }) {
               })
               .then(function() {
                 inFlightRef.current--;
-                if (trQueueRef.current.length) pump();
+                if (trQueueRef.current.length) { pump(); return; }
+                // Nothing queued and nothing in the air: this article is done.
+                // A late batch from the page turns it back on by itself.
+                if (inFlightRef.current === 0 && myGen === genRef.current) setTranslating(false);
               });
           };
           go();
@@ -769,6 +772,11 @@ export default function ArticleScreen({ route, navigation }) {
       var texts = msg.texts.slice(0, 151)
         .map(function(t) { return String(t == null ? '' : t).slice(0, 4500); });
       trQueueRef.current.push({ id: msg.id, texts: texts, lang: lang });
+      // Without this the reader watches an untranslated page with nothing to
+      // say work is under way, and reasonably concludes it has hung. The
+      // spinner and its four translations already existed; this path just
+      // never switched them on.
+      setTranslating(true);
       runTranslationQueue();
       return;
     }

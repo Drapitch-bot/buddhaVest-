@@ -310,6 +310,28 @@ async function run(html, opts) {
       /fetch\(/.test(factory('he')), false);
   }
 
+  // 14 · The reader must be told work is happening. Without it an English
+  //      page just sits there and looks hung - which is what it looked like.
+  {
+    const rn = src.slice(src.indexOf('var runTranslationQueue'), src.indexOf('return (', src.indexOf('var handleMessage')));
+    t('the spinner is switched on when a batch is queued',
+      /setTranslating\(true\)/.test(rn), true);
+    t('  and off when nothing is queued or in flight',
+      /inFlightRef\.current === 0[\s\S]{0,60}setTranslating\(false\)/.test(rn), true);
+    t('  and only for the article still on screen',
+      /myGen === genRef\.current[\s\S]{0,40}setTranslating\(false\)/.test(rn), true);
+  }
+  {
+    // All four languages, because the reader switches between them.
+    const line = src.match(/const TRANSLATING_TEXT = \{[^}]*\}/)[0];
+    for (const lang of ['he', 'ru', 'es', 'en']) {
+      t(`"translating" exists in ${lang}`,
+        new RegExp(`\\b${lang}:\\s*'[^']+'`).test(line), true);
+    }
+    t('  Hebrew is Hebrew', /he: 'מתרגם/.test(line), true);
+    t('  Russian is Cyrillic', /ru: '[\u0400-\u04ff]/.test(line), true);
+  }
+
   // 10 · Every language the app offers reaches the server as itself.
   for (const lang of ['he', 'ru', 'es']) {
     const r = await run(`<article><p>One sentence for every language the app ships.</p></article>`, { lang });

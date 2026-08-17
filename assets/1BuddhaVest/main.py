@@ -105,8 +105,22 @@ def io_pool():
 
 
 def translate_pool():
-    """Translation batches — kept separate so article reads are not queued behind market data."""
-    return _pool("bv-xlate", 6)
+    """Translation batches — kept separate so article reads are not queued behind market data.
+
+    16, not 6, and the number was measured rather than chosen. With six
+    workers a 20-paragraph batch took 4.3 seconds, and two batches sent at the
+    same instant took 9.4 — they were not running side by side at all, they
+    were queueing here. Four batches of ten took 8.2. The pool was the wall,
+    so the client sending more at once could never have helped.
+
+    Raising it is cheap because every one of these threads spends its life
+    blocked on a network read and holds no GIL while it waits; this is not the
+    politeness limit that the provider pools below are. The risk is the
+    translation service throttling us, and that now degrades instead of
+    breaking: a rejected batch is retried three times by the app and then
+    handed back to be collected again, so the reader waits rather than losing
+    a paragraph."""
+    return _pool("bv-xlate", 16)
 
 
 # The three below keep their original, deliberately SMALL worker counts. Those
