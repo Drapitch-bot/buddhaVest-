@@ -151,6 +151,21 @@ jobs:
         working-directory: assets/1BuddhaVest
         run: python test_article_images.py
 
+      - name: Several paragraphs travel in one request, or not at all
+        # deep_translator opens a fresh HTTPS request per string, so a
+        # 46-minute transcript meant one round trip per paragraph - measured at
+        # roughly 1.3 seconds each, which was the whole of the wait.
+        #
+        # Packing them into one request needs a marker, and a translator can
+        # drop one, duplicate one, reorder them or translate the digits. Any of
+        # those, if trusted, shifts the article by a paragraph and puts the
+        # wrong sentence under the wrong heading. So nothing trusts it: the
+        # split is verified against what was sent and gives up at the first
+        # thing that does not add up, and the caller then does it the slow,
+        # certain way. These cases are that promise, written as the ways it
+        # could be broken.
+        run: cd assets/1BuddhaVest && python test_translate_group.py
+
       - name: The market table stays USD-only
         # HomeScreen.fmtBig() hard-codes a "$" and _one_mover sends no currency
         # and no reconciled market cap. Both are fine while every symbol in the

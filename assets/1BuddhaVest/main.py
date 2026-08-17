@@ -180,23 +180,100 @@ try:
                 time.sleep(0.5)
         return text
 
+    # deep_translator opens a fresh HTTPS request per string, so a 46-minute
+    # transcript meant one round trip per paragraph — measured at roughly 1.3
+    # seconds each, which is where the whole wait came from. Several paragraphs
+    # can travel in one request if they are labelled on the way out and taken
+    # apart on the way back.
+    #
+    # A marker has to survive translation. Bracketed digits do: translators
+    # leave them alone because they are not words. But "usually survives" is
+    # not "cannot fail", so nothing here trusts it — the split is verified
+    # against what was sent, and anything that does not line up exactly falls
+    # back to the old one-request-per-string path. The fast path can therefore
+    # only ever be faster, never wrong.
+    _JOIN_RE = re.compile(r"\[\s*\[\s*\[\s*(\d+)\s*\]\s*\]\s*\]")
+    # Below _translate_text's own 4500 cap, with room for the markers.
+    _GROUP_CHARS = 3500
+    _GROUP_MAX = 25
+
+    def _split_marked(raw: str, count: int):
+        """Take a marked translation apart, or return None if it does not add up."""
+        if not raw:
+            return None
+        parts = {}
+        matches = list(_JOIN_RE.finditer(raw))
+        if len(matches) != count:
+            return None
+        for i, m in enumerate(matches):
+            try:
+                idx = int(m.group(1))
+            except (TypeError, ValueError):
+                return None
+            if idx < 0 or idx >= count or idx in parts:
+                return None            # missing, duplicated or reordered
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(raw)
+            piece = raw[m.end():end].strip()
+            if not piece:
+                return None            # a paragraph came back empty
+            parts[idx] = piece
+        if len(parts) != count:
+            return None
+        return [parts[i] for i in range(count)]
+
+    def _translate_group(texts: list, lang: str) -> list:
+        """One request for several paragraphs, falling back to one each."""
+        if len(texts) == 1:
+            return [_translate_text(texts[0], lang)]
+        marked = "\n\n".join(
+            "[[[%d]]]\n%s" % (i, t) for i, t in enumerate(texts))
+        target = _TRANSLATE_LANG.get(lang, lang)
+        try:
+            raw = _GT(source="auto", target=target).translate(marked)
+        except Exception as _e:
+            swallow("main:_translate_group", _e)
+            raw = None
+        pieces = _split_marked(raw, len(texts)) if raw else None
+        if pieces is None:
+            # Could not be taken apart with certainty. Do it the slow, sure way
+            # rather than hand back paragraphs that might be shifted by one.
+            return [_translate_text(t, lang) for t in texts]
+        return [_rtl_wrap(p, lang) for p in pieces]
+
+    def _plan_groups(texts: list):
+        """Pack paragraphs into groups small enough to travel together."""
+        groups, cur, size = [], [], 0
+        for i, t in enumerate(texts):
+            n = len(t or "") + 16          # the marker and its newlines
+            if cur and (size + n > _GROUP_CHARS or len(cur) >= _GROUP_MAX):
+                groups.append(cur); cur, size = [], 0
+            cur.append(i); size += n
+        if cur:
+            groups.append(cur)
+        return groups
+
     def _translate_batch(texts: list, lang: str) -> list:
         """
-        Translate a list of strings IN PARALLEL (deep_translator sends one
-        HTTP request per string, so sequential batches were very slow —
-        15 news titles took 10-15s; in parallel it's ~1-2s).
+        Translate a list of strings. Paragraphs are packed into groups that
+        travel in a single request, and the groups run in parallel — one
+        request per string was the old behaviour and it is still what happens
+        whenever a group cannot be taken apart with certainty.
         Returns originals on error.
         """
         if not texts or lang == "en":
             return texts
-        from concurrent.futures import ThreadPoolExecutor
-        def _one(txt):
-            try:
-                return _translate_text(txt, lang)
-            except Exception:
-                return txt
         try:
-            return list(translate_pool().map(_one, texts))
+            plan = _plan_groups(texts)
+            out = list(texts)
+
+            def _run(idxs):
+                return idxs, _translate_group([texts[i] for i in idxs], lang)
+
+            for idxs, done in translate_pool().map(_run, plan):
+                for pos, i in enumerate(idxs):
+                    if pos < len(done):
+                        out[i] = done[pos]
+            return out
         except Exception:
             return texts
 except ImportError:
@@ -3871,15 +3948,11 @@ async def translate_batch_endpoint(request: Request):
     texts = [str(t)[:4500] for t in texts[:151]]
 
     def _run():
-        from concurrent.futures import ThreadPoolExecutor
-        def _one(txt):
-            try:
-                return _translate_text(txt, lang)
-            except Exception:
-                return txt
-        # Shared 6-worker translation pool. This used to build a fresh 4-thread
-        # pool per article open; several concurrent opens meant several pools.
-        return list(translate_pool().map(_one, texts))
+        # Goes through _translate_batch so this endpoint gets the grouped path
+        # too: it used to send one HTTP request per paragraph, which on a
+        # 46-minute transcript was the whole of the wait. It had its own copy
+        # of the fan-out, so it quietly missed the improvement.
+        return _translate_batch(texts, lang)
 
     translated = await _asyncio.get_event_loop().run_in_executor(None, _run)
     return {"texts": translated}
