@@ -20,11 +20,11 @@ const fs = require('fs');
 const { parseHTML } = require('linkedom');
 
 const src = fs.readFileSync('screens/ArticleScreen.js', 'utf8');
-const open = src.indexOf('const inPlaceTranslateJs = (apiBase, lang) => `');
+const open = src.indexOf('const inPlaceTranslateJs = (lang) => `');
 if (open < 0) { console.error('inPlaceTranslateJs not found'); process.exit(1); }
 const bodyStart = src.indexOf('`', open);
 const bodyEnd = src.indexOf('\n`;', bodyStart);
-const factory = new Function('apiBase', 'lang',
+const factory = new Function('lang',
   'return ' + src.slice(src.indexOf('`', open), bodyEnd + 2) + ';');
 
 let bad = 0;
@@ -44,39 +44,49 @@ async function run(html, opts) {
   const sent = [];
   const observers = [];
   const timers = [];
+  const lang = opts.lang || 'he';
+  let peakInFlight = 0, live = 0;
 
-  const g = {
-    window, document,
-    setTimeout: (fn, ms) => {
-      // Backoff waits must resolve, or flush() never finishes. Debounced
-      // passes are held so a test can fire them deliberately.
-      if (ms && ms >= 500) { Promise.resolve().then(fn); return 0; }
-      timers.push(fn); return timers.length;
-    },
-    clearTimeout: () => {},
-    MutationObserver: function (cb) {
-      this.observe = () => observers.push(cb);
-    },
-    fetch: async (url, init) => {
-      const body = JSON.parse(init.body);
-      sent.push({ url, count: body.texts.length, lang: body.lang, texts: body.texts });
-      if (opts.failFetch) return { ok: false };
-      if (opts.failFirst && sent.length <= opts.failFirst) {
-        if (opts.throwInstead) throw new Error('network');
-        return { ok: false, status: 429 };
-      }
-      return { ok: true, json: async () => ({ texts: body.texts.map(x => '«' + x + '»') }) };
+  // Stands in for the app: the page posts a batch over the bridge, this
+  // translates it and calls back. The page itself is never given a fetch,
+  // because on a real publisher page it does not have a usable one - Yahoo
+  // ships default-src 'none', which covers connect-src.
+  window.ReactNativeWebView = {
+    postMessage: (raw) => {
+      const msg = JSON.parse(raw);
+      if (msg.bv !== 'tr') return;
+      sent.push({ id: msg.id, count: msg.texts.length, lang, texts: msg.texts });
+      const n = sent.length;
+      live++; peakInFlight = Math.max(peakInFlight, live);
+      Promise.resolve().then(() => {
+        live--;
+        if (opts.failFetch || (opts.failFirst && n <= opts.failFirst)) {
+          if (opts.giveUpAfter === false) return;
+          if (opts.failFirst && n <= opts.failFirst) {
+            // The app retries: re-post the same batch id.
+            window.ReactNativeWebView.postMessage(raw);
+            return;
+          }
+          window.__bvFail(msg.id);
+          return;
+        }
+        window.__bvApply(msg.id, msg.texts.map(x => '«' + x + '»'));
+      });
     },
   };
 
-  const script = factory(opts.api || 'https://api.example', opts.lang || 'he');
-  new Function('window', 'document', 'setTimeout', 'clearTimeout', 'MutationObserver', 'fetch', script)
-    (g.window, g.document, g.setTimeout, g.clearTimeout, g.MutationObserver, g.fetch);
+  const script = factory(lang);
+  new Function('window', 'document', 'setTimeout', 'clearTimeout', 'MutationObserver', script)
+    (window, document,
+     (fn, ms) => { if (ms && ms >= 500) { Promise.resolve().then(fn); return 0; }
+                   timers.push(fn); return timers.length; },
+     () => {},
+     function (cb) { this.observe = () => observers.push(cb); });
 
   const settle = async () => { for (let i = 0; i < 400; i++) await Promise.resolve(); };
   await settle();
   return {
-    document, sent,
+    document, sent, peakInFlight,
     // Fire the observer the way Yahoo firing its own late render would.
     async mutate(newHtml) {
       document.querySelector('#late') ?
@@ -279,29 +289,25 @@ async function run(html, opts) {
       r.sent.reduce((a, b) => a + b.count, 0), 1);
   }
 
-  // 13 · Two requests may be in flight, never more: the service allows 120 a
-  //      minute and a long transcript should not spend that budget at once.
+  // 13 · Concurrency moved to the app when the transport did, so what the
+  //      page owes is completeness: every paragraph of a long transcript
+  //      leaves over the bridge, in batches the service can answer quickly.
   {
-    let peak = 0, live = 0;
     const paras = Array.from({ length: 200 }, (_, i) =>
       `<p>Paragraph ${i} of a long transcript, easily long enough to send.</p>`).join('');
-    const { document } = parseHTML(`<html><body><article>${paras}</article></body></html>`);
-    const window = {};
-    const script = factory('https://api.example', 'he');
-    let calls = 0;
-    const fetchImpl = async (url, init) => {
-      calls++; live++; peak = Math.max(peak, live);
-      await new Promise(r => Promise.resolve().then(r));
-      live--;
-      const body = JSON.parse(init.body);
-      return { ok: true, json: async () => ({ texts: body.texts.map(x => '«' + x + '»') }) };
-    };
-    new Function('window', 'document', 'setTimeout', 'clearTimeout', 'MutationObserver', 'fetch', script)
-      (window, document, (fn, ms) => { if (ms >= 500) Promise.resolve().then(fn); return 0; },
-       () => {}, function () { this.observe = () => {}; }, fetchImpl);
-    for (let i = 0; i < 800; i++) await Promise.resolve();
-    t('never more than two requests in flight', peak <= 2, true);
-    t('  and every paragraph still went', calls >= 10, true);
+    const r = await run(`<article>${paras}</article>`);
+    t('every paragraph of a long transcript is sent',
+      r.sent.reduce((a, b) => a + b.count, 0), 200);
+    t('  in batches of twenty or fewer', r.sent.every(x => x.count <= 20), true);
+    t('  each with its own id', new Set(r.sent.map(x => x.id)).size, r.sent.length);
+  }
+  {
+    // The cap itself now lives in the app, so it is asserted where it lives.
+    const rn = src.slice(src.indexOf('var runTranslationQueue'), src.indexOf('var handleMessage'));
+    t('the app allows two requests in flight', /MAX_INFLIGHT = 2\b/.test(rn), true);
+    t('  and retries three times before giving up', /attempt < 3\b/.test(rn), true);
+    t('  the page is never handed a network call',
+      /fetch\(/.test(factory('he')), false);
   }
 
   // 10 · Every language the app offers reaches the server as itself.

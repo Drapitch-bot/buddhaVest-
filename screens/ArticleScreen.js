@@ -173,21 +173,19 @@ true;
 // sits: images, layout, links and everything Yahoo loads on scroll stay
 // exactly as they are. A MutationObserver keeps translating whatever arrives
 // after the first pass, which is the part Google structurally cannot do.
-const inPlaceTranslateJs = (apiBase, lang) => `
+const inPlaceTranslateJs = (lang) => `
 (function() {
   if (window.__bvT) return; window.__bvT = 1;
-  var API = ${JSON.stringify(apiBase)}, LANG = ${JSON.stringify(lang)};
+  var LANG = ${JSON.stringify(lang)};
   var RTL = LANG === 'he';
   var SKIP = /^(script|style|noscript|svg|code|pre|iframe|button|select|textarea)$/i;
   // Sized by measurement against the live service, not by guesswork:
   // 100 paragraphs came back in 16.9 seconds, 30 in 3.5, 20 in 2.4.
   // In one big chunk the reader stares at seventeen seconds of English and
   // reasonably concludes the article was cut off again. In twenties the text
-  // turns over from the top within about two seconds and fills downward, and
-  // two requests in flight keep the total for a 46-minute transcript near
-  // eight seconds instead of seventeen.
-  var MAX_ITEMS = 20, MAX_BYTES = 8000, MAX_INFLIGHT = 2;
-  var queue = [], inflight = 0;
+  // turns over from the top within about two seconds and fills downward.
+  var MAX_ITEMS = 20, MAX_BYTES = 8000;
+  var queue = [], batches = {}, nextId = 1;
 
   // Aim at the article, rather than guessing at everything that is not one.
   //
@@ -290,66 +288,64 @@ const inPlaceTranslateJs = (apiBase, lang) => `
     try { el.style.direction = 'rtl'; el.style.textAlign = 'right'; } catch (e) {}
   }
 
-  async function worker() {
-    try {
-      while (queue.length) {
-        var chunk = [], bytes = 0;
-        while (queue.length && chunk.length < MAX_ITEMS && bytes < MAX_BYTES) {
-          bytes += queue[0].text.length; chunk.push(queue.shift());
-        }
-        // A chunk that fails must not disappear. Blocks are marked 'sent'
-        // when they are collected, so without this the paragraphs in a failed
-        // chunk would stay English for good and nothing would ever look at
-        // them again - a silently truncated article, which is the exact
-        // failure this whole change exists to stop.
-        var res = null;
-        for (var attempt = 0; attempt < 3; attempt++) {
-          try {
-            res = await fetch(API + '/translate-batch', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ texts: chunk.map(function(c) { return c.text; }), lang: LANG })
-            });
-          } catch (e) { res = null; }
-          if (res && res.ok) break;
-          res = null;
-          // The service allows 120 requests a minute; backing off is what
-          // turns a burst rejection into a slower success instead of a hole.
-          await new Promise(function(r) { setTimeout(r, 700 * (attempt + 1)); });
-        }
-        if (!res) { release(chunk); continue; }
-        var data = await res.json();
-        var outTexts = data.texts || data.translations || [];
-        for (var k = 0; k < chunk.length; k++) {
-          var t = outTexts[k];
-          if (!t || typeof t !== 'string') continue;   // untranslated stays readable
-          if (chunk[k].node) chunk[k].node.nodeValue = ' ' + t + ' ';
-          else chunk[k].el.textContent = t;
-          applyRtl(chunk[k].el);
-          chunk[k].el.setAttribute('data-bv-t', 'done');
-        }
+  // The page NEVER calls the network. Yahoo ships
+  //     default-src 'none'; script-src 'none'; ...
+  // as a meta CSP, and default-src covers connect-src, so every fetch from
+  // inside the page is refused before it leaves. That is why the first
+  // version showed the untranslated original: the text was collected
+  // correctly and the request died silently.
+  //
+  // So the text goes out over the WebView bridge instead, the app - which no
+  // page policy applies to - does the request, and the answer comes back
+  // through __bvApply. Injected script still runs despite script-src 'none'
+  // because it is evaluated through the bridge, not fetched as a page script.
+  function send() {
+    if (!window.ReactNativeWebView) return;
+    while (queue.length) {
+      var chunk = [], bytes = 0;
+      while (queue.length && chunk.length < MAX_ITEMS && bytes < MAX_BYTES) {
+        bytes += queue[0].text.length; chunk.push(queue.shift());
       }
-    } catch (e) {} finally { inflight--; if (queue.length) flush(); }
+      var id = nextId++;
+      batches[id] = chunk;
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        bv: 'tr', id: id, texts: chunk.map(function(c) { return c.text; })
+      }));
+    }
   }
 
-  function flush() {
-    while (inflight < MAX_INFLIGHT && queue.length) { inflight++; worker(); }
-  }
+  // Called by the app with the finished translation. Text only - it is written
+  // through textContent and nodeValue, never as markup.
+  window.__bvApply = function(id, texts) {
+    var chunk = batches[id]; if (!chunk) return; delete batches[id];
+    for (var k = 0; k < chunk.length; k++) {
+      var t = texts && texts[k];
+      if (!t || typeof t !== 'string') continue;   // untranslated stays readable
+      try {
+        if (chunk[k].node) chunk[k].node.nodeValue = ' ' + t + ' ';
+        else chunk[k].el.textContent = t;
+        applyRtl(chunk[k].el);
+        chunk[k].el.setAttribute('data-bv-t', 'done');
+      } catch (e) {}
+    }
+  };
 
-  // Hand blocks back so the next pass picks them up again.
-  function release(chunk) {
+  // Gave up on this batch. Hand the blocks back so the next pass tries again,
+  // rather than leaving a hole in the middle of the article.
+  window.__bvFail = function(id) {
+    var chunk = batches[id]; if (!chunk) return; delete batches[id];
     for (var i = 0; i < chunk.length; i++) {
       if (chunk[i].el.getAttribute('data-bv-t') !== 'done') {
         chunk[i].el.removeAttribute('data-bv-t');
       }
     }
-  }
+  };
 
   function pass() {
     var found = collect();
     if (!found.length) return;
     queue = queue.concat(found);
-    flush();
+    send();
   }
 
   pass();
@@ -566,6 +562,15 @@ export default function ArticleScreen({ route, navigation }) {
   // Kept so the two versions can be compared by length when the WebView
   // result arrives after the server's is already on screen.
   const serverHtmlRef = useRef(null);
+  // Needed to hand a finished translation back to the page. The page cannot
+  // fetch it itself: publishers ship a meta CSP - Yahoo's is
+  // default-src 'none'; script-src 'none' - and default-src covers connect-src,
+  // so any request from inside the page is refused before it leaves.
+  const webRef = useRef(null);
+  // Requests in flight for the in-place path. Two, because the service allows
+  // 120 a minute and one long transcript should not spend that budget at once.
+  const inFlightRef = useRef(0);
+  const trQueueRef = useRef([]);
   // Set when the publisher's own page will not load at all. The rebuilt
   // reader below survives only for that case — it is the thing that does not
   // look like the original, so it is not what anyone should see first.
@@ -584,10 +589,11 @@ export default function ArticleScreen({ route, navigation }) {
   // the ones Yahoo loads on scroll - get translated at all.
   const canTranslateInPlace = needsTranslation && !isGnewsUrl(url) && !!resolvedUrl;
   const translatingInPlace = canTranslateInPlace && !livePageFailed;
-  const inPlaceJs = translatingInPlace ? inPlaceTranslateJs(API_BASE, lang) : undefined;
+  const inPlaceJs = translatingInPlace ? inPlaceTranslateJs(lang) : undefined;
 
   useEffect(function() {
     genRef.current++;            // invalidate any in-flight DOM translation
+    trQueueRef.current = [];     // and anything queued for the article we are leaving
     setResolvedUrl(isGnewsUrl(url) ? null : url);
     setTranslatedHtml(null);
     setLivePageFailed(false);
@@ -693,8 +699,79 @@ export default function ArticleScreen({ route, navigation }) {
   // DOM extraction arrived from the WebView -> translate the raw texts and
   // build a clean reader page. Runs in parallel with the server fast path;
   // whichever finishes first wins (the other is ignored).
+  // Runs one queued batch: translate on this side, inject the result back.
+  // Everything here treats the page as hostile - it chose the batch id and the
+  // strings - so ids are numbers only and the answer goes back as JSON that is
+  // read with textContent on the other side, never as markup.
+  var runTranslationQueue = React.useCallback(function() {
+    var MAX_INFLIGHT = 2;
+    var inject = function(fn, id, texts) {
+      var w = webRef.current; if (!w) return;
+      // </script> and the two line separators are the only sequences that can
+      // break out of an injected JSON literal.
+      var payload = JSON.stringify(texts === undefined ? [] : texts)
+        .replace(/</g, '\\u003c')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
+      w.injectJavaScript('window.' + fn + ' && window.' + fn + '(' + id + ',' + payload + '); true;');
+    };
+    var pump = function() {
+      while (inFlightRef.current < MAX_INFLIGHT && trQueueRef.current.length) {
+        (function(job) {
+          inFlightRef.current++;
+          var myGen = genRef.current;
+          var attempt = 0;
+          var go = function() {
+            fetch(API_BASE + '/translate-batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ texts: job.texts, lang: job.lang }),
+            })
+              .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+              })
+              .then(function(d) {
+                if (myGen !== genRef.current) return;   // article or language changed
+                inject('__bvApply', job.id, (d && d.texts) || []);
+              })
+              .catch(function() {
+                if (myGen !== genRef.current) return;
+                attempt++;
+                // Three tries. A batch that is dropped in silence leaves a hole
+                // in the middle of the article and nothing ever retries it,
+                // which is the failure this whole path exists to prevent.
+                if (attempt < 3) { setTimeout(go, 700 * attempt); return; }
+                inject('__bvFail', job.id);
+              })
+              .then(function() {
+                inFlightRef.current--;
+                if (trQueueRef.current.length) pump();
+              });
+          };
+          go();
+        })(trQueueRef.current.shift());
+      }
+    };
+    pump();
+  }, []);
+
   var handleMessage = function(e) {
-    if (translatingInPlace) return;
+    // The in-place path speaks first: the page has collected a batch and
+    // cannot send it anywhere itself.
+    if (translatingInPlace) {
+      var msg;
+      try { msg = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
+      if (!msg || msg.bv !== 'tr') return;
+      if (typeof msg.id !== 'number' || !isFinite(msg.id)) return;
+      if (!Array.isArray(msg.texts) || !msg.texts.length) return;
+      // Caps mirror the server's own: 151 strings, 4500 characters each.
+      var texts = msg.texts.slice(0, 151)
+        .map(function(t) { return String(t == null ? '' : t).slice(0, 4500); });
+      trQueueRef.current.push({ id: msg.id, texts: texts, lang: lang });
+      runTranslationQueue();
+      return;
+    }
     if (!needsTranslation || translatedHtml || domSentRef.current) return;
     var data;
     try { data = JSON.parse(e.nativeEvent.data); } catch (err) { return; }
@@ -856,6 +933,7 @@ export default function ArticleScreen({ route, navigation }) {
         </View>
       ) : (
         <WebView
+          ref={webRef}
           key={translatingInPlace ? 'inplace' : (translatedHtml ? 'clean' : 'orig')}
           source={translatingInPlace ? { uri: resolvedUrl || url }
                  : (translatedHtml ? { html: translatedHtml } : { uri: url })}
