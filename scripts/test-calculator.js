@@ -141,5 +141,34 @@ console.log('\n  the currency list');
   t('the dollar is in the list, since it is the hub', listed.includes('USD'), true);
 }
 
+console.log('\n  defaults');
+{
+  // The app's default is English and dollars. A currency chosen off the
+  // interface language puts one country's money in front of everyone who
+  // happens to read that language, and an initialiser that reads the language
+  // once cannot follow a change of it either.
+  const init = src.match(/const \[target, setTarget\] = useState\(([^)]*)\)/)[1].trim();
+  t('the target currency starts as dollars, unconditionally', init, "'USD'");
+  t('  and is not derived from the interface language',
+    /lang\s*===\s*'(he|ru|es)'/.test(init), false);
+}
+{
+  const api = fs.readFileSync('constants/api.js', 'utf8');
+  t('exchangeRate defaults to dollars', /exchangeRate: \(currency = 'USD'\)/.test(api), true);
+  for (const fn of ['analyze', 'signals', 'news', 'stockNews']) {
+    t(`${fn} defaults to English`,
+      new RegExp(fn + ": \\([^)]*lang = 'en'").test(api), true);
+  }
+  t('no endpoint helper still defaults to Hebrew', /lang = 'he'/.test(api), false);
+  t('no endpoint helper still defaults to shekels', /= 'ILS'\)/.test(api), false);
+}
+{
+  const py = fs.readFileSync('assets/1BuddhaVest/main.py', 'utf8');
+  t('no server endpoint still defaults to Hebrew', /lang: str = "he"/.test(py), false);
+  t('exchange-rate defaults to dollars', /currency: str = "USD"/.test(py), true);
+  t('  and an unknown code falls back to dollars, not shekels',
+    /if currency not in \([^)]*\):[\s\S]{0,400}?currency = "USD"/.test(py), true);
+}
+
 console.log(bad ? `\n  ${bad} failing` : '\n  all passing');
 process.exit(bad ? 1 : 0);

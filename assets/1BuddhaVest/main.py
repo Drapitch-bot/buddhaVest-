@@ -1539,7 +1539,7 @@ def search(request: Request, q: str):
 
 @app.get("/analyze/{ticker}")
 @rate_limit("heavy")
-def analyze(request: Request, ticker: str, lang: str = "he"):
+def analyze(request: Request, ticker: str, lang: str = "en"):
     """מחזיר ניתוח מלא למנייה בודדת. lang: he/en/ru/es - שולט בשפת הטקסטים ההסברתיים."""
     ticker = _clean_ticker(ticker)
     lang = _clean_lang(lang)
@@ -3347,12 +3347,16 @@ def price_history(request: Request, ticker: str):
 
 @app.get("/exchange-rate")
 @rate_limit("light")
-def exchange_rate(request: Request, currency: str = "ILS"):
+def exchange_rate(request: Request, currency: str = "USD"):
     # Whitelist: this value builds an outbound quote symbol ("{cur}=X") and a
     # cache key, so an arbitrary string must never reach either.
     currency = (currency or "").strip().upper()[:3]
     if currency not in ("ILS", "RUB", "EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD"):
-        currency = "ILS"
+        # The dollar, not the shekel. An unrecognised code should fall back to
+        # the app's own default and to the identity rate, so a bad request
+        # answers "no conversion" rather than quietly converting to one
+        # particular country's money.
+        currency = "USD"
     cache_key = f"exchange_{currency}"
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -3533,7 +3537,7 @@ def ticker_news(request: Request, ticker: str, lang: str = "en"):
 # would throttle the app's own warm-up. 120/min leaves that far behind while
 # still capping an outside caller.
 @rate_limit("light")
-async def translate_article_endpoint(request: Request, url: str, lang: str = "he"):
+async def translate_article_endpoint(request: Request, url: str, lang: str = "en"):
     """
     Fetches an article URL server-side, extracts text, translates it, and returns
     clean RTL HTML. Used by the mobile app's in-app reader to avoid WebView proxy issues.
@@ -3889,7 +3893,7 @@ async def translate_article_endpoint(request: Request, url: str, lang: str = "he
 
 
 @app.get("/translate-batch")
-async def translate_batch_get(q: str = "Hello world", lang: str = "he"):
+async def translate_batch_get(q: str = "Hello world", lang: str = "en"):
     """Debug/self-test variant of the POST endpoint — same translation path,
     testable from a plain browser: /translate-batch?q=Some text&lang=he"""
     import asyncio as _asyncio
@@ -3960,13 +3964,13 @@ async def translate_batch_endpoint(request: Request):
 
 @app.get("/signals/{ticker}")
 @rate_limit("normal")
-def ticker_signals(request: Request, ticker: str, lang: str = "he"):
+def ticker_signals(request: Request, ticker: str, lang: str = "en"):
     # Time-bounded: see _with_deadline. An unbounded upstream call here can
     # occupy uvicorn's single worker and take the whole service down.
     return _with_deadline(lambda: _signals_uncached(ticker, lang), 15, default={"signals": []})
 
 
-def _signals_uncached(ticker: str, lang: str = "he"):
+def _signals_uncached(ticker: str, lang: str = "en"):
     """
     'דברים שכדאי לעקוב אחריהם' - סינון כותרות חדשות לפי מילות מפתח.
     """

@@ -84,8 +84,12 @@ export default function CalculatorScreen() {
   // rates[cur] = how many of `cur` one dollar buys.
   const [rates, setRates] = useState({ USD: USD_RATE });
   const [ratesError, setRatesError] = useState(false);
-  const [target, setTarget] = useState(
-    lang === 'he' ? 'ILS' : lang === 'ru' ? 'RUB' : lang === 'es' ? 'EUR' : 'USD');
+  // Dollars, whatever language the app is in. Prices arrive in dollars, the
+  // rates are quoted against the dollar, and the app's default is English -
+  // picking a currency off the interface language would put one country's
+  // money in front of everyone who happens to read that language, and it also
+  // could not follow a language change, because this initialiser runs once.
+  const [target, setTarget] = useState('USD');
 
   const [ticker, setTicker] = useState('');
   const [quote, setQuote] = useState(null);       // {ticker, price, price_currency, company_name}
