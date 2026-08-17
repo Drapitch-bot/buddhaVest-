@@ -19,6 +19,7 @@ import MoreScreen from './screens/MoreScreen';
 import StockScreen from './screens/StockScreen';
 import MetricHistoryScreen from './screens/MetricHistoryScreen';
 import ArticleScreen from './screens/ArticleScreen';
+import CalculatorScreen from './screens/CalculatorScreen';
 
 I18nManager.allowRTL(true);
 
@@ -38,6 +39,7 @@ const TAB_ICONS = {
   star:      require('./assets/tab_watchlist.png'),
   news:      require('./assets/tab_news.png'),
   more:      require('./assets/tab_more.png'),
+  calc:      require('./assets/tab_calc.png'),
 };
 
 function TabIcon({ name, focused, size = 24 }) {
@@ -130,7 +132,12 @@ function MainTabs() {
         },
         tabBarActiveTintColor: activeTint,
         tabBarInactiveTintColor: inactiveTint,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        // 10, not 11, and allowFontScaling off: six labels have to fit on a
+        // narrow phone, and 'Калькулятор' and 'Calculadora' are the long ones.
+        // Letting the OS font setting scale these too would push them onto a
+        // second line and change the height of the bar.
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '600' },
+        tabBarAllowFontScaling: false,
       }}>
       <Tab.Screen name="HomeTab" component={HomeNavigator}
         options={{ tabBarLabel: t.home || 'Home', tabBarIcon: ({ focused }) => <TabIcon name="home" focused={focused} /> }} />
@@ -140,6 +147,8 @@ function MainTabs() {
         options={{ tabBarLabel: t.watchlist || 'Watchlist', tabBarIcon: ({ focused }) => <TabIcon name="star" focused={focused} /> }} />
       <Tab.Screen name="NewsTab" component={NewsNavigator}
         options={{ tabBarLabel: t.news || 'News', tabBarIcon: ({ focused }) => <TabIcon name="news" focused={focused} /> }} />
+      <Tab.Screen name="CalcTab" component={CalculatorScreen}
+        options={{ tabBarLabel: t.calc || 'Calc', tabBarIcon: ({ focused }) => <TabIcon name="calc" focused={focused} /> }} />
       <Tab.Screen name="MoreTab" component={MoreNavigator}
         options={{ tabBarLabel: t.more || 'More', tabBarIcon: ({ focused }) => <TabIcon name="more" focused={focused} /> }} />
     </Tab.Navigator>

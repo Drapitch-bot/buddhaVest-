@@ -345,6 +345,21 @@ jobs:
         # deleting those leaves an article with holes instead of gaps.
         run: node scripts/test-page-cleanup.js
 
+      - name: The currency calculator's arithmetic
+        # A share price is quoted in the STOCK's currency, not the reader's and
+        # not always the dollar - Delek trades in shekels. The rate service
+        # quotes everything against the dollar. Going straight from an 81.68
+        # shekel price to shekels with a dollar rate would multiply it by three
+        # and tell someone a holding costs three times what it does, which is
+        # the same class of error as the market cap that once read 2,106B.
+        #
+        # The rates in the fixtures are real ones read from the live service,
+        # so every expected answer is arithmetic anyone can check by hand. The
+        # currency list is held to what was actually confirmed to return a
+        # rate: a currency in the picker with nothing behind it is a control
+        # that silently does nothing.
+        run: node scripts/test-calculator.js
+
       - name: The article is translated in place, including what loads later
         # Measured in a real browser on the article that was reported:
         # translate.goog served it COMPLETE - 102 paragraphs, 50,704 characters,
