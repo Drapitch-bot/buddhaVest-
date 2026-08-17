@@ -375,6 +375,53 @@ jobs:
         # that silently does nothing.
         run: node scripts/test-calculator.js
 
+      - name: Every module a test script imports is actually declared
+        # The other half of the same failure. linkedom was in node_modules on
+        # the machine these were written on, from an install months earlier,
+        # and in neither package.json nor the lockfile. npm ci installs what is
+        # locked, so on GitHub it simply was not there and three test scripts
+        # died on their first line. A dependency that only exists on one
+        # machine is not a dependency, it is a coincidence.
+        run: |
+          node -e "
+          const fs=require('fs'),path=require('path');
+          const p=require('./package.json');
+          const declared=new Set([...Object.keys(p.dependencies||{}),...Object.keys(p.devDependencies||{})]);
+          let bad=0;
+          const files=[['.github/workflows/ci.yml','.github/workflows/ci.yml']]
+            .concat(fs.readdirSync('scripts').filter(x=>x.endsWith('.js')).map(x=>[x,path.join('scripts',x)]));
+          for (const [label,file] of files) {
+            const src=fs.readFileSync(file,'utf8');
+            for (const m of src.matchAll(/require\(['\"]([^.'\"][^'\"]*)['\"]\)/g)) {
+              const name=m[1].startsWith('@')?m[1].split('/').slice(0,2).join('/'):m[1].split('/')[0];
+              if (require('module').isBuiltin(name)) continue;
+              if (!declared.has(name)) { console.error('  '+label+' needs '+name+', which package.json does not declare'); bad++; }
+            }
+          }
+          console.log(bad?bad+' to fix':'  ok — every imported module is declared');
+          process.exit(bad?1:0);"
+
+      - name: No test script require()s an ES module
+        # This is the one that got through. utils/currency.js is an ES module;
+        # require() of one is allowed on Node 22 and a hard error on Node 20,
+        # which is what this workflow pins. Every step passed on a Node 22
+        # machine and the App job failed here, which is the worst shape a
+        # failure can take - a local run that says yes and a push that says no.
+        run: |
+          node -e "
+          const fs=require('fs'),path=require('path');
+          const esm=f=>{try{return /^\s*export /m.test(fs.readFileSync(f,'utf8'))}catch(e){return false}};
+          let bad=0;
+          for (const f of fs.readdirSync('scripts').filter(x=>x.endsWith('.js'))) {
+            const src=fs.readFileSync(path.join('scripts',f),'utf8');
+            for (const m of src.matchAll(/require\(['\"](\.[^'\"]+)['\"]\)/g)) {
+              const target=path.normalize(path.join('scripts',m[1]));
+              if (esm(target)) { console.error('  '+f+' requires the ES module '+target); bad++; }
+            }
+          }
+          console.log(bad?bad+' to fix':'  ok — no test script requires an ES module');
+          process.exit(bad?1:0);"
+
       - name: The article is translated in place, including what loads later
         # Measured in a real browser on the article that was reported:
         # translate.goog served it COMPLETE - 102 paragraphs, 50,704 characters,

@@ -118,6 +118,21 @@ function resolveBash() {
 
 const BASH = resolveBash();
 console.log(DIM + 'shell:  ' + BASH + RESET);
+
+// This runner exists so a green light here means a green light on GitHub. It
+// stopped meaning that once: this machine had Node 22, the workflow pins 20,
+// and require() of an ES module is allowed on 22 and a hard error on 20. Every
+// step passed locally and the App job failed on push. A mismatch is worth
+// shouting about rather than discovering from an email.
+try {
+  const want = (fs.readFileSync(wf, 'utf8').match(/node-version:\s*'?(\d+)/) || [])[1];
+  const have = process.versions.node.split('.')[0];
+  if (want && want !== have) {
+    console.log(`\x1b[33mnode:   ${have} here, ${want} on GitHub — a pass here is NOT a pass there\x1b[0m`);
+  } else if (want) {
+    console.log(`\x1b[2mnode:   ${have}, same as GitHub\x1b[0m`);
+  }
+} catch (e) { /* the banner is not worth failing the run over */ }
 console.log(DIM + 'python: ' + PY + RESET);
 
 let failed = [];

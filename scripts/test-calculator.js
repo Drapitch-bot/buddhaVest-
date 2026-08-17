@@ -28,11 +28,17 @@ function grab(name) {
   }
   return src.slice(i, j);
 }
-const symbolFor = require('../utils/currency.js').symbolFor
-  || (function () { const m = fs.readFileSync('utils/currency.js', 'utf8');
-      const o = m.indexOf('const SYMBOLS = {'); const c = m.indexOf('};', o) + 1;
-      const S = new Function('return ' + m.slice(o + 'const SYMBOLS = '.length, c))();
-      return (cur) => S[cur] || (cur + ' '); })();
+// utils/currency.js is an ES module, and require() of one is a hard error on
+// Node 20 - which is what CI runs. It works on Node 22, which is what this
+// machine has, so requiring it passed here and failed there. Read the table
+// out of the source instead: no loader involved, no version to be wrong about.
+const symbolFor = (function () {
+  const m = fs.readFileSync('utils/currency.js', 'utf8');
+  const o = m.indexOf('const SYMBOLS = {');
+  const c = m.indexOf('};', o) + 1;
+  const S = new Function('return ' + m.slice(o + 'const SYMBOLS = '.length, c))();
+  return (cur) => S[cur] || (cur + ' ');
+})();
 
 const ctx = { symbolFor, DECIMALS: null };
 const bodies = ['decimalsFor', 'fmtMoney', 'fmtShares', 'parseNum'].map(grab).join('\n');
