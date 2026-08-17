@@ -129,12 +129,25 @@ async function run(html, opts) {
   //     This is what translate.goog cannot do and why a section further down
   //     the page came through in English.
   {
-    const r = await run(`<article><p>The opening paragraph of the transcript.</p></article><div id="late"></div>`);
+    const r = await run(`<article><p>The opening paragraph of the transcript.</p><div id="late"></div></article>`);
     const before = r.sent.length;
-    await r.mutate('<p>A whole section Yahoo only loads once you scroll down.</p>');
-    t('translates content added after load', r.sent.length > before, true);
+    await r.mutate('<p>A whole section the site only loads once you scroll down.</p>');
+    t('translates a section added after load', r.sent.length > before, true);
     t('  and it reached the page',
       /«A whole section/.test(r.document.querySelector('#late p').textContent), true);
+  }
+  {
+    // What the reader actually described: a further article appears below the
+    // first one as you scroll. It arrives as its own container, so the article
+    // body has to be looked for again on every pass, not once at load.
+    const r = await run(`<article><p>The first article, the one that was already there.</p></article>
+      <div id="late"></div>`);
+    await r.mutate('<article><p>A second article that only appears further down the page.</p></article>');
+    const all = r.sent.flatMap(x => x.texts);
+    t('translates a whole second article loaded later',
+      all.some(x => /second article/.test(x)), true);
+    t('  and it reached the page',
+      /«A second article/.test(r.document.querySelector('#late article p').textContent), true);
   }
 
   // 6 · A second pass must not re-send what it already translated.
@@ -170,6 +183,47 @@ async function run(html, opts) {
     const es = await run(`<article><p>A paragraph that should stay left aligned.</p></article>`, { lang: 'es' });
     t('Hebrew is set to rtl', he.document.querySelector('p').style.direction, 'rtl');
     t('Spanish is left alone', es.document.querySelector('p').style.direction || '', '');
+  }
+
+  // 11 · Real page shapes, because the simple ones hid a bug that rejected
+  //      130 of 135 blocks on a live CNBC page and translated nothing. One
+  //      wrapper high in the tree was enough; the article body is aimed at
+  //      directly now, so a wrapper cannot silence it.
+  {
+    const cnbc = await run(`<div class="cnbcBrand">
+      <nav><a href="/markets">Markets</a></nav>
+      <div data-module="ArticleBody">
+        <p>JPMorgan could soon become the first bank worth a trillion dollars.</p>
+        <p>The analyst said the next stop after that could be two trillion.</p>
+      </div>
+      <footer class="CNBCFooter-footer"><p>Data is a real-time snapshot, delayed at least 15 minutes.</p></footer>
+    </div>`);
+    t('CNBC shape: the article is translated', cnbc.sent[0] && cnbc.sent[0].count, 2);
+    t('  the footer disclaimer is not sent',
+      cnbc.sent[0].texts.some(x => /real-time snapshot/.test(x)), false);
+  }
+  {
+    const yahoo = await run(`<header><p>Sign in to Yahoo Finance right now</p></header>
+      <div class="caas-body">
+        <p>Thanks for joining us on the earnings call this afternoon.</p>
+        <p>Operator instructions follow at the end of this transcript.</p>
+      </div>`);
+    t('Yahoo shape: the article is translated', yahoo.sent[0] && yahoo.sent[0].count, 2);
+    t('  the sign-in prompt is not sent',
+      yahoo.sent[0].texts.some(x => /Sign in/.test(x)), false);
+  }
+  {
+    // A body nested inside <main> must not be visited twice.
+    const nested = await run(`<main><article><p>Exactly one sentence in a doubly wrapped body.</p></article></main>`);
+    t('nested roots are not translated twice',
+      nested.sent.reduce((a, b) => a + b.count, 0), 1);
+  }
+  {
+    // No recognisable container anywhere: the old ancestor rule must still work.
+    const bare = await run(`<nav><p>Markets and news and everything else</p></nav>
+      <div><p>A bare page with no article container at all here.</p></div>`);
+    t('no container: chrome is still skipped', bare.sent[0].count, 1);
+    t('  and the body text still goes', /bare page/.test(bare.sent[0].texts[0]), true);
   }
 
   // 10 · Every language the app offers reaches the server as itself.

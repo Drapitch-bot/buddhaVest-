@@ -223,9 +223,41 @@ const inPlaceTranslateJs = (apiBase, lang) => `
   var MAX_ITEMS = 100, MAX_BYTES = 40000;
   var queue = [], sending = false;
 
-  function inArticle(el) {
-    // Never touch chrome: a translated nav or cookie bar is worse than an
-    // untranslated one, and rewriting a <a> label can change where it points.
+  // Aim at the article, rather than guessing at everything that is not one.
+  //
+  // The first version only walked UP from each block and skipped it if any
+  // ancestor was nav/header/footer/aside. Run against a real CNBC page that
+  // rejected 130 of 135 blocks and translated nothing: one wrapper high up the
+  // tree is enough to silence the whole article. Publishers nest their pages
+  // differently and there is no reason that wrapper has to be a tag we guessed.
+  //
+  // So the article body is located first, by the containers publishers actually
+  // use, and everything inside it is fair game. The ancestor test survives only
+  // for pages where no such container exists, where guessing is all there is.
+  var ROOT_SEL = 'article, [itemprop="articleBody"], [data-module="ArticleBody"], ' +
+    '.ArticleBody-articleBody, .caas-body, #caas-content, .article-body, ' +
+    '.articleBody, .story-body, .post-content, .entry-content, [role="article"], main';
+
+  function roots() {
+    var found = [];
+    var nodes = document.querySelectorAll(ROOT_SEL);
+    for (var i = 0; i < nodes.length; i++) {
+      // A root inside another root would visit the same blocks twice.
+      var nested = false;
+      for (var j = 0; j < nodes.length; j++) {
+        if (j !== i && nodes[j].contains(nodes[i])) { nested = true; break; }
+      }
+      if (!nested && nodes[i].textContent.trim().length > 0) found.push(nodes[i]);
+    }
+    return found;
+  }
+
+  function inArticle(el, hasRoot) {
+    // Inside a located article body, everything belongs to the article.
+    if (hasRoot) return true;
+    // No container to aim at: fall back to skipping the obvious chrome. A
+    // translated nav is worse than an untranslated one, and rewriting an <a>
+    // label can change what the reader thinks they are about to open.
     for (var n = el; n && n !== document.body; n = n.parentElement) {
       var t = n.tagName;
       if (t === 'NAV' || t === 'HEADER' || t === 'FOOTER' || t === 'ASIDE') return false;
@@ -248,14 +280,26 @@ const inPlaceTranslateJs = (apiBase, lang) => `
   // reaches the translator intact. A block that contains other blocks is left
   // alone and its children are visited instead - replacing its text would
   // delete every link, image and heading inside it.
+  var BLOCK_SEL = 'p,h1,h2,h3,h4,li,blockquote,figcaption,dd,dt,td,th';
+
   function collect() {
     var out = [];
-    var blocks = document.querySelectorAll('p,h1,h2,h3,h4,li,blockquote,figcaption,dd,dt,td,th');
+    var found = roots();
+    var hasRoot = found.length > 0;
+    var blocks = [];
+    if (hasRoot) {
+      for (var r = 0; r < found.length; r++) {
+        var inside = found[r].querySelectorAll(BLOCK_SEL);
+        for (var q = 0; q < inside.length; q++) blocks.push(inside[q]);
+      }
+    } else {
+      blocks = document.querySelectorAll(BLOCK_SEL);
+    }
     for (var i = 0; i < blocks.length; i++) {
       var el = blocks[i];
       if (el.getAttribute('data-bv-t')) continue;
       if (SKIP.test(el.tagName)) continue;
-      if (!inArticle(el)) continue;
+      if (!inArticle(el, hasRoot)) continue;
       if (el.querySelector('p,h1,h2,h3,h4,li,blockquote,div,table')) continue;
       if (el.children.length === 0) {
         if (!worthTranslating(el.textContent)) { el.setAttribute('data-bv-t', 'skip'); continue; }
