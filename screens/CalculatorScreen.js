@@ -193,7 +193,12 @@ export default function CalculatorScreen() {
   const [budget, setBudget] = useState('');
 
   const [convAmount, setConvAmount] = useState('');
+  // The converter picks BOTH sides itself. The selector at the top of the
+  // screen governs what a share price is shown in; down here the reader wants
+  // any currency into any other, and tying the answer to that selector meant
+  // the bottom card could never do what its own title says.
   const [convFrom, setConvFrom] = useState('USD');
+  const [convTo, setConvTo] = useState('ILS');
 
   // A quote that comes back after the reader has typed a different symbol must
   // not land on the screen: it would show one company's name over another
@@ -279,7 +284,7 @@ export default function CalculatorScreen() {
   var leftover = (affordable != null) ? (budgetNum - Math.floor(affordable) * unitInTarget) : null;
 
   var convNum = parseNum(convAmount);
-  var convOut = convert(convNum, convFrom, target);
+  var convOut = convert(convNum, convFrom, convTo);
 
   return (
     <View style={[s.screen, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
@@ -378,10 +383,15 @@ export default function CalculatorScreen() {
           />
           <Text style={[s.label, { color: colors.textDim, marginTop: 2 }, dir]}>{t.calc_from_label}</Text>
           <Chips value={convFrom} onChange={setConvFrom} colors={colors} rates={rates} />
+          <Text style={[s.label, { color: colors.textDim, marginTop: 2 }, dir]}>{t.calc_into_label}</Text>
+          <Chips value={convTo} onChange={setConvTo} colors={colors} rates={rates} />
           <Result colors={colors} dir={dir}
-            label={t.calc_to_label.replace('{cur}', target)}
-            value={convOut != null ? fmtMoney(convOut, target) : '—'}
+            label={t.calc_to_label.replace('{cur}', convTo)}
+            value={convOut != null ? fmtMoney(convOut, convTo) : '—'}
             muted={convOut == null}
+            note={convFrom !== convTo && rates[convFrom] && rates[convTo]
+              ? '1 ' + convFrom + ' = ' + ((rates[convTo] / rates[convFrom]).toFixed(4)) + ' ' + convTo
+              : null}
           />
         </Card>
 

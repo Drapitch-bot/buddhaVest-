@@ -147,6 +147,33 @@ console.log('\n  the currency list');
   t('the dollar is in the list, since it is the hub', listed.includes('USD'), true);
 }
 
+console.log('\n  the converter picks both sides');
+{
+  const body = src.slice(src.indexOf('export default function CalculatorScreen'));
+  t('it has a target of its own', /const \[convTo, setConvTo\] = useState\(/.test(body), true);
+  t('  and the answer is computed against it, not the screen selector',
+    /convert\(convNum, convFrom, convTo\)/.test(src), true);
+  t('  the screen selector no longer drives the converter',
+    /convert\(convNum, convFrom, target\)/.test(src), false);
+  const card = src.slice(src.indexOf('money → money'), src.indexOf('</Card>', src.indexOf('money → money')));
+  t('  both sides are pickable', (card.match(/<Chips /g) || []).length, 2);
+  t('  and the result is formatted in the chosen target',
+    /fmtMoney\(convOut, convTo\)/.test(card), true);
+}
+{
+  // Any of the nine into any of the nine, checked by arithmetic rather than
+  // by trusting that two pickers must therefore work.
+  const list = ['USD', 'ILS', 'EUR', 'GBP', 'RUB', 'JPY', 'CHF', 'CAD', 'AUD'];
+  let wrong = 0;
+  for (const from of list) for (const to of list) {
+    const got = convert(100, from, to);
+    const want = (100 / RATES[from]) * RATES[to];
+    if (got == null || Math.abs(got - want) > 1e-9) wrong++;
+    if (from === to && Math.abs(got - 100) > 1e-9) wrong++;
+  }
+  t('every one of the 81 pairs converts, and each currency to itself is identity', wrong, 0);
+}
+
 console.log('\n  defaults');
 {
   // The app's default is English and dollars. A currency chosen off the
