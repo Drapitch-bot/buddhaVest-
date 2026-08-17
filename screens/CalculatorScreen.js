@@ -75,6 +75,100 @@ function parseNum(raw) {
   return isFinite(n) && n >= 0 ? n : null;
 }
 
+// ── pieces ──────────────────────────────────────────────────────────────────
+//
+// These live out here, at module scope, and that placement is the whole point.
+//
+// They were declared inside CalculatorScreen. A function declared in a render
+// body is a NEW function on every render, so React sees a different component
+// type each time and unmounts the old subtree to mount a fresh one. The
+// TextInput inside it is destroyed and rebuilt after every single keystroke,
+// which takes the focus and the keyboard with it: typing "1" worked, and then
+// the field closed before a second digit could be typed.
+//
+// Everything they need is passed in. Nothing here may close over component
+// state, or it drifts back to being defined inside the component in spirit.
+
+function Chips({ value, onChange, colors, rates }) {
+  return (
+    <View style={s.chipRow}>
+      {CURRENCIES.map(function (cur) {
+        var on = value === cur;
+        // A currency whose rate never arrived is shown disabled rather than
+        // hidden, so the row does not silently change shape.
+        var usable = !!rates[cur];
+        return (
+          <TouchableOpacity
+            key={cur}
+            disabled={!usable}
+            onPress={function () { onChange(cur); }}
+            style={[s.chip, {
+              backgroundColor: on ? (colors.primary || '#f59e0b') : colors.cardAlt,
+              borderColor: on ? (colors.primary || '#f59e0b') : colors.cardBorder,
+              opacity: usable ? 1 : 0.35,
+            }]}>
+            <Text style={[s.chipText, { color: on ? '#fff' : colors.text }]}>
+              {symbolFor(cur) + ' ' + cur}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+function Card({ title, colors, dir, children }) {
+  return (
+    <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+      <Text style={[s.cardTitle, { color: colors.text }, dir]}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function Field(props) {
+  var colors = props.colors, dir = props.dir;
+  return (
+    <View style={s.field}>
+      <Text style={[s.label, { color: colors.textDim }, dir]}>{props.label}</Text>
+      <TextInput
+        value={props.value}
+        onChangeText={props.onChangeText}
+        onSubmitEditing={props.onSubmitEditing}
+        placeholder={props.placeholder}
+        placeholderTextColor={colors.textDim}
+        keyboardType={props.keyboardType || 'decimal-pad'}
+        autoCapitalize={props.autoCapitalize || 'none'}
+        autoCorrect={false}
+        returnKeyType={props.returnKeyType || 'done'}
+        // The keyboard must survive a keystroke. Without this, submitting or a
+        // re-render dismisses it and the reader has to tap the field again for
+        // every digit.
+        blurOnSubmit={false}
+        style={[s.input, {
+          backgroundColor: colors.cardAlt,
+          borderColor: colors.cardBorder,
+          color: colors.text,
+        }, dir]}
+      />
+    </View>
+  );
+}
+
+function Result({ label, value, note, muted, colors, dir }) {
+  return (
+    <View style={[s.result, { borderTopColor: colors.cardBorder }]}>
+      <Text style={[s.resultLabel, { color: colors.textDim }, dir]}>{label}</Text>
+      <Text style={[s.resultValue, { color: muted ? colors.textDim : colors.text }, dir]}>
+        {value}
+      </Text>
+      {note ? (
+        <Text style={[s.resultNote, { color: colors.textDim }, dir]}>{note}</Text>
+      ) : null}
+    </View>
+  );
+}
+
 export default function CalculatorScreen() {
   const { colors, t, lang } = useApp();
   const insets = useSafeAreaInsets();
@@ -187,82 +281,6 @@ export default function CalculatorScreen() {
   var convNum = parseNum(convAmount);
   var convOut = convert(convNum, convFrom, target);
 
-  // ── pieces ────────────────────────────────────────────────────────────────
-  function Chips(props) {
-    return (
-      <View style={s.chipRow}>
-        {CURRENCIES.map(function (cur) {
-          var on = props.value === cur;
-          // A currency whose rate never arrived is shown disabled rather than
-          // hidden, so the row does not silently change shape.
-          var usable = !!rates[cur];
-          return (
-            <TouchableOpacity
-              key={cur}
-              disabled={!usable}
-              onPress={function () { props.onChange(cur); }}
-              style={[s.chip, {
-                backgroundColor: on ? (colors.primary || '#f59e0b') : colors.cardAlt,
-                borderColor: on ? (colors.primary || '#f59e0b') : colors.cardBorder,
-                opacity: usable ? 1 : 0.35,
-              }]}>
-              <Text style={[s.chipText, { color: on ? '#fff' : colors.text }]}>
-                {symbolFor(cur) + ' ' + cur}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    );
-  }
-
-  function Card(props) {
-    return (
-      <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-        <Text style={[s.cardTitle, { color: colors.text }, dir]}>{props.title}</Text>
-        {props.children}
-      </View>
-    );
-  }
-
-  function Field(props) {
-    return (
-      <View style={s.field}>
-        <Text style={[s.label, { color: colors.textDim }, dir]}>{props.label}</Text>
-        <TextInput
-          value={props.value}
-          onChangeText={props.onChangeText}
-          onSubmitEditing={props.onSubmitEditing}
-          placeholder={props.placeholder}
-          placeholderTextColor={colors.textDim}
-          keyboardType={props.keyboardType || 'decimal-pad'}
-          autoCapitalize={props.autoCapitalize || 'none'}
-          autoCorrect={false}
-          returnKeyType={props.returnKeyType || 'done'}
-          style={[s.input, {
-            backgroundColor: colors.cardAlt,
-            borderColor: colors.cardBorder,
-            color: colors.text,
-          }, dir]}
-        />
-      </View>
-    );
-  }
-
-  function Result(props) {
-    return (
-      <View style={[s.result, { borderTopColor: colors.cardBorder }]}>
-        <Text style={[s.resultLabel, { color: colors.textDim }, dir]}>{props.label}</Text>
-        <Text style={[s.resultValue, { color: props.muted ? colors.textDim : colors.text }, dir]}>
-          {props.value}
-        </Text>
-        {props.note ? (
-          <Text style={[s.resultNote, { color: colors.textDim }, dir]}>{props.note}</Text>
-        ) : null}
-      </View>
-    );
-  }
-
   return (
     <View style={[s.screen, { backgroundColor: colors.bg, paddingTop: insets.top }]}>
       <BrandHeader greeting={t.calc_subtitle} />
@@ -277,11 +295,11 @@ export default function CalculatorScreen() {
         ) : null}
 
         <Text style={[s.sectionLabel, { color: colors.textDim }, dir]}>{t.calc_currency_label}</Text>
-        <Chips value={target} onChange={setTarget} />
+        <Chips value={target} onChange={setTarget} colors={colors} rates={rates} />
 
         {/* ── shares → money ─────────────────────────────────────────────── */}
-        <Card title={t.calc_holding_title}>
-          <Field
+        <Card title={t.calc_holding_title} colors={colors} dir={dir}>
+          <Field colors={colors} dir={dir}
             label={t.calc_ticker_label}
             value={ticker}
             onChangeText={setTicker}
@@ -311,20 +329,20 @@ export default function CalculatorScreen() {
 
           {quote ? (
             <>
-              <Result
+              <Result colors={colors} dir={dir}
                 label={quote.company_name || quote.ticker}
                 value={fmtMoney(quote.price, priceCur) + ' · ' + priceCur}
                 note={priceCur !== target && unitInTarget != null
                   ? t.calc_per_share + ' ' + fmtMoney(unitInTarget, target)
                   : null}
               />
-              <Field
+              <Field colors={colors} dir={dir}
                 label={t.calc_shares_label}
                 value={shares}
                 onChangeText={setShares}
                 placeholder="0"
               />
-              <Result
+              <Result colors={colors} dir={dir}
                 label={t.calc_total_label}
                 value={totalInTarget != null ? fmtMoney(totalInTarget, target) : '—'}
                 muted={totalInTarget == null}
@@ -332,13 +350,13 @@ export default function CalculatorScreen() {
 
               {/* the same sum read backwards */}
               <View style={[s.divider, { backgroundColor: colors.cardBorder }]} />
-              <Field
+              <Field colors={colors} dir={dir}
                 label={t.calc_budget_label.replace('{cur}', symbolFor(target))}
                 value={budget}
                 onChangeText={setBudget}
                 placeholder="0"
               />
-              <Result
+              <Result colors={colors} dir={dir}
                 label={t.calc_affordable_label}
                 value={affordable != null ? fmtShares(affordable) : '—'}
                 muted={affordable == null}
@@ -351,16 +369,16 @@ export default function CalculatorScreen() {
         </Card>
 
         {/* ── money → money ──────────────────────────────────────────────── */}
-        <Card title={t.calc_convert_title}>
-          <Field
+        <Card title={t.calc_convert_title} colors={colors} dir={dir}>
+          <Field colors={colors} dir={dir}
             label={t.calc_amount_label}
             value={convAmount}
             onChangeText={setConvAmount}
             placeholder="0"
           />
           <Text style={[s.label, { color: colors.textDim, marginTop: 2 }, dir]}>{t.calc_from_label}</Text>
-          <Chips value={convFrom} onChange={setConvFrom} />
-          <Result
+          <Chips value={convFrom} onChange={setConvFrom} colors={colors} rates={rates} />
+          <Result colors={colors} dir={dir}
             label={t.calc_to_label.replace('{cur}', target)}
             value={convOut != null ? fmtMoney(convOut, target) : '—'}
             muted={convOut == null}

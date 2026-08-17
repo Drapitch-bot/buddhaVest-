@@ -401,6 +401,31 @@ jobs:
           console.log(bad?bad+' to fix':'  ok — every imported module is declared');
           process.exit(bad?1:0);"
 
+      - name: No component is declared inside another component
+        # A function declared in a render body is a NEW function on every
+        # render, so React sees a different component type and unmounts the old
+        # subtree to mount a fresh one. Any TextInput inside it is destroyed and
+        # rebuilt after every keystroke, taking the focus and the keyboard with
+        # it - typing one digit worked and the field then closed. That is what
+        # shipped in the calculator, and it is invisible to every other check
+        # here: it parses, it lints, the arithmetic is right, and the screen is
+        # unusable.
+        run: |
+          node -e "
+          const fs=require('fs'),path=require('path');
+          let bad=0;
+          for (const dir of ['screens','components']) {
+            for (const f of fs.readdirSync(dir).filter(x=>x.endsWith('.js'))) {
+              const src=fs.readFileSync(path.join(dir,f),'utf8');
+              for (const m of src.matchAll(/^  function ([A-Z]\w*)\s*\(/gm)) {
+                console.error('  '+dir+'/'+f+': '+m[1]+' is declared inside a component — hoist it to module scope');
+                bad++;
+              }
+            }
+          }
+          console.log(bad?bad+' to fix':'  ok — every component is declared at module scope');
+          process.exit(bad?1:0);"
+
       - name: No test script require()s an ES module
         # This is the one that got through. utils/currency.js is an ES module;
         # require() of one is allowed on Node 22 and a hard error on Node 20,
