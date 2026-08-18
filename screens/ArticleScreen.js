@@ -187,47 +187,42 @@ const inPlaceTranslateJs = (lang) => `
   var MAX_ITEMS = 20, MAX_BYTES = 8000;
   var queue = [], batches = {}, nextId = 1;
 
-  // Aim at the article, rather than guessing at everything that is not one.
+  // Walk every text node in the page. No list of sites, no list of container
+  // class names, no guessing at where an article lives.
   //
-  // The first version only walked UP from each block and skipped it if any
-  // ancestor was nav/header/footer/aside. Run against a real CNBC page that
-  // rejected 130 of 135 blocks and translated nothing: one wrapper high up the
-  // tree is enough to silence the whole article. Publishers nest their pages
-  // differently and there is no reason that wrapper has to be a tag we guessed.
+  // Two failures made this necessary, and they were the same mistake twice.
+  // The first version skipped a block unless one of its ancestors matched a
+  // hand-written list of nav-ish tags. The second aimed at a hand-written list
+  // of article containers - article, caas-body, ArticleBody - which meant any
+  // publisher not on the list got nothing, and the list could only ever grow.
   //
-  // So the article body is located first, by the containers publishers actually
-  // use, and everything inside it is fair game. The ancestor test survives only
-  // for pages where no such container exists, where guessing is all there is.
-  var ROOT_SEL = 'article, [itemprop="articleBody"], [data-module="ArticleBody"], ' +
-    '.ArticleBody-articleBody, .caas-body, #caas-content, .article-body, ' +
-    '.articleBody, .story-body, .post-content, .entry-content, [role="article"], main';
+  // Worse, both only read text sitting DIRECTLY inside a block. A paragraph
+  // written as <p><span>text</span></p>, which is extremely common, has no
+  // direct text node at all, so it was skipped in silence. That is why a page
+  // came out half translated: not a site we had not handled, a shape we had
+  // not handled.
+  //
+  // A translator does not know what site it is on. Neither does this now.
+  var SKIP_TAGS = /^(script|style|noscript|svg|math|code|pre|textarea|select|option|template|iframe|canvas)$/i;
+  var seen = typeof WeakSet === 'function' ? new WeakSet() : null;
+  var seenList = [];
 
-  function roots() {
-    var found = [];
-    var nodes = document.querySelectorAll(ROOT_SEL);
-    for (var i = 0; i < nodes.length; i++) {
-      // A root inside another root would visit the same blocks twice.
-      var nested = false;
-      for (var j = 0; j < nodes.length; j++) {
-        if (j !== i && nodes[j].contains(nodes[i])) { nested = true; break; }
-      }
-      if (!nested && nodes[i].textContent.trim().length > 0) found.push(nodes[i]);
-    }
-    return found;
+  function alreadySeen(node) {
+    if (seen) return seen.has(node);
+    return seenList.indexOf(node) !== -1;
+  }
+  function markSeen(node) {
+    if (seen) seen.add(node); else seenList.push(node);
   }
 
-  function inArticle(el, hasRoot) {
-    // Inside a located article body, everything belongs to the article.
-    if (hasRoot) return true;
-    // No container to aim at: fall back to skipping the obvious chrome. A
-    // translated nav is worse than an untranslated one, and rewriting an <a>
-    // label can change what the reader thinks they are about to open.
-    for (var n = el; n && n !== document.body; n = n.parentElement) {
-      var t = n.tagName;
-      if (t === 'NAV' || t === 'HEADER' || t === 'FOOTER' || t === 'ASIDE') return false;
-      if (n.getAttribute && n.getAttribute('role') === 'navigation') return false;
+  function skippable(node) {
+    for (var n = node.parentNode; n && n.nodeType === 1; n = n.parentNode) {
+      if (SKIP_TAGS.test(n.tagName)) return true;
+      // Hidden text is not worth an API call, and translating it can make a
+      // collapsed menu expand with the wrong width.
+      if (n.getAttribute && n.getAttribute('aria-hidden') === 'true') return true;
     }
-    return true;
+    return false;
   }
 
   function worthTranslating(s) {
@@ -240,45 +235,20 @@ const inPlaceTranslateJs = (lang) => `
     return true;
   }
 
-  // A block whose children are all inline is translated whole, so the sentence
-  // reaches the translator intact. A block that contains other blocks is left
-  // alone and its children are visited instead - replacing its text would
-  // delete every link, image and heading inside it.
-  var BLOCK_SEL = 'p,h1,h2,h3,h4,li,blockquote,figcaption,dd,dt,td,th';
-
   function collect() {
     var out = [];
-    var found = roots();
-    var hasRoot = found.length > 0;
-    var blocks = [];
-    if (hasRoot) {
-      for (var r = 0; r < found.length; r++) {
-        var inside = found[r].querySelectorAll(BLOCK_SEL);
-        for (var q = 0; q < inside.length; q++) blocks.push(inside[q]);
-      }
-    } else {
-      blocks = document.querySelectorAll(BLOCK_SEL);
-    }
-    for (var i = 0; i < blocks.length; i++) {
-      var el = blocks[i];
-      if (el.getAttribute('data-bv-t')) continue;
-      if (SKIP.test(el.tagName)) continue;
-      if (!inArticle(el, hasRoot)) continue;
-      if (el.querySelector('p,h1,h2,h3,h4,li,blockquote,div,table')) continue;
-      if (el.children.length === 0) {
-        if (!worthTranslating(el.textContent)) { el.setAttribute('data-bv-t', 'skip'); continue; }
-        out.push({ el: el, node: null, text: el.textContent.trim() });
-      } else {
-        // Mixed inline content: each text node on its own, so <a> and <strong>
-        // survive with their attributes and their targets untouched.
-        for (var j = 0; j < el.childNodes.length; j++) {
-          var n = el.childNodes[j];
-          if (n.nodeType !== 3) continue;
-          if (!worthTranslating(n.nodeValue)) continue;
-          out.push({ el: el, node: n, text: n.nodeValue.trim() });
-        }
-      }
-      el.setAttribute('data-bv-t', 'sent');
+    var walker;
+    try {
+      walker = document.createTreeWalker(document.body, 4 /* SHOW_TEXT */, null, false);
+    } catch (e) { return out; }
+    var node;
+    while ((node = walker.nextNode())) {
+      if (alreadySeen(node)) continue;
+      if (!worthTranslating(node.nodeValue)) { markSeen(node); continue; }
+      if (skippable(node)) { markSeen(node); continue; }
+      markSeen(node);
+      out.push({ node: node, el: node.parentElement, raw: node.nodeValue,
+                 text: node.nodeValue.trim() });
     }
     return out;
   }
@@ -322,10 +292,20 @@ const inPlaceTranslateJs = (lang) => `
       var t = texts && texts[k];
       if (!t || typeof t !== 'string') continue;   // untranslated stays readable
       try {
-        if (chunk[k].node) chunk[k].node.nodeValue = ' ' + t + ' ';
-        else chunk[k].el.textContent = t;
-        applyRtl(chunk[k].el);
-        chunk[k].el.setAttribute('data-bv-t', 'done');
+        // Written as text, never as markup, so nothing on the page can be
+        // restructured by what comes back from the translator.
+        // Against the RAW value, not the trimmed one. Testing the trimmed copy
+        // can never find a leading or trailing space, so "Spacing " followed by
+        // <b>matters</b> came back as one glued word.
+        // \\s, not \s. This lives inside a template literal, where a lone
+        // backslash is swallowed before the string is ever built: /^\s/ was
+        // reaching the page as /^s/ and testing for the LETTER s. "matters"
+        // ends in one, so it got a space it did not need, and "Spacing " lost
+        // the space it did have.
+        chunk[k].node.nodeValue = (/^\\s/.test(chunk[k].raw) ? ' ' : '') + t +
+          (/\\s$/.test(chunk[k].raw) ? ' ' : '');
+        if (chunk[k].el) applyRtl(chunk[k].el);
+        chunk[k].done = true;
       } catch (e) {}
     }
   };
@@ -335,9 +315,9 @@ const inPlaceTranslateJs = (lang) => `
   window.__bvFail = function(id) {
     var chunk = batches[id]; if (!chunk) return; delete batches[id];
     for (var i = 0; i < chunk.length; i++) {
-      if (chunk[i].el.getAttribute('data-bv-t') !== 'done') {
-        chunk[i].el.removeAttribute('data-bv-t');
-      }
+      // Hand the node back so the next pass picks it up again, rather than
+      // leaving a hole in the middle of the article.
+      if (!chunk[i].done && seen && seen.delete) seen.delete(chunk[i].node);
     }
   };
 

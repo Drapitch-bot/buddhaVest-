@@ -401,6 +401,48 @@ jobs:
           console.log(bad?bad+' to fix':'  ok — every imported module is declared');
           process.exit(bad?1:0);"
 
+      - name: No injected script loses a regex escape
+        # The scripts injected into the WebView are written as template
+        # literals, and a template literal eats a lone backslash before the
+        # string is ever built. /^\s/ reached the page as /^s/ and tested for
+        # the LETTER s: "matters" ends in one so it gained a space it did not
+        # need, and "Spacing " lost the space it had, gluing words together.
+        #
+        # Nothing else here could catch it. The file parses, the source reads
+        # correctly, and the behaviour is silently wrong. So the built string
+        # is compared against the source it came from.
+        run: |
+          node -e "
+          const fs=require('fs'),path=require('path');
+          const CLASSES=/\\\\[sdwbSDWB]/g;
+          const strip=t=>t.split('\n').filter(l=>!/^\s*\/\//.test(l)).join('\n');
+          let bad=0;
+          for (const dir of ['screens','components']) {
+            for (const f of fs.readdirSync(dir).filter(x=>x.endsWith('.js'))) {
+              const file=path.join(dir,f);
+              const src=fs.readFileSync(file,'utf8');
+              const re=/const ([A-Za-z_\$][\w\$]*(?:_JS|Js))\s*=\s*(?:\([^)]*\)\s*=>\s*)?\`/g;
+              let m;
+              while ((m=re.exec(src))) {
+                const bs=src.indexOf('\`', m.index+m[0].length-1);
+                const be=src.indexOf('\n\`;', bs);
+                if (be<0) continue;
+                const rawSrc=strip(src.slice(bs+1,be));
+                let built;
+                try { built=new Function('lang','return '+src.slice(bs,be+2)+';')('he'); }
+                catch (e) { continue; }
+                const want=(rawSrc.match(CLASSES)||[]).length;
+                const got=(strip(built).match(CLASSES)||[]).length;
+                if (got<want) {
+                  console.error('  '+file+': '+m[1]+' loses '+(want-got)+' regex escape(s) - double the backslash');
+                  bad++;
+                }
+              }
+            }
+          }
+          console.log(bad?bad+' to fix':'  ok - every injected script keeps its regex escapes');
+          process.exit(bad?1:0);"
+
       - name: No component is declared inside another component
         # A function declared in a render body is a NEW function on every
         # render, so React sees a different component type and unmounts the old
