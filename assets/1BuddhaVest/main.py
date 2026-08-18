@@ -107,20 +107,27 @@ def io_pool():
 def translate_pool():
     """Translation batches — kept separate so article reads are not queued behind market data.
 
-    16, not 6, and the number was measured rather than chosen. With six
-    workers a 20-paragraph batch took 4.3 seconds, and two batches sent at the
-    same instant took 9.4 — they were not running side by side at all, they
-    were queueing here. Four batches of ten took 8.2. The pool was the wall,
-    so the client sending more at once could never have helped.
+    Sized at 8, and the history matters because 16 was a mistake.
 
-    Raising it is cheap because every one of these threads spends its life
-    blocked on a network read and holds no GIL while it waits; this is not the
-    politeness limit that the provider pools below are. The risk is the
-    translation service throttling us, and that now degrades instead of
-    breaking: a rejected batch is retried three times by the app and then
-    handed back to be collected again, so the reader waits rather than losing
-    a paragraph."""
-    return _pool("bv-xlate", 16)
+    With six workers a 20-paragraph batch took 4.3 seconds, and two batches
+    sent at the same instant took 9.4: they were queueing here, not running
+    side by side. So the pool went to 16. In the SAME change, paragraphs
+    started travelling in groups of up to 25 in a single request, which cut
+    the number of requests by roughly that factor and removed most of the
+    reason to widen the pool at all. Both landed together and only the second
+    one was doing the work.
+
+    The service then exceeded its memory limit and restarted, the first time
+    real testers used it. Sixteen threads each holding a request, a response
+    buffer and a translator object is a poor trade when one thread now carries
+    twenty-five paragraphs instead of one.
+
+    Eight keeps ample parallelism for grouped work and halves what is in
+    flight at once. The risk left is the translation service throttling us,
+    and that degrades instead of breaking: a rejected batch is retried three
+    times by the app and then handed back to be collected again, so the reader
+    waits rather than losing a paragraph."""
+    return _pool("bv-xlate", 8)
 
 
 # The three below keep their original, deliberately SMALL worker counts. Those
@@ -1334,6 +1341,28 @@ _SOURCE_FILES = (
 _source_digest_cache = None
 
 
+def _rss_mb():
+    """Resident memory, in MB, or None where it cannot be read.
+
+    Added after the service exceeded its memory limit and restarted itself
+    for the first time, with real testers on it. The alert said the limit was
+    hit and listed three possible causes; there was no way from outside to
+    tell which, or to see whether the number was creeping up or spiking. That
+    turned a diagnosis into a guess.
+
+    /proc is Linux-only and read straight from the kernel, so this costs one
+    small file read and adds no dependency. Anywhere it is missing, the field
+    is simply absent rather than wrong."""
+    try:
+        with open("/proc/self/status", "r") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    return round(int(line.split()[1]) / 1024, 1)
+    except Exception:
+        pass
+    return None
+
+
 def _source_digest() -> str:
     """
     Short digest of the source files this process loaded.
@@ -1392,6 +1421,11 @@ def status():
     # credentials, no host, no token.
     return {
         "maintenance": os.path.exists(flag_path),
+        # Memory, because the alert that this exists for could not say whether
+        # the number was creeping or spiking. Threads are the other half of it:
+        # a pool that was widened too far shows up here as both.
+        "rss_mb": _rss_mb(),
+        "threads": threading.active_count(),
         "build": (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:7],
         # `code` exists because `build` turned out to be untrustworthy.
         #

@@ -253,6 +253,9 @@ jobs:
               'reporting a reporting failure would recurse',
             ('main.py', '_validate_public_url'):
               'except ValueError — a hostname that is not an IP literal is the normal case',
+            ('main.py', '_rss_mb'):
+              'reads /proc, which does not exist off Linux — reporting that on every '
+              '/status call would be noise, and a diagnostic must never affect a request',
           }
 
           bad = []
