@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, Linking, Image,
+  ActivityIndicator, RefreshControl, Linking, Image, I18nManager,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import { openArticle } from '../utils/linkUtils';
-import { symbolFor, isUsd } from '../utils/currency';
+import { symbolFor, isUsd, ltrNum } from '../utils/currency';
 import { captureIssue } from '../utils/monitoring';
 import { ERR, httpError, timeoutError, classifyError, canRetry, errorText } from '../utils/errors';
 import ScoreGauge from '../components/ScoreGauge';
@@ -715,11 +715,21 @@ export default function StockScreen({ route, navigation }) {
                     colors={['#f87171', '#fbbf24', '#4ade80']}
                     start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
                     style={s.rangeTrack}>
-                    <View style={[s.rangeMarker, { left: rangePct + '%', backgroundColor: colors.text }]} />
+                    <View style={[s.rangeMarker, I18nManager.isRTL ? { right: rangePct + '%' } : { left: rangePct + '%' }, { backgroundColor: colors.text }]} />
                   </LinearGradient>
-                  <View style={s.rangeLabels}>
-                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{priceSymbol + ov.week52_low.toFixed(2)}</Text>
-                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{priceSymbol + ov.week52_high.toFixed(2)}</Text>
+                  {/* The gradient runs red to green using explicit x
+                      coordinates, so React Native does NOT mirror it. This row
+                      is a flexDirection:'row', which it DOES mirror when the
+                      handset's language is right-to-left - so on a Hebrew
+                      phone the labels swapped and the low price sat under the
+                      green end while the app was showing English.
+
+                      Writing the order out against I18nManager.isRTL makes the
+                      row agree with the gradient in every locale, instead of
+                      one of them mirroring and the other not. */}
+                  <View style={[s.rangeLabels, I18nManager.isRTL ? { flexDirection: 'row-reverse' } : null]}>
+                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{ltrNum(priceSymbol + ov.week52_low.toFixed(2))}</Text>
+                    <Text style={[s.rangeLabel, { color: colors.textDimmer }]}>{ltrNum(priceSymbol + ov.week52_high.toFixed(2))}</Text>
                   </View>
                 </View>
               ) : null}

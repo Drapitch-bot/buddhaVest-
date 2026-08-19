@@ -57,3 +57,27 @@ export function isUsd(code) {
 }
 
 export default symbolFor;
+
+/**
+ * Wrap a number so bidi cannot rearrange it.
+ *
+ * "-19.8%" rendered as "19.8%-" on a phone whose system language is Hebrew,
+ * even though the app was showing English. A leading minus is a
+ * direction-neutral character: the text engine hands it to the surrounding
+ * paragraph, and in an RTL paragraph that puts it at the visual end. The same
+ * applies to a currency sign, a plus, and a percent.
+ *
+ * writingDirection does not help here - it is iOS-only, so on Android it is
+ * ignored entirely. U+2066 (LTR isolate) and U+2069 (pop) are part of the text
+ * itself, so they work on both platforms and do not depend on any layout
+ * setting being right.
+ *
+ * Only for numbers. Wrapping a sentence would pin real prose to the wrong
+ * direction.
+ */
+export function ltrNum(value) {
+  if (value == null) return value;
+  var s = String(value);
+  if (!s) return s;
+  return '\u2066' + s + '\u2069';
+}

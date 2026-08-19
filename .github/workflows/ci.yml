@@ -446,6 +446,22 @@ jobs:
           console.log(bad?bad+' to fix':'  ok - every injected script keeps its regex escapes');
           process.exit(bad?1:0);"
 
+      - name: Numbers survive a right-to-left handset
+        # Reported from a real phone with the app set to English: a net margin
+        # of -19.8% rendered as "19.8%-", and the 52-week range printed the
+        # HIGH price on the left under a gradient still running red to green.
+        #
+        # One cause, two shapes. The handset's system language was Hebrew, so
+        # React Native put the layout right-to-left: a leading minus is
+        # direction-neutral and gets handed to the surrounding paragraph, and
+        # flexDirection:'row' is mirrored while a gradient drawn from explicit
+        # x coordinates is not, so the labels and the colours disagreed.
+        #
+        # writingDirection was already on those styles and did nothing - it is
+        # iOS-only. The isolate characters are part of the text, so they hold
+        # on both platforms.
+        run: node scripts/test-bidi-numbers.js
+
       - name: No component is declared inside another component
         # A function declared in a render body is a NEW function on every
         # render, so React sees a different component type and unmounts the old

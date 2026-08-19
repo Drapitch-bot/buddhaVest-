@@ -1,5 +1,9 @@
 import React from 'react';
 import { Text, TouchableOpacity, StyleSheet } from 'react-native';
+// A number has to read as a number whatever the phone's language is. See
+// ltrNum: a leading minus is direction-neutral, so on a Hebrew handset
+// "-19.8%" came out as "19.8%-" even with the app itself set to English.
+import { ltrNum } from '../utils/currency';
 
 // score >= 70 → green, >= 40 → amber, else → red.
 // No score means NO VERDICT, so it must read neutral — amber would announce a
@@ -29,13 +33,13 @@ export default function MetricTile({ label, value, sub, note, score, colors, onP
           score while the number stayed neutral, so a red warning sentence sat
           under a plain black figure — two different signals about one metric.
           A missing score leaves both neutral: no verdict, no colour. */}
-      <Text style={[s.value, { color: signal }, dir]} numberOfLines={1}>{value ?? '—'}</Text>
+      <Text style={[s.value, { color: signal }, dir]} numberOfLines={1}>{ltrNum(value) ?? '—'}</Text>
       {/* The converted figure. Deliberately NOT coloured by score: it is the
           same number in another currency, not a second verdict. Grey and
           smaller, so it reads as a footnote to the value above it — the same
           relationship the price and its converted line already have. */}
       {sub ? (
-        <Text style={[s.sub, { color: colors.textDim }, dir]} numberOfLines={1}>{sub}</Text>
+        <Text style={[s.sub, { color: colors.textDim }, dir]} numberOfLines={1}>{ltrNum(sub)}</Text>
       ) : null}
       {/* .m-note { font-size:11px; margin:4px 0 0; line-height:1.35 } */}
       {note ? (
