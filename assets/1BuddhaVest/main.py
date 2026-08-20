@@ -1426,6 +1426,18 @@ def status():
         # a pool that was widened too far shows up here as both.
         "rss_mb": _rss_mb(),
         "threads": threading.active_count(),
+        # Resident memory went from 226 MB to 381 MB over the two days that
+        # twelve testers first used the service. The cache is capped at 300
+        # ENTRIES, not at bytes, and one /financials answer is tens of KB of
+        # JSON - so a full cache plausibly accounts for the whole rise, and
+        # would mean the number has plateaued rather than that it is leaking.
+        #
+        # That is a hypothesis that fits, which is not the same as a
+        # measurement. With the count here, the next two readings settle it:
+        # entries pinned at the cap while memory stays flat is a full cache;
+        # memory still climbing with the count already at the cap is not.
+        "cache": len(_cache),
+        "cache_max": _CACHE_MAX,
         "build": (os.environ.get("RENDER_GIT_COMMIT") or "dev")[:7],
         # `code` exists because `build` turned out to be untrustworthy.
         #
