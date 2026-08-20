@@ -390,6 +390,19 @@ export default function MetricHistoryScreen({ route, navigation }) {
   // rendered left-to-right in Hebrew, same as the stock screen used to.
   const isRtl = lang === 'he';
   const dirStyle = { textAlign: isRtl ? 'right' : 'left', writingDirection: isRtl ? 'rtl' : 'ltr' };
+  // The three explanation boxes are centred in every language, and that is a
+  // deliberate exception to dirStyle rather than an oversight.
+  //
+  // Everything else on this screen is already centred - the title, the stock
+  // line, the big current value, the methodology note, the source tag - so
+  // these boxes were the only blocks that swung to one edge, and which edge
+  // depended on the language. On a Hebrew handset showing English they landed
+  // against the right margin, which read as a mistake because next to ten
+  // centred elements it was one.
+  //
+  // writingDirection stays: it is what keeps punctuation in the right place
+  // inside a Hebrew line, and centring does not decide that.
+  const noteStyle = { textAlign: 'center', writingDirection: isRtl ? 'rtl' : 'ltr' };
 
   // ONE rule, no exceptions: the chart line carries the metric's own colour —
   // the same one the tile showed. Amber tile, amber line. Green, green. Red, red.
@@ -468,7 +481,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
           marginTop: 12,
           marginBottom: 4,
         }]}>
-          <Text style={[s.explText, { color: signalColor(tileSignal, tileScore, colors) }, dirStyle]}>{tileNote}</Text>
+          <Text style={[s.explText, { color: signalColor(tileSignal, tileScore, colors) }, noteStyle]}>{tileNote}</Text>
         </View>
       ) : null}
       {i18nExpl && i18nExpl !== tileNote ? (
@@ -481,7 +494,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
           marginTop: tileNote ? 6 : 12,
           marginBottom: 4,
         }]}>
-          <Text style={[s.explText, { color: colors.textDim }, dirStyle]}>{i18nExpl}</Text>
+          <Text style={[s.explText, { color: colors.textDim }, noteStyle]}>{i18nExpl}</Text>
         </View>
       ) : null}
       {serverExpl && serverExpl !== tileNote && serverExpl !== i18nExpl ? (
@@ -492,7 +505,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
           marginTop: 6,
           marginBottom: 4,
         }]}>
-          <Text style={[s.explText, { color: colors.textDimmer }, dirStyle]}>{serverExpl}</Text>
+          <Text style={[s.explText, { color: colors.textDimmer }, noteStyle]}>{serverExpl}</Text>
         </View>
       ) : null}
 

@@ -462,6 +462,17 @@ jobs:
         # on both platforms.
         run: node scripts/test-bidi-numbers.js
 
+      - name: The metric explanation boxes stay centred, and only those
+        # They were the only blocks on that screen that swung to one edge, and
+        # which edge depended on the language: on a Hebrew handset showing
+        # English they sat against the right margin. Next to ten already
+        # centred elements on the same screen that read as a mistake.
+        #
+        # The narrowness is the point, so this checks both halves: the three
+        # boxes are centred in every language, and nothing else on the screen
+        # moved off the language-aware alignment it had.
+        run: node scripts/test-metric-note-align.js
+
       - name: No component is declared inside another component
         # A function declared in a render body is a NEW function on every
         # render, so React sees a different component type and unmounts the old
