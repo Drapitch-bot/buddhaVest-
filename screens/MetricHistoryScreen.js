@@ -4,6 +4,7 @@ import {
   ActivityIndicator, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ltrNum } from '../utils/currency';
 import { useApp } from '../constants/AppContext';
 import { ENDPOINTS } from '../constants/api';
 import { captureIssue } from '../utils/monitoring';
@@ -633,7 +634,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                             : chartSignal} />
                   {(tileValue != null && !usingYahooFallback) || currentValue != null ? (
                     <Text style={[s.currentValue, { color: colors.text }]}>
-                      {(function() {
+                      {ltrNum((function() {
                         // Prefer tileValue (live API) over currentValue (last historical point)
                         // so the number always matches what was shown on the tile.
                         const v = (!usingYahooFallback && tileValue != null) ? tileValue : currentValue;
@@ -648,7 +649,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                           if (abs >= 1e6)  return sign + cur + (abs / 1e6).toFixed(2) + 'M';
                         }
                         return v % 1 === 0 ? v.toString() : v.toFixed(2);
-                      })()}
+                      })())}
                     </Text>
                   ) : null}
                   {/* Where the two numbers come from. This was four lines of prose
@@ -682,7 +683,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                       {tileValue != null ? (
                         <>
                           <Text style={[s.currentValue, { color: colors.text, marginBottom: 8 }]}>
-                            {tileValueText != null
+                            {ltrNum(tileValueText != null
                               ? tileValueText
                               : typeof tileValue === 'number'
                               ? (() => {
@@ -696,7 +697,7 @@ export default function MetricHistoryScreen({ route, navigation }) {
                                   }
                                   return tileValue % 1 === 0 ? tileValue.toString() : tileValue.toFixed(2);
                                 })()
-                              : String(tileValue)}
+                              : String(tileValue))}
                           </Text>
                           <View style={[s.noDataBanner, {
                             backgroundColor: colors.cardAlt,

@@ -73,5 +73,20 @@ console.log('\n  where it is applied');
     /I18nManager\.isRTL \? \{ right: rangePct/.test(marker), true);
 }
 
+{
+  // The metric screen's own big number was missed the first time round, which
+  // is how "35.70-" reached a real phone after the tiles had been fixed. Both
+  // renders of it go through the isolate now: the live value and the fallback
+  // to the last historical point.
+  const hist = fs.readFileSync('screens/MetricHistoryScreen.js', 'utf8');
+  const blocks = hist.split('<Text style={[s.currentValue,').slice(1);
+  t('the metric screen has two big-number renders', blocks.length, 2);
+  t('  both are isolated',
+    blocks.every(b => b.slice(0, b.indexOf('</Text>')).includes('ltrNum(')), true);
+  t('  and neither is wrapped more than once',
+    /ltrNum\(ltrNum\(/.test(hist), false);
+  t('  the helper is imported', /import \{[^}]*ltrNum[^}]*\} from '\.\.\/utils\/currency'/.test(hist), true);
+}
+
 console.log(bad ? `\n  ${bad} failing` : '\n  all passing');
 process.exit(bad ? 1 : 0);
