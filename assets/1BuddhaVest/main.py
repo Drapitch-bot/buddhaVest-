@@ -304,7 +304,19 @@ CACHE_TTL = {
     "exchange": 60,     # שער מטבע – כל דקה
 }
 
-_CACHE_MAX = 300  # hard cap on cached entries — bounds the memory footprint
+# 40, down from 300, and the number came from measurement rather than taste.
+#
+# The cap bounds ENTRIES, not bytes, and the assumption behind 300 was that an
+# entry costs a few hundred KB. Two readings from the live service say
+# otherwise: 183.6 MB at 7 entries, 401.4 MB at 32. That is 8.7 MB per entry,
+# thirteen times the estimate, and at that rate the 512 MB limit arrives at
+# about 44 entries. A cap of 300 was not a bound at all - the process would
+# always die first.
+#
+# 40 entries is roughly 350 MB, which leaves real headroom. It costs cache
+# hits, and that is the right trade while the true cost per entry is still
+# unexplained: a slower answer is better than a restart mid-session.
+_CACHE_MAX = 40
 
 # History window for metric-history calculations.
 # These endpoints used period="max": for an old listing (KO trades since 1962)
